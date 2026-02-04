@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="FSharpPlus" Version="1.9.1" />
+    </ItemGroup>
+    
+    <ItemGroup>
+        <Compile Include="Type\Chara.fs" />
+        <Compile Include="Type\Skill.fs" />
+        <Compile Include="Type\Role.fs" />
+        <Compile Include="Type\Player.fs" />
+        <Compile Include="Type\Entity.fs" />
+        <Compile Include="Type\Event.fs" />
+        <Compile Include="State\RollState.fs" />
+        <Compile Include="State\GameState.fs" />
+        <Compile Include="Process\Cli.fs" />
+        <Compile Include="Process\Init.fs" />
+        <Compile Include="Process\Roll.fs" />
+        <Compile Include="Program.fs" />
+        <EmbeddedResource Include="config.json" />
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,24 @@
+{
+  "Charas" : [
+		{"Chara": "脚滑人", "Prob": 1 },
+		{"Chara": "doge", "Prob": 0.5 },
+		{"Chara": "庸医", "Prob": 0.5 },
+		{"Chara": "地鼠", "Prob": 0.5 },
+		{"Chara": "兔子", "Prob": 0.5 },
+		{"Chara": "铯郎", "Prob": 0.5 },
+		{"Chara": "法猫", "Prob": 0.5 },
+		{"Chara": "卡比", "Prob": 0.5 },
+		{"Chara": "粉侠", "Prob": 0.5 },
+		{"Chara": "爬行者", "Prob": 0.5 },
+		{"Chara": "炮仙", "Prob": 1 },
+		{"Chara": "实物", "Prob": 0.5 },
+		{"Chara": "灰卡比", "Prob": 0.5 },
+		{"Chara": "音魔", "Prob": 0.5 },
+		{"Chara": "CTF", "Prob": 0.5 },
+		{"Chara": "合虫", "Prob": 0.5 },
+		{"Chara": "彩怪", "Prob": 0.5 },
+		{"Chara": "贤松", "Prob": 0.5 },
+		{"Chara": "江仙", "Prob": 0.5 },
+		{"Chara": "myz", "Prob": 0.5 }
+  ]
+}
