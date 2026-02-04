@@ -17,6 +17,8 @@ type GameState =
         Players : Player list
         Entities : Entity list
     }
+
+let maxUndo = 100
     
 type GameStack =
     {
@@ -35,7 +37,11 @@ type GameStack =
         { this with Current.Entities = entities }
     
     member this.Push() =
-        { this with UndoStack = this.Current :: this.UndoStack ; RedoStack = [] }
+        let stack = this.Current :: this.UndoStack
+        if stack.Length > maxUndo then
+            { this with UndoStack = stack[..(maxUndo - 1)] ; RedoStack = [] }
+        else
+            { this with UndoStack = stack ; RedoStack = [] }
     member this.Undo() =
         if this.UndoStack.Length = 0 then
             Error "Nothing undo"
