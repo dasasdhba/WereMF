@@ -3,6 +3,7 @@
     <PropertyGroup>
         <OutputType>Exe</OutputType>
         <TargetFramework>net8.0</TargetFramework>
+        <PublishSingleFile>true</PublishSingleFile>
     </PropertyGroup>
 
     <ItemGroup>
@@ -11,16 +12,22 @@
     
     <ItemGroup>
         <Compile Include="Type\Chara.fs" />
-        <Compile Include="Type\Skill.fs" />
         <Compile Include="Type\Role.fs" />
         <Compile Include="Type\Player.fs" />
         <Compile Include="Type\Entity.fs" />
-        <Compile Include="Type\Event.fs" />
+        <Compile Include="Type\Skill.fs" />
         <Compile Include="State\RollState.fs" />
+        <Compile Include="State\NightState.fs" />
         <Compile Include="State\GameState.fs" />
-        <Compile Include="Process\Cli.fs" />
+        <Compile Include="State\Cli.fs" />
+        <Compile Include="Game\Handler.fs" />
+        <Compile Include="Game\JiaoHua.fs" />
+        <Compile Include="Game\PaoXian.fs" />
+        <Compile Include="Game\Leaf.fs" />
+        <Compile Include="Game\Bind.fs" />
         <Compile Include="Process\Init.fs" />
         <Compile Include="Process\Roll.fs" />
+        <Compile Include="Process\Night.fs" />
         <Compile Include="Program.fs" />
         <EmbeddedResource Include="config.json" />
     </ItemGroup>

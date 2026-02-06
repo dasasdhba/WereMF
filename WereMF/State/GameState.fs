@@ -1,13 +1,14 @@
 module WereMF.GameState
 
 open WereMF.Entity
+open WereMF.NightState
 open WereMF.Player
 open WereMF.RollState
 
 type GameStatus =
     | Init
     | Roll of RollState
-    | Night
+    | Night of NightState
     | Day
     | End
 
@@ -35,6 +36,13 @@ type GameStack =
         { this with Current.Players = players }
     member this.SetEntities(entities) =
         { this with Current.Entities = entities }
+        
+    member this.HasEntity p =
+        this.Current.Entities |> List.exists (fun e -> e.Player.Id = p)
+    member this.TryGetEntity p =
+        this.Current.Entities |> List.tryFind (fun e -> e.Player.Id = p)
+    member this.GetEntity p =
+        this.Current.Entities |> List.find (fun e -> e.Player.Id = p)
     
     member this.Push() =
         let stack = this.Current :: this.UndoStack

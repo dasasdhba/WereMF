@@ -7,6 +7,7 @@ open FSharpPlus.Data
 open WereMF.Chara
 open WereMF.GameState
 open WereMF.Player
+open WereMF.RollState
 
 type MessageType =
     | Internal
@@ -48,6 +49,19 @@ let parseCommand (input : string) : State<GameStack, GameStack * bool option> =
             | Error msg ->
                 sendMessage { Type = Internal ; Content = msg }
                 return stack, Some false
+        | "\\reboot" ->
+            let stack = stack.Push()
+            let stack = { stack with Current = newGameState }
+            return stack, Some true
+        | "\\restart" ->
+            match stack.Current.Status with
+            | GameStatus.Init ->
+                sendMessage { Type = Internal ; Content = "请先输入玩家" }
+                return stack, Some false
+            | _ ->
+                let stack = stack.Push()
+                let stack = newRollState |> Roll |> stack.SetStatus
+                return stack, Some true
         | _ -> return stack, None
     }
     
@@ -125,3 +139,14 @@ let parseCharaList (input: string) =
         Ok successes
     else
         Error (errors |> String.concat "; ")
+
+let parsePlayerId (input : string) (state : GameStack)=
+    let r = parseInt input
+    match r with 
+    | Ok i ->
+        let p = PlayerId i
+        if state.HasEntity p then
+            Ok p
+        else
+            Error $"玩家 {i} 不存在"
+    | Error e -> Error e

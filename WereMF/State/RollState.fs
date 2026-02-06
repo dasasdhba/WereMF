@@ -180,18 +180,23 @@ let drawFromPool (pool: CharaRoll list) (count: int) : CharaType list =
     
     guaranteed @ randomResults |> List.take (min count (guaranteed.Length + available.Length))
 
-let drawFromBarAndBoom (barCount: int) (boomCount: int) : CharaType list =
-    let barResults = drawFromPool barPool barCount
-    let boomResults = drawFromPool boomPool boomCount
-    barResults @ boomResults
-    
-let drawNormal (count :int) : CharaType list =
+let getBarBoomCount count =
     let barCount = if (count % 2) = 0 then count / 2 + 1 else count / 2
     let boomCount = count - barCount
-    drawFromBarAndBoom barCount boomCount
-    
+    barCount, boomCount
+
 let draw (count :int) (leaf : RollLeaf) : CharaType list =
-    let result = if leaf = RollLeaf true then
-                    Leaf :: (drawNormal (count - 1))
-                    else drawNormal count
-    result |> List.randomShuffle
+    let (RollLeaf hasLeaf) = leaf
+    let barCount, boomCount = getBarBoomCount (if hasLeaf then count - 1 else count)
+    let bars = if hasLeaf then barPool else barPool |> List.filter (fun x -> x.Type <> FenXia)
+    let barCharas = drawFromPool bars barCount
+    let booms = if barCharas |> List.exists (fun x -> x = FenXia) then
+                    boomPool |> List.filter (fun x -> x.Type <> CaiMon)
+                else
+                    boomPool
+    let boomCharas = drawFromPool booms boomCount
+    let result = barCharas @ boomCharas
+    if hasLeaf then
+        Leaf :: result
+    else
+        result

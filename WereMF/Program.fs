@@ -2,6 +2,8 @@
 open FSharpPlus.Data
 open WereMF.GameState
 open WereMF.Init
+open WereMF.NightState
+open WereMF.Process.Night
 open WereMF.Roll
 open WereMF.RollState
 
@@ -20,8 +22,17 @@ let rec mainLoop () : State<GameStack, unit> =
             let! current, r = rollStep roll
             do! State.put current
             if r then
-                // TODO: setting entities here
-                let current = current.SetStatus Night
+                let entities = createEntities roll
+                let current = current.SetEntities entities
+                let current = current.SetStatus (Night newNightState)
+                do! State.put current
+            do! mainLoop ()
+        | Night night ->
+            let! current, r = nightStep night
+            do! State.put current
+            if r then
+                // TODO: check game win
+                let current = current.SetStatus Day
                 do! State.put current
             do! mainLoop ()
         | _ -> return ()

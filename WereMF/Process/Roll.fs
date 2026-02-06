@@ -3,7 +3,10 @@ module WereMF.Roll
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Chara
+open WereMF.Entity
 open WereMF.GameState
+open WereMF.Game.Bind
+open WereMF.Game.Leaf
 open WereMF.Player
 open WereMF.RollState
 open WereMF.Cli
@@ -126,7 +129,7 @@ let rollReset (r : RollState) : State<GameStack, GameStack * bool> = monad {
                         remainingBar
                    else
                         remainingBoom
-        let newChara = pool |> List.randomShuffle |> List.head
+        let newChara = pool |> List.randomChoice
         sendMessage { Type = ToPlayer p.Player ; Content = newChara.ToString() }
         let newP = { p with Type = newChara ; Reset = true }
         let newRolls = r.Rolls |> List.map (fun s ->
@@ -209,3 +212,17 @@ let rollStep (r : RollState) : State<GameStack, GameStack * bool> = monad {
     do! State.put current
     return current, result
 }
+
+let createEntities (r : RollState) =
+    r.Rolls |> List.fold (fun entities roll ->
+            let someRole = createRole roll.Type
+            match someRole with
+            | Some role ->
+                { Player = roll.Player ; Role = role ; State = newEntityState } :: entities
+            | None ->
+                if roll.Type = Leaf then
+                    let leaf = createLeafRole r.LeafRolls
+                    { Player = roll.Player ; Role = leaf ; State = newEntityState } :: entities
+                else
+                    entities
+        ) []
