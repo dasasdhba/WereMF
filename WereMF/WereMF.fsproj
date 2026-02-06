@@ -19,15 +19,16 @@
         <Compile Include="State\RollState.fs" />
         <Compile Include="State\NightState.fs" />
         <Compile Include="State\GameState.fs" />
-        <Compile Include="State\Cli.fs" />
+        <Compile Include="State\MainState.fs" />
+        <Compile Include="Game\Cli.fs" />
         <Compile Include="Game\Handler.fs" />
         <Compile Include="Game\JiaoHua.fs" />
         <Compile Include="Game\PaoXian.fs" />
         <Compile Include="Game\Leaf.fs" />
         <Compile Include="Game\Bind.fs" />
-        <Compile Include="Process\Init.fs" />
-        <Compile Include="Process\Roll.fs" />
-        <Compile Include="Process\Night.fs" />
+        <Compile Include="Update\Init.fs" />
+        <Compile Include="Update\Roll.fs" />
+        <Compile Include="Update\Night.fs" />
         <Compile Include="Program.fs" />
         <EmbeddedResource Include="config.json" />
     </ItemGroup>

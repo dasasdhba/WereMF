@@ -2,12 +2,12 @@ module WereMF.Game.PaoXian
 
 open FSharpPlus
 open FSharpPlus.Data
-open WereMF.Cli
-open WereMF.Entity
-open WereMF.Skill
-open WereMF.Chara
+open WereMF.Game.Cli
+open WereMF.Type.Entity
+open WereMF.Type.Skill
+open WereMF.Type.Chara
 open WereMF.Game.Handler
-open WereMF.Role
+open WereMF.Type.Role
 
 type PaoXianRole () =
     interface IRole with
@@ -17,23 +17,6 @@ type PaoXianRole () =
         member this.GetQueriedChara() = PaoXian
         member this.GetSummaryCharaName() = PaoXian.ToString()
 
-let createPaoXianSkill source target : Skill =
-    {
-        OwnerType = PaoXian
-        KillType = Some Death
-        SpringType = None
-        FromKirby = false
-        Source = source
-        Target = target
-    }
-
 type PaoXianHandler(sender : Entity) =
     interface ISkillHandler with
-        member this.Send night = monad {
-            let! current = State.get
-            let parser input = parsePlayerId input current
-            let msg = { Type = ToPlayer sender.Player ; Content = "输入一个玩家令其死亡，输入 0 放弃" }
-            let! current, result = requestInputWithMessage msg parser
-            do! State.put current
-            return sendSkill current createPaoXianSkill sender result 0
-        }
+        member this.Send() = Continue

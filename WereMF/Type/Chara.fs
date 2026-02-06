@@ -1,4 +1,4 @@
-module WereMF.Chara
+module WereMF.Type.Chara
 
 type CharaCamp =
     | Bar

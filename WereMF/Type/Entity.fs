@@ -1,8 +1,8 @@
-module WereMF.Entity
+module WereMF.Type.Entity
 
-open WereMF.Chara
-open WereMF.Player
-open WereMF.Role
+open WereMF.Type.Chara
+open WereMF.Type.Player
+open WereMF.Type.Role
 
 type DeadState = {
     Dead : bool

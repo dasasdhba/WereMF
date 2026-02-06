@@ -1,10 +1,10 @@
-module WereMF.NightState
+module WereMF.State.NightState
 
-open WereMF.Skill
+open WereMF.Type.Skill
 
 type ActionData = {
     Priority : int
-    Skill : Skill
+    Skill : ISkill
 }
 
 type NightStatus =

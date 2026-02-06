@@ -1,11 +1,11 @@
 module WereMF.Game.Bind
 
-open WereMF.Entity
-open WereMF.Chara
+open WereMF.Type.Entity
+open WereMF.Type.Chara
 open WereMF.Game.JiaoHua
 open WereMF.Game.Leaf
 open WereMF.Game.PaoXian
-open WereMF.Role
+open WereMF.Type.Role
 open WereMF.Game.Handler
 
 let createRole (chara : CharaType) : IRole option =

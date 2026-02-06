@@ -1,6 +1,6 @@
-module WereMF.Role
+module WereMF.Type.Role
 
-open WereMF.Chara
+open WereMF.Type.Chara
 
 type IRole =
     abstract member GetCharaType : unit -> CharaType

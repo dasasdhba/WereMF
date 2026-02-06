@@ -1,11 +1,12 @@
-module WereMF.RollState
+module WereMF.State.RollState
 
 open System
 open System.IO
 open System.Text
 open System.Text.Json
-open WereMF.Chara
-open WereMF.Player
+open FSharpPlus
+open WereMF.Type.Chara
+open WereMF.Type.Player
 
 type CharaRoll =
     {
@@ -20,30 +21,12 @@ type RollPair =
         Reset : bool
     }
     
-type RollLeaf = RollLeaf of bool
+type RollContext = {
+    Rolls : RollPair list
+    LeafRolls : CharaType list
+}
 
-type RollStatus =
-    | Init
-    | AskLeaf
-    | Draw of RollLeaf
-    | Reset
-    | SetLeaf
-    | ResetLeaf
-    
-type RollState =
-    {
-        Status : RollStatus
-        Rolls : RollPair list
-        LeafRolls : CharaType list
-    }
-    member this.SetStatus(status) =
-        { this with Status = status }
-    member this.SetRolls(rolls) =
-        { this with Rolls = rolls }
-    member this.SetLeafRolls(rolls) =
-        { this with LeafRolls = rolls }
-        
-let newRollState = { Status = Init ; Rolls = [] ; LeafRolls = [] }
+let newRollContext = { Rolls = [] ; LeafRolls = [] }
 
 // -----------------------------------------------------------
 // draw
@@ -68,12 +51,9 @@ let tryLoadConfig (path: string) =
     else
         Error $"{path} 不存在"
 
-let jsonRolls =
-    let json = tryLoadConfig "config.json"
-    match json with
-    | Ok json ->
-        let result = 
-           json.Charas 
+let jsonRolls = monad {
+    let! json = tryLoadConfig "config.json"
+    return json.Charas 
            |> Array.fold (fun r jr ->
                let result = CharaType.Create jr.Chara
                match result with
@@ -82,8 +62,7 @@ let jsonRolls =
                    r
                | Ok value -> { Type = value; Prob = jr.Prob } :: r
            ) []
-        Ok result
-    | Error e -> Error e
+}
     
 let barPoolDefault = [
     { Type = JiaoHua ; Prob = 1 }
@@ -148,10 +127,8 @@ let getMaxBarAndBoom () =
 let MinPlayer = 7
 let MaxPlayer = max 7 (getMaxBarAndBoom() + 1)
 
-let random = Random()
-
 // random draw powered by Kimi
-let drawFromPool (pool: CharaRoll list) (count: int) : CharaType list =
+let drawFromPoolWith (random : Random) (pool: CharaRoll list) (count: int) : CharaType list =
     let guaranteed = pool |> List.filter (fun x -> x.Prob >= 1.0) |> List.map (fun x -> x.Type)
     let available = pool |> List.filter (fun x -> x.Prob > 0.0 && x.Prob < 1.0)
     
@@ -185,18 +162,20 @@ let getBarBoomCount count =
     let boomCount = count - barCount
     barCount, boomCount
 
-let draw (count :int) (leaf : RollLeaf) : CharaType list =
-    let (RollLeaf hasLeaf) = leaf
-    let barCount, boomCount = getBarBoomCount (if hasLeaf then count - 1 else count)
-    let bars = if hasLeaf then barPool else barPool |> List.filter (fun x -> x.Type <> FenXia)
-    let barCharas = drawFromPool bars barCount
-    let booms = if barCharas |> List.exists (fun x -> x = FenXia) then
-                    boomPool |> List.filter (fun x -> x.Type <> CaiMon)
-                else
-                    boomPool
-    let boomCharas = drawFromPool booms boomCount
+let drawWith (random : Random) (count :int) (leaf : bool) : CharaType list =
+    let barCount, boomCount = getBarBoomCount (if leaf then count - 1 else count)
+    
+    // 粉侠仅叶子局，且粉彩不同时出场版本
+    //let bars = if leaf then barPool else barPool |> List.filter (fun x -> x.Type <> FenXia)
+    //let barCharas = drawFromPool bars barCount
+    //let booms = if barCharas |> List.exists (fun x -> x = FenXia) then
+    //                boomPool |> List.filter (fun x -> x.Type <> CaiMon)
+    //            else
+    //                boomPool
+    //let boomCharas = drawFromPool booms boomCount
+    
+    let barCharas = drawFromPoolWith random barPool barCount
+    let boomCharas = drawFromPoolWith random boomPool boomCount
     let result = barCharas @ boomCharas
-    if hasLeaf then
-        Leaf :: result
-    else
-        result
+    let result = if leaf then Leaf :: result else result
+    result |> List.randomShuffleWith random

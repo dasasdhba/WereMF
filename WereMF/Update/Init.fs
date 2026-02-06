@@ -1,38 +1,37 @@
-module WereMF.Init
+module WereMF.Update.Init
 
 open FSharpPlus
 open FSharpPlus.Data
-open WereMF.Player
-open WereMF.Cli
-open WereMF.RollState
+open WereMF.State.MainState
+open WereMF.Type.Player
+open WereMF.Game.Cli
+open WereMF.State.RollState
 
-/// input and init players,
-/// returns true if success
+/// input and init players
 let initPlayers () =
     let parser = fun input ->
         let players = splitInputList input
         if players.Length < MinPlayer then
-            Error "Not enough players"
+            Error "玩家人数不足"
         elif players.Length > MaxPlayer then
-            Error "Too many players"
+            Error "玩家人数过多"
         else
             Ok players
     monad {
+        let! main = State.get
         let inputMsg = {
             Type = Internal
             Content = $"输入玩家列表（{MinPlayer}~{MaxPlayer} 人）"
         }
-        let! current, result = requestInputWithMessage inputMsg parser
-        do! State.put current
+        let result = requestInputWithMessage inputMsg parser
         match result with
-        | Some players ->
+        | Ok players ->
             let pList = [1..players.Length]
                         |> List.map (fun i -> { Id = PlayerId i ; Name = players[i - 1] })
-            let current = current.SetPlayers pList
-            do! State.put current
+            let main = { main with Players = pList }
+            do! State.put main
             let pMessage = pList |> List.map (fun p -> p.ToAliveString() + "\n") |> List.reduce (+)
             sendMessage { Type = Public ; Content = $"\n{pMessage}" }
-            return current, true
-        | None ->
-            return current, false
+            return Ok Roll
+        | Error c -> return Error c
     }

@@ -1,7 +1,7 @@
-module WereMF.Skill
+module WereMF.Type.Skill
 
-open WereMF.Chara
-open WereMF.Entity
+open WereMF.Type.Chara
+open WereMF.Type.Entity
 
 type KillType =
     | Death

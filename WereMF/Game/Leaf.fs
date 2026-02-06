@@ -1,7 +1,7 @@
 module WereMF.Game.Leaf
 
-open WereMF.Chara
-open WereMF.Role
+open WereMF.Type.Chara
+open WereMF.Type.Role
 
 type LeafRole =
     {

@@ -1,41 +1,57 @@
-﻿open FSharpPlus
+﻿open System
 open FSharpPlus.Data
-open WereMF.GameState
-open WereMF.Init
-open WereMF.NightState
-open WereMF.Process.Night
-open WereMF.Roll
-open WereMF.RollState
+open WereMF.State.MainState
+open WereMF.Game.Cli
+open WereMF.Update.Init
+open WereMF.Update.Roll
 
-let rec mainLoop () : State<GameStack, unit> =
-    monad {
-        let! current = State.get
-        match current.Status with
-        | GameStatus.Init ->
-            let! current, r = initPlayers ()
-            do! State.put current
-            if r then
-                let current = current.SetStatus (Roll newRollState)
-                do! State.put current
-            do! mainLoop ()
-        | Roll roll ->
-            let! current, r = rollStep roll
-            do! State.put current
-            if r then
-                let entities = createEntities roll
-                let current = current.SetEntities entities
-                let current = current.SetStatus (Night newNightState)
-                do! State.put current
-            do! mainLoop ()
-        | Night night ->
-            let! current, r = nightStep night
-            do! State.put current
-            if r then
-                // TODO: check game win
-                let current = current.SetStatus Day
-                do! State.put current
-            do! mainLoop ()
-        | _ -> return ()
-    }
+let mutable seed = DateTime.UtcNow.Ticks.GetHashCode()
 
-State.run (mainLoop ()) newGame |> ignore
+let rec updateMain main : MainState =
+    let run runner =
+        let (r, c) = State.run runner main.Context
+        match r with
+        | Ok s -> Ok (s, c)
+        | Error e -> Error e
+    
+    let next =
+       match main.Status with
+       | WaitForPlayers -> run (initPlayers ())
+       | Roll -> run (rollUpdate ())
+       | _ -> Error Reboot
+    
+    match next with
+    | Ok (s, c) -> updateMain { main with Status = s; Context = c }
+    | Error c ->
+        match c with
+        | Undo ->
+            cliRedo <- cliRedo @ [cliUndo |> List.last]
+            cliUndo <- if cliUndo.Length > 1 then
+                           cliUndo[..(cliUndo.Length - 2)]
+                       else
+                           []
+            cliReplay <- cliUndo
+            cliSilent <- true
+            updateMain (createMainState seed)
+        | Redo ->
+            cliUndo <- cliUndo @ [cliRedo.Head]
+            cliRedo <- cliRedo.Tail
+            cliReplay <- cliUndo
+            cliSilent <- true
+            updateMain (createMainState seed)
+        | Reboot ->
+            cliUndo <- []
+            cliRedo <- []
+            cliReplay <- []
+            cliSilent <- false
+            seed <- DateTime.UtcNow.Ticks.GetHashCode()
+            updateMain (createMainState seed)
+        | Restart ->
+            cliUndo <- [cliUndo.Head]
+            cliRedo <- []
+            cliReplay <- cliUndo
+            cliSilent <- true
+            seed <- DateTime.UtcNow.Ticks.GetHashCode()
+            updateMain (createMainState seed)
+
+updateMain (createMainState seed) |> ignore

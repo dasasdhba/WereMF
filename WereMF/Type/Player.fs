@@ -1,4 +1,4 @@
-module WereMF.Player
+module WereMF.Type.Player
 
 type PlayerId =
     | PlayerId of int
