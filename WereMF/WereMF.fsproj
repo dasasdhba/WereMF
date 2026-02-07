@@ -14,14 +14,14 @@
         <Compile Include="Type\Chara.fs" />
         <Compile Include="Type\Role.fs" />
         <Compile Include="Type\Player.fs" />
-        <Compile Include="Type\Entity.fs" />
         <Compile Include="Type\Skill.fs" />
+        <Compile Include="Type\Entity.fs" />
         <Compile Include="State\RollState.fs" />
         <Compile Include="State\NightState.fs" />
         <Compile Include="State\GameState.fs" />
         <Compile Include="State\MainState.fs" />
         <Compile Include="Game\Cli.fs" />
-        <Compile Include="Game\Handler.fs" />
+        <Compile Include="Game\Send.fs" />
         <Compile Include="Game\JiaoHua.fs" />
         <Compile Include="Game\PaoXian.fs" />
         <Compile Include="Game\Leaf.fs" />

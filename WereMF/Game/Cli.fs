@@ -2,8 +2,8 @@ module WereMF.Game.Cli
 
 open System
 open System.Text.RegularExpressions
+open FSharpPlus
 open WereMF.Type.Chara
-open WereMF.State.GameState
 open WereMF.Type.Player
 
 let mutable cliUndo : string list = []
@@ -120,37 +120,38 @@ let parseInt (s: string) =
     | (true, value) -> Ok value
     | _ -> Error "未知格式"
     
+let parseIntList (input :string) =
+    let strList = splitInputList input
+    let someInt = strList |> List.map parseInt
+    if someInt |> List.exists (function Error _ -> true | _ -> false) then
+        Error "未知格式"
+    else
+        Ok (someInt |> List.choose (function Ok v -> Some v | _ -> None))
+        
+let parseChara input = CharaType.Create input
+
 /// Parse string as Chara list,
 /// duplicates will be cut
 let parseCharaList (input: string) =
     let strList = splitInputList input
-    let someChara = strList |> List.map CharaType.Create
+    let someChara = strList |> List.map parseChara
     
-    let errors, successes = 
-        someChara 
-        |> List.fold (fun (errs, succs) result ->
-            match result with
-            | Error msg -> (msg :: errs, succs)
-            | Ok value ->
-                if succs |> List.exists (fun s -> s = value) then
-                    (errs, succs)
-                else
-                    (errs, value :: succs)
-            )
-            ([], [])
+    let errors = someChara
+                 |> List.choose (function Error msg -> Some msg | _ -> None)
+                 |> List.distinct
+    let successes = someChara
+                    |> List.choose (function Ok v -> Some v | _ -> None)
+                    |> List.distinct
     
-    if List.isEmpty errors then
-        Ok successes
-    else
-        Error (errors |> String.concat "; ")
+    if List.isEmpty errors then Ok successes
+    else Error (errors |> String.concat "; ")
 
-let parsePlayerId (input : string) (game : GameContext)=
-    let r = parseInt input
-    match r with 
-    | Ok i ->
-        let p = PlayerId i
-        if game.HasEntity p then
-            Ok p
-        else
-            Error $"玩家 {i} 不存在"
-    | Error e -> Error e
+let parsePlayerId (input : string)= monad {
+    let! r = parseInt input
+    PlayerId r
+}
+
+let parsePlayerIdList (input : string)= monad {
+    let! r = parseIntList input
+    r |> List.map PlayerId
+}

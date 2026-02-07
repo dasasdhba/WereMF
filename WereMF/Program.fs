@@ -8,16 +8,17 @@ open WereMF.Update.Roll
 let mutable seed = DateTime.UtcNow.Ticks.GetHashCode()
 
 let rec updateMain main : MainState =
-    let run runner =
-        let (r, c) = State.run runner main.Context
-        match r with
-        | Ok s -> Ok (s, c)
-        | Error e -> Error e
+    let runState runner =
+        let r, c = State.run runner main.Context
+        r |> Result.map (fun s -> s, c)
+    let runReader runner =
+        let r = Reader.run runner main.Context
+        r |> Result.map (fun s -> s, main.Context)
     
     let next =
        match main.Status with
-       | WaitForPlayers -> run (initPlayers ())
-       | Roll -> run (rollUpdate ())
+       | WaitForPlayers -> runState (initPlayers ())
+       | Roll -> runReader (rollUpdate ())
        | _ -> Error Reboot
     
     match next with

@@ -73,21 +73,19 @@ let rollReset (roll : RollContext) = monad {
             Type = Internal
             Content = "输入需要重抽身份的玩家，输入 0 以继续"
         }
-        let parser input = monad {
-            let! result = parseInt input
-            if result <= 0 then 0 else
-            
-            let pId = PlayerId result
-            let p = r.Rolls |> List.tryFind (fun s -> s.Player.Id = pId)
-            match p with
-            | Some player ->
-                if resetRolls |> List.exists (fun s -> s = player) then
-                    result
-                else
-                    return! Error $"玩家 {player.Player.ToCliString()} 无法重抽身份"
-            | None -> return! Error $"玩家 {pId} 不存在"
-        }
-       
+        let parser = parseInt >> (function
+           | Ok i when i <= 0 -> Ok i
+           | Ok i ->
+                let pId = PlayerId i
+                let p = r.Rolls |> List.tryFind (fun s -> s.Player.Id = pId)
+                match p with
+                | Some player ->
+                    if resetRolls |> List.exists (fun s -> s = player) then Ok i
+                    else Error $"玩家 {player.Player.ToCliString()} 无法重抽身份"
+                | None -> Error $"玩家 {pId} 不存在"
+           | value -> value
+        )
+
         let! result = requestInputWithMessage msg parser
         if result <= 0 then r else
         
@@ -111,18 +109,16 @@ let rollReset (roll : RollContext) = monad {
 let rollInputLeaf leaf =
     let msg = { Type = ToPlayer leaf.Player ; Content = "输入叶子的四个身份" }
     let isInvalidCharas c = c = FenXia || c = CaiMon || c = Zombie || c = Leaf
-    let parser input = monad {
-        let! list = parseCharaList input
-        if list.Length <> 4 then
-            return! Error "请输入四个不重复的身份"
-        elif list |> List.exists isInvalidCharas then
-            return! Error $"无效的身份：{list |> List.find isInvalidCharas}"
-        elif (list |> List.filter (fun c -> c.GetCamp() = Bar)).Length = 4
-             || (list |> List.filter (fun c -> c.GetCamp() = Boom)).Length = 4 then
-            return! Error "必须同时包含吧方和爆方身份"
-        else
-            list
-    }
+    let parser = parseCharaList >> (function
+        | Ok list when list.Length <> 4 ->
+            Error "请输入四个不重复的身份"
+        | Ok list when list |> List.exists isInvalidCharas ->
+            Error $"无效的身份：{list |> List.find isInvalidCharas}"
+        | Ok list when (list |> List.filter (fun c -> c.GetCamp() = Bar)).Length = 4
+             || (list |> List.filter (fun c -> c.GetCamp() = Boom)).Length = 4 ->
+            Error "必须同时包含吧方和爆方身份"
+        | value -> value
+    )
     requestInputWithMessage msg parser
 
 let rollSetLeaf (r : RollContext) = monad {
@@ -160,9 +156,9 @@ let createEntities (r : RollContext) =
                 else
                     entities
         ) []
-    
-let rollUpdate () : State<MainContext, Result<MainStatus, CommandType>> = monad {
-    let! main = State.get
+
+let rollUpdate () = monad {
+    let! main = Reader.ask
     let run f = Reader.run f main
     monad {
         let! r = run (rollDraw newRollContext)

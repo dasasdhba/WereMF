@@ -1,31 +1,42 @@
 module WereMF.State.NightState
 
 open WereMF.Type.Skill
+open WereMF.Type.Player
 
-type ActionData = {
-    Priority : int
-    Skill : ISkill
+type PlayerNightState = {
+    Player : PlayerId
+    Doge : PlayerId option
+    Kirby : PlayerId option
+    Spring : bool
 }
 
+type NightContext =
+    {
+        PendingSkills : PendingSkill list
+        PlayerStates : PlayerNightState list
+    }
+    member this.GetPlayerPendingSkills player =
+        this.PendingSkills |> List.filter (fun ps -> ps.Source = player)
+    member this.GetPlayerState player =
+        this.PlayerStates |> List.find (fun ps -> ps.Player = player)
+    member this.SetPlayerState player newState =
+        let newStates = this.PlayerStates |> List.map (fun ps ->
+            if ps.Player = player then newState else ps)
+        { this with PlayerStates = newStates }
+
 type NightStatus =
-    | Init
+    | Start
     | Action
     | Summary
     
 type NightState =
     {
         Status : NightStatus
-        Actions : ActionData list
+        Context : NightContext
     }
     member this.SetStatus(status) =
         { this with Status = status }
-    member this.SetActions(actions) =
-        { this with Actions = actions }
-    member this.AddAction(action) =
-        { this with Actions = action :: this.Actions }
-        
-let newNightState = { Status = Init; Actions = [] }
 
-// -----------------------------------------------------------
-// skill judge
+let newNightContext = { PendingSkills = [] ; PlayerStates = [] }
+let newNightState = { Status = Start; Context = newNightContext }
 

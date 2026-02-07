@@ -1,23 +1,18 @@
 module WereMF.Game.JiaoHua
 
-open FSharpPlus
-open FSharpPlus.Data
-open WereMF.Game.Cli
-open WereMF.Type.Entity
-open WereMF.Type.Player
+open WereMF.Game.Send
 open WereMF.Type.Skill
 open WereMF.Type.Chara
-open WereMF.Game.Handler
 open WereMF.Type.Role
 
 type JiaoHuaRole () =
-    interface IRole with
-        member this.GetCharaType() = JiaoHua
-        member this.GetPriority() = 5
-        member this.GetCopiedRole() = this
-        member this.GetQueriedChara() = JiaoHua
-        member this.GetSummaryCharaName() = JiaoHua.ToString()
+    inherit Role()
+    override this.GetCharaType() = JiaoHua
+    override this.GetPriority() = 5
 
-type JiaoHuaHandler(sender : Entity) =
-    interface ISkillHandler with
-        member this.Send() = Continue
+let sendJiaoHuaSkill (s : PendingSkill) =
+    s |> sendNonSelfSkill {
+        InputHint = "输入一名玩家的编号查询其身份，输入 0 以放弃"
+        SelfHint = "你不能查自己"
+        Type = Some JiaoHua
+    }

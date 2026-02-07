@@ -1,25 +1,30 @@
 module WereMF.Game.Leaf
 
+open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Type.Chara
 open WereMF.Type.Role
 
-type LeafRole =
-    {
-        Roles : IRole list
-        Fury : bool
+type LeafRole (roles : Role list, ?fury : bool) =
+    inherit Role()
+    member this.Roles = roles
+    member val Fury = defaultArg fury false with get, set
+    
+    override this.GetCharaType() = Leaf
+    override this.GetPriority() = 100
+    override this.GetCopiedRole() = monad {
+        let! rng = Reader.ask
+        if this.Fury then
+            this.Roles[1..] |> List.randomChoiceWith rng
+        else
+            this.Roles[0]
     }
-    interface IRole with
-        member this.GetCharaType() = Leaf
-        member this.GetPriority() = 100
-        member this.GetCopiedRole() =
-            if this.Fury then
-                this.Roles[1..] |> List.randomChoice
-            else
-                this.Roles[0]
-        member this.GetQueriedChara() =
-            (this :> IRole).GetCopiedRole().GetCharaType()
-        member this.GetSummaryCharaName() =
-            let selects = this.Roles
-                            |> List.map (fun r -> r.GetSummaryCharaName())
-                            |> String.concat " "
-            $"{Leaf.ToString()} （{selects}）"
+    override this.GetRabiRole() = monad {
+        let! role = this.GetCopiedRole()
+        return! role.GetRabiRole ()
+    }
+    override this.GetSummaryCharaName() =
+        let selects = this.Roles
+                        |> List.map (fun r -> r.GetSummaryCharaName())
+                        |> String.concat " "
+        $"{Leaf.ToString()}（{selects}）"

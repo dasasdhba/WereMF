@@ -32,6 +32,6 @@ let initPlayers () =
             do! State.put main
             let pMessage = pList |> List.map (fun p -> p.ToAliveString() + "\n") |> List.reduce (+)
             sendMessage { Type = Public ; Content = $"\n{pMessage}" }
-            return Ok Roll
-        | Error c -> return Error c
+            Ok Roll
+        | Error c -> Error c
     }

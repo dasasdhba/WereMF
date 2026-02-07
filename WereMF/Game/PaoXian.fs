@@ -1,22 +1,17 @@
 module WereMF.Game.PaoXian
 
-open FSharpPlus
-open FSharpPlus.Data
-open WereMF.Game.Cli
-open WereMF.Type.Entity
-open WereMF.Type.Skill
+open WereMF.Game.Send
 open WereMF.Type.Chara
-open WereMF.Game.Handler
 open WereMF.Type.Role
+open WereMF.Type.Skill
 
 type PaoXianRole () =
-    interface IRole with
-        member this.GetCharaType() = PaoXian
-        member this.GetPriority() = 0
-        member this.GetCopiedRole() = this
-        member this.GetQueriedChara() = PaoXian
-        member this.GetSummaryCharaName() = PaoXian.ToString()
+    inherit Role()
+    override this.GetCharaType() = PaoXian
 
-type PaoXianHandler(sender : Entity) =
-    interface ISkillHandler with
-        member this.Send() = Continue
+let sendPaoXianSkill (s : PendingSkill) =
+    s |> sendNonSelfSkill {
+        InputHint = "输入一名玩家的编号令其死亡，输入 0 以放弃"
+        SelfHint = "你不能杀死自己"
+        Type = Some PaoXian
+    }

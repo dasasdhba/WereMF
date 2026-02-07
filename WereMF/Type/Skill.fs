@@ -1,24 +1,21 @@
 module WereMF.Type.Skill
 
 open WereMF.Type.Chara
-open WereMF.Type.Entity
+open WereMF.Type.Player
+open WereMF.Type.Role
 
-type KillType =
-    | Death
-    | SuddenDeath
-    | ForceDeath
-
-type SpringType =
-    | Once
-    | Recursed
-
-type SkillBuilder = {
-    OwnerType : CharaType
-    FromKirby : bool
-    Source : Entity
+type PendingSkill = {
+    Role : Role
+    Source : PlayerId
     Priority : int
+    Kidnapped : bool
+    Blocked : bool
+    FromKirby : bool
 }
 
-type ISkill =
-    abstract member GetOwnerType : unit -> CharaType
-    abstract member GetKillType : unit -> KillType option
+type Skill = {
+    Type : CharaType
+    Source : PlayerId
+    Target : PlayerId
+    FromKirby : bool
+}

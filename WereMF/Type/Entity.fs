@@ -1,8 +1,10 @@
 module WereMF.Type.Entity
 
+open FSharpPlus
 open WereMF.Type.Chara
 open WereMF.Type.Player
 open WereMF.Type.Role
+open WereMF.Type.Skill
 
 type DeadState = {
     Dead : bool
@@ -15,40 +17,41 @@ type RebornState = {
 }
 
 type ThreatenType =
-    | ThreatenNight of IRole
-    | ThreatenDay
+    | ThreatenSkill
+    | ThreatenVote
 
 type ThreatenState = {
     Type : ThreatenType
+    Source : PlayerId
     Target : PlayerId
     Force : bool
 }
 
 type EntityState =
     {
-        BarLeader : bool // 吧主票
+        BarLeader : bool option // 吧主票
         Reversed : bool // 法猫反转
         
         Dead : DeadState
-        Reborn : RebornState option // 粉侠 / 彩怪
+        Reborn : RebornState option // 彩怪
         Smog : int list // 灰卡比
         Bug : int // ctf
         Capsule : int list // 庸医
         Potion : int list // 法猫
         XianSong : int // 闲松球
-        Kidnapped : bool // 实物
+        Kidnapped : PlayerId option // 实物
         Threaten : ThreatenState option // myz
-        Bomb : bool // creeper
+        Bomb : int // creeper
         
         JiaoHuaVoteBlocked : bool // 脚滑人禁票
         JiaoHuaProtected : bool // 脚滑人保护
-        JiaoHuaBlocked : IRole list // 脚滑人封技能
+        JiaoHuaBlocked : int // 脚滑人封技能
         
         LeafProtected : bool // 叶子不可选中
     }
     
 let newEntityState = {
-    BarLeader = false
+    BarLeader = None
     Reversed = false
     Dead = { Dead = false ; Name = "" }
     Reborn = None
@@ -57,19 +60,19 @@ let newEntityState = {
     Capsule = []
     Potion = []
     XianSong = 0
-    Kidnapped = false
+    Kidnapped = None
     Threaten = None
-    Bomb = false
+    Bomb = 0
     JiaoHuaVoteBlocked = false
     JiaoHuaProtected = false
-    JiaoHuaBlocked = []
+    JiaoHuaBlocked = 0
     LeafProtected = false
 }
 
 type Entity =
     {
         Player : Player
-        Role : IRole
+        Role : Role
         State : EntityState
     }
     member this.SetState(state) =
@@ -86,43 +89,59 @@ type Entity =
         this.SetState { this.State with Reversed = value }
         
     member this.Dead = this.State.Dead
+    member this.IsDead () = this.Dead.Dead
     member this.SetDead value =
         this.SetState { this.State with Dead = value }
         
     member this.Reborn = this.State.Reborn
-    member this.SetReborn round =
-        this.SetState { this.State with Reborn = Some { ReadyRound = round; RebornRound = round } }
+    member this.SetReborn reborn =
+        this.SetState { this.State with Reborn = reborn }
     
-    member this.Smog = this.State.Smog.Length
-    member this.AddSmog round =
-        this.SetState { this.State with Smog = round :: this.State.Smog }
+    member this.SmogCount = this.State.Smog.Length
+    member this.Smog = this.State.Smog
+    member this.SetSmog smog =
+        this.SetState { this.State with Smog = smog }
+    member this.AddSmog ?round =
+        this.SetState { this.State with Smog = defaultArg round 2 :: this.State.Smog }
     member this.ClearSmog () =
         this.SetState { this.State with Smog = [] }
         
     member this.Bug = this.State.Bug
-    member this.AddBug count =
-        this.SetState { this.State with Bug = this.Bug + count }
-    member this.SubBug count = this.AddBug (max -count this.Bug)
-    member this.ClearBug ()  = this.SetState { this.State with Bug = 0 }
+    member this.SetBug value =
+        this.SetState { this.State with Bug = value }
+    member this.AddBug ?count =
+        this.SetBug (this.Bug + defaultArg count 1)
+    member this.SubBug ?count =
+        this.AddBug (max -(defaultArg count 1) this.Bug)
+    member this.ClearBug ()  = this.SetBug 0
     
-    member this.Capsule = this.State.Capsule.Length
-    member this.AddCapsule round =
-        this.SetState { this.State with Capsule = round :: this.State.Capsule }
+    member this.CapsuleCount = this.State.Capsule.Length
+    member this.Capsule = this.State.Capsule
+    member this.SetCapsule capsule =
+        this.SetState { this.State with Capsule = capsule }
+    member this.AddCapsule ?round =
+        this.SetState { this.State with Capsule = defaultArg round 2 :: this.State.Capsule }
     member this.ClearCapsule () =
         this.SetState { this.State with Capsule = [] }
     
-    member this.Potion = this.State.Potion.Length
-    member this.AddPotion round =
-        this.SetState { this.State with Potion = round :: this.State.Potion }
+    member this.PotionCount = this.State.Potion.Length
+    member this.Potion = this.State.Potion
+    member this.SetPotion potion =
+        this.SetState { this.State with Potion = potion }
+    member this.AddPotion ?round =
+        this.SetState { this.State with Potion = defaultArg round 2 :: this.State.Potion }
     member this.ClearPotion () =
         this.SetState { this.State with Potion = [] }
         
     member this.XianSong = this.State.XianSong
-    member this.AddXianSong count =
-        this.SetState { this.State with XianSong = this.XianSong + count }
-    member this.SubXianSong count = this.AddXianSong (max -count this.XianSong)
+    member this.SetXianSong value =
+        this.SetState { this.State with XianSong = value }
+    member this.AddXianSong ?count =
+        this.SetXianSong (this.XianSong + defaultArg count 1)
+    member this.SubXianSong ?count =
+        this.AddXianSong (max -(defaultArg count 1) this.XianSong)
     member this.ClearXianSong () =
-        this.SetState { this.State with XianSong = 0 }
+        this.SetXianSong 0
         
     member this.Kidnapped = this.State.Kidnapped
     member this.SetKidnapped value =
@@ -135,6 +154,12 @@ type Entity =
     member this.Bomb = this.State.Bomb
     member this.SetBomb value =
         this.SetState { this.State with Bomb = value }
+    member this.AddBomb ?count =
+        this.SetBomb (this.Bomb + defaultArg count 1)
+    member this.SubBomb ?count =
+        this.AddBomb (max -(defaultArg count 1) this.Bomb)
+    member this.ClearBomb () =
+        this.SetBomb 0
     
     member this.JiaoHuaVoteBlocked = this.State.JiaoHuaVoteBlocked
     member this.SetJiaoHuaVoteBlocked value =
@@ -143,19 +168,27 @@ type Entity =
     member this.SetJiaoHuaProtected value =
         this.SetState { this.State with JiaoHuaProtected = value }
     member this.JiaoHuaBlocked = this.State.JiaoHuaBlocked
-    member this.AddJiaoHuaBlocked role =
-        this.SetState { this.State with JiaoHuaBlocked = role :: this.State.JiaoHuaBlocked }
+    member this.SetJiaoHuaBlocked value =
+        this.SetState { this.State with JiaoHuaBlocked = value }
+    member this.AddJiaoHuaBlocked ?count =
+        this.SetJiaoHuaBlocked (defaultArg count 1)
     member this.ClearJiaoHuaBlocked () =
-        this.SetState { this.State with JiaoHuaBlocked = [] }
+        this.SetJiaoHuaBlocked 0
         
     member this.LeafProtected = this.State.LeafProtected
     member this.SetLeafProtected value =
         this.SetState { this.State with LeafProtected = value }
         
-    member this.CanBeSelected () =
-        not (this.State.JiaoHuaProtected || this.State.LeafProtected)
-    member this.CanVote () =
-        not this.State.JiaoHuaVoteBlocked
+    member this.ClearMarks() =
+        let r = this.ClearSmog ()
+        let r = r.ClearBug ()
+        let r = r.ClearCapsule ()
+        let r = r.ClearPotion ()
+        let r = r.ClearXianSong ()
+        r
+        
+    //---------------------------------------------------------------------
+    // in game info
         
     member this.GetCamp() =
         let camp = this.Role.GetCharaType().GetCamp ()
@@ -166,26 +199,19 @@ type Entity =
             | Bar -> Boom
             | Boom -> Bar
             | _ -> Yezi
-            
-    member this.ClearMarks() =
-        let r = this.ClearSmog ()
-        let r = r.ClearBug ()
-        let r = r.ClearCapsule ()
-        let r = r.ClearPotion ()
-        let r = r.ClearXianSong ()
-        r
         
-    member this.GetCopiedRole() =
-        if this.Smog > 0 then
+    member this.GetCopiedRole() = monad {
+        if this.SmogCount > 0 then
             None
         else
-            Some (this.Role.GetCopiedRole())
+            let! role = this.Role.GetCopiedRole()
+            Some role
+        }
         
-    member this.GetQueriedChara() =
-        if this.Smog > 0 then
-            None
-        else
-            Some (this.Role.GetQueriedChara())
+    member this.GetQueriedChara() = monad {
+        let! role = this.GetCopiedRole()
+        role |> Option.map (fun r -> r.GetCharaType())
+    }
         
     member this.GetInGameName() =
         let reversed = if this.Reversed then "反·" else ""
@@ -194,21 +220,24 @@ type Entity =
                      | None -> ""
         reversed + this.Player.Name + reborn
         
-    member this.GetDeadName() =
-        match this.GetQueriedChara() with
+    member this.GetDeadName() = monad {
+        let! chara = this.GetQueriedChara()
+        match chara with
         | Some chara ->
             let reversed = if this.Reversed then "反·" else ""
             reversed + chara.ToString()
         | None -> "???"
+    }
         
     member this.GetSummaryName() =
         let reversed = if this.Reversed then "反·" else ""
-        reversed + this.Role.GetSummaryCharaName()
+        let barLeader = if this.BarLeader.IsSome then "（吧主）" else ""
+        reversed + this.Role.GetSummaryCharaName() + barLeader
         
     member this.GetTopMark() =
         let voteBlock = if this.JiaoHuaVoteBlocked then "\u2716" else "️"
         let protect = if this.JiaoHuaProtected then "\U0001F6E1" else "️"
-        let roleBlock = if this.JiaoHuaBlocked.Length > 0 then "\u274c" else "️"
+        let roleBlock = if this.JiaoHuaBlocked > 0 then "\u274c" else "️"
         let leafBlock = if this.LeafProtected then "\u274e" else "️"
         voteBlock + protect + roleBlock + leafBlock
         
@@ -220,11 +249,11 @@ type Entity =
                 s
             else
                 [ for i in 1 .. n -> s ] |> String.concat ""
-        let smog = repeat this.Smog "\u2601"
+        let smog = repeat this.SmogCount "\u2601"
         let bug = repeat this.Bug "\U0001F41E"
         let xian = repeat this.XianSong "\U0001F36A"
-        let cap = repeat this.Capsule "\U0001F48A"
-        let drop = repeat this.Potion "\U0001F4A7"
+        let cap = repeat this.CapsuleCount "\U0001F48A"
+        let drop = repeat this.PotionCount "\U0001F4A7"
         smog + bug + xian + cap + drop
         
     member this.GetNightSummary() =
@@ -243,3 +272,61 @@ type Entity =
         
     member this.GetSummary() =
         this.Player.ToAliveString() + ": " + this.GetSummaryName()
+   
+    member this.CanBeSelected () =
+        not (this.JiaoHuaProtected || this.LeafProtected || this.SmogCount > 0)
+    member this.CanBeSelectedWithoutSmog () =
+        not (this.JiaoHuaProtected || this.LeafProtected)
+    member this.CanBeVoted () =
+        not this.LeafProtected
+    member this.CanVote () =
+        not this.JiaoHuaVoteBlocked
+        
+    //---------------------------------------------------------------------
+    // in game update
+        
+    member this.UpdateOnNightStart () =
+        let updateReborn r =
+            if r.ReadyRound > 0 then { r with ReadyRound = r.ReadyRound - 1 }
+            elif r.RebornRound > 0 then { r with RebornRound = r.RebornRound - 1 }
+            else r
+        let r = this.SetLeafProtected false
+        let r = r.SetKidnapped None
+        // ATTENTION: the following may cause player dead, we must handle it before
+        let r = r.ClearXianSong ()
+        let r = r.SetThreaten None
+        let r = r.ClearBomb ()
+        let r = r.SetJiaoHuaVoteBlocked false
+        if r.Reborn.IsSome then r.Reborn |> Option.map updateReborn |> r.SetReborn
+        else r
+        
+    member this.UpdateOnDayStart () =
+        let removeRes l =
+            l |> List.map (fun i -> i - 1) |> List.filter (fun i -> i > 0)
+        let r = this.SetLeafProtected false
+        let r = r.SetSmog (r.Smog |> removeRes)
+        let r = r.SetCapsule (r.Capsule |> removeRes)
+        let r = r.SetPotion (r.Potion |> removeRes)
+        r.ClearJiaoHuaBlocked ()
+        
+    member this.UpdateOnDead () =
+        { newEntityState with
+              Dead = this.Dead
+              Reborn = this.Reborn
+              BarLeader = this.BarLeader
+              Reversed = this.Reversed
+        }
+        
+    //---------------------------------------------------------------------
+    // utils
+        
+    member this.CreatePendingSkill (?role : Role) =
+        let role = defaultArg role this.Role
+        {
+            Source = this.Player.Id
+            Role = role
+            Priority = role.GetPriority()
+            Kidnapped = false
+            Blocked = false
+            FromKirby = false
+        }
