@@ -1,19 +1,18 @@
-module WereMF.State.MainState
+namespace WereMF.State
 
 open System
-open WereMF.State.GameState
-open WereMF.Type.Player
+open WereMF.Common
 
 type MainStatus =
-    | WaitForPlayers
+    | InputPlayers
     | Roll
     | Game of GameState
-    | End
     
 type MainContext =
     {
         Rng : Random
         Players : Player list
+        Roll : RollResult
     }
     
 type MainState =
@@ -21,9 +20,8 @@ type MainState =
         Status : MainStatus
         Context : MainContext
     }
-    
-let createMainState seed =
-    {
-        Status = WaitForPlayers
-        Context = { Rng = Random(seed) ; Players = [] }
-    }
+    static member New seed =
+        {
+            Status = InputPlayers
+            Context = { Rng = Random(seed) ; Players = []; Roll = RollResult.New() }
+        }

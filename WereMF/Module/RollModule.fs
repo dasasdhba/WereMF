@@ -1,46 +1,27 @@
-module WereMF.State.RollState
+module WereMF.Module.Roll
 
 open System
 open System.IO
 open System.Text
 open System.Text.Json
 open FSharpPlus
-open WereMF.Type.Chara
-open WereMF.Type.Player
+open WereMF.Common
 
-type CharaRoll =
-    {
-        Type : CharaType
-        Prob : float
-    }
-    
-type RollPair =
-    {
-        Player : Player
-        Type : CharaType
-        Reset : bool
-    }
-    
-type RollContext = {
-    Rolls : RollPair list
-    LeafRolls : CharaType list
+type private CharaRoll = {
+    Type : CharaType
+    Prob : float
 }
 
-let newRollContext = { Rolls = [] ; LeafRolls = [] }
-
-// -----------------------------------------------------------
-// draw
-
-type CharaRollJson = {
+type private CharaRollJson = {
     Chara : string
     Prob : float
 }
 
-type CharaRollJsonArray = {
+type private CharaRollJsonArray = {
     Charas : CharaRollJson array
 }
 
-let tryLoadConfig (path: string) =
+let private tryLoadConfig (path: string) =
     if File.Exists(path) then
         try
             let json = File.ReadAllText(path, Encoding.UTF8)
@@ -51,7 +32,7 @@ let tryLoadConfig (path: string) =
     else
         Error $"{path} 不存在"
 
-let jsonRolls = monad {
+let private jsonRolls = monad {
     let! json = tryLoadConfig "config.json"
     return json.Charas 
            |> Array.fold (fun r jr ->
@@ -64,7 +45,7 @@ let jsonRolls = monad {
            ) []
 }
     
-let barPoolDefault = [
+let private barPoolDefault = [
     { Type = JiaoHua ; Prob = 1 }
     { Type = Doge ; Prob = 0.5 }
     { Type = Doctor ; Prob = 0.5 }
@@ -77,7 +58,7 @@ let barPoolDefault = [
     { Type = Creeper ; Prob = 0.5 }
 ]
 
-let boomPoolDefault = [
+let private boomPoolDefault = [
     { Type = PaoXian ; Prob = 1 }
     { Type = ShiWu ; Prob = 0.5 }
     { Type = HuiKa ; Prob = 0.5 }
@@ -90,7 +71,7 @@ let boomPoolDefault = [
     { Type = Myz ; Prob = 0.5 }
 ]
 
-let barPool =
+let private barPool =
     match jsonRolls with
     | Ok pool ->
         let bar = pool |> List.filter (fun x -> x.Type.GetCamp() = Bar && x.Prob > 0)
@@ -103,7 +84,7 @@ let barPool =
         Console.WriteLine $"[Init] {e}, 吧方使用默认配置"
         barPoolDefault
 
-let boomPool =
+let private boomPool =
     match jsonRolls with
     | Ok pool ->
         let boom = pool |> List.filter (fun x -> x.Type.GetCamp() = Boom && x.Prob > 0)
@@ -115,8 +96,18 @@ let boomPool =
     | Error e ->
         Console.WriteLine $"[Init] {e}, 爆方使用默认配置"
         boomPoolDefault
+        
+let barCharaPool =
+    barPool
+        |> List.filter (fun x -> x.Prob > 0)
+        |> List.map (fun x -> x.Type)
+       
+let boomCharaPool =
+    boomPool
+        |> List.filter (fun x -> x.Prob > 0)
+        |> List.map (fun x -> x.Type)
 
-let getMaxBarAndBoom () =
+let private getMaxBarAndBoom () =
     let bar = barPool.Length
     let boom = boomPool.Length
     if bar <= boom then
@@ -124,11 +115,11 @@ let getMaxBarAndBoom () =
     else
         boom + boom + 1
 
-let MinPlayer = 7
-let MaxPlayer = max 7 (getMaxBarAndBoom() + 1)
+let minPlayer = 7
+let maxPlayer = max 7 (getMaxBarAndBoom() + 1)
 
 // random draw powered by Kimi
-let drawFromPoolWith (random : Random) (pool: CharaRoll list) (count: int) : CharaType list =
+let private drawFromPoolWith (random : Random) (pool: CharaRoll list) (count: int) : CharaType list =
     let guaranteed = pool |> List.filter (fun x -> x.Prob >= 1.0) |> List.map (fun x -> x.Type)
     let available = pool |> List.filter (fun x -> x.Prob > 0.0 && x.Prob < 1.0)
     
@@ -157,7 +148,7 @@ let drawFromPoolWith (random : Random) (pool: CharaRoll list) (count: int) : Cha
     
     guaranteed @ randomResults |> List.take (min count (guaranteed.Length + available.Length))
 
-let getBarBoomCount count =
+let private getBarBoomCount count =
     let barCount = if (count % 2) = 0 then count / 2 + 1 else count / 2
     let boomCount = count - barCount
     barCount, boomCount

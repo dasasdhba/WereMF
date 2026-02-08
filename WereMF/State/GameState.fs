@@ -1,11 +1,10 @@
-module WereMF.State.GameState
+namespace WereMF.State
 
-open WereMF.Type.Entity
-open WereMF.State.NightState
+open WereMF.Common
 
 type GameStatus =
     | Start
-    | Night of NightState
+    | Night of NightContext
     | Day
     | End
 
@@ -25,8 +24,7 @@ type GameState =
         Status : GameStatus
         Context : GameContext
     }
-
-let createGameState entities = {
-    Status = Start
-    Context = { Entities = entities }
-}
+    static member New entities = {
+        Status = Start
+        Context = { Entities = entities }
+    }

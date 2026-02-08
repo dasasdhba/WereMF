@@ -1,10 +1,9 @@
-module WereMF.Game.Cli
+module WereMF.Module.Cli
 
 open System
 open System.Text.RegularExpressions
 open FSharpPlus
-open WereMF.Type.Chara
-open WereMF.Type.Player
+open WereMF.Common
 
 let mutable cliUndo : string list = []
 let mutable cliRedo : string list = []
@@ -117,7 +116,7 @@ let parseBool (input: string) : Result<bool, string> =
     
 let parseInt (s: string) =
     match Int32.TryParse(s) with
-    | (true, value) -> Ok value
+    | true, value -> Ok value
     | _ -> Error "未知格式"
     
 let parseIntList (input :string) =

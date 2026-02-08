@@ -1,9 +1,14 @@
-module WereMF.Type.Chara
+namespace WereMF.Common
 
 type CharaCamp =
     | Bar
     | Boom
     | Yezi
+    member this.Reverse () =
+        match this with
+        | Bar -> Boom
+        | Boom -> Bar
+        | Yezi -> Yezi
     override this.ToString() =
         match this with
         | Bar -> "吧方"
@@ -30,9 +35,13 @@ type CharaType =
     | CaiMon
     | XianSong
     | JiangXian
-    | Zombie
     | Myz
     | Leaf
+    member this.GetCamp() : CharaCamp =
+        match this with
+        | JiaoHua | Doge | Doctor | Mole | Rabi | SheLang | FaMao | Kirby | FenXia | Creeper -> Bar
+        | PaoXian | ShiWu | HuiKa | YinMo | CTF | HeChong | CaiMon | XianSong | JiangXian | Myz -> Boom
+        | Leaf -> Yezi
     override this.ToString() =
         match this with
         | JiaoHua -> "脚滑人"
@@ -54,7 +63,6 @@ type CharaType =
         | CaiMon -> "彩怪"
         | XianSong -> "贤松"
         | JiangXian -> "江仙"
-        | Zombie -> "傀儡"
         | Myz -> "myz"
         | Leaf -> "叶子"
     static member Create (name : string) =
@@ -78,12 +86,6 @@ type CharaType =
         | "彩怪" | "彩条" | "cai" | "caiguai" | "caitiao" -> Ok CaiMon
         | "贤松" | "闲松" | "xiansong" | "xian" -> Ok XianSong
         | "江仙" | "临江" | "jiangxian" | "jiang" -> Ok JiangXian
-        | "傀儡" | "kuilei" -> Ok Zombie
         | "myz" -> Ok Myz
         | "叶子" | "yezi" | "leaf" -> Ok Leaf
         | _ -> Error $"无效的身份: {name}"
-    member this.GetCamp() : CharaCamp =
-        match this with
-        | JiaoHua | Doge | Doctor | Mole | Rabi | SheLang | FaMao | Kirby | FenXia | Creeper -> Bar
-        | PaoXian | ShiWu | HuiKa | YinMo | CTF | HeChong | CaiMon | XianSong | JiangXian | Zombie | Myz -> Boom
-        | Leaf -> Yezi

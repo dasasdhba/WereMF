@@ -11,24 +11,27 @@
     </ItemGroup>
     
     <ItemGroup>
-        <Compile Include="Type\Chara.fs" />
-        <Compile Include="Type\Role.fs" />
-        <Compile Include="Type\Player.fs" />
-        <Compile Include="Type\Skill.fs" />
-        <Compile Include="Type\Entity.fs" />
-        <Compile Include="State\RollState.fs" />
+        <Compile Include="Common\Chara.fs" />
+        <Compile Include="Common\Role.fs" />
+        <Compile Include="Common\Player.fs" />
+        <Compile Include="Common\Roll.fs" />
+        <Compile Include="Common\Entity.fs" />
+        <Compile Include="Common\Skill.fs" />
         <Compile Include="State\NightState.fs" />
         <Compile Include="State\GameState.fs" />
         <Compile Include="State\MainState.fs" />
-        <Compile Include="Game\Cli.fs" />
-        <Compile Include="Game\Send.fs" />
-        <Compile Include="Game\JiaoHua.fs" />
-        <Compile Include="Game\PaoXian.fs" />
-        <Compile Include="Game\Leaf.fs" />
-        <Compile Include="Game\Bind.fs" />
+        <Compile Include="Module\Cli.fs" />
+        <Compile Include="Module\RollModule.fs" />
+        <Compile Include="Module\RoleModule.fs" />
+        <Compile Include="Module\EntityModule.fs" />
+        <Compile Include="Module\GameModule.fs" />
+        <!--Compile Include="Game\Send.fs" /-->
+        <!--Compile Include="Game\JiaoHua.fs" /-->
+        <!--Compile Include="Game\PaoXian.fs" /-->
         <Compile Include="Update\Init.fs" />
-        <Compile Include="Update\Roll.fs" />
-        <Compile Include="Update\Night.fs" />
+        <Compile Include="Update\RollUpdate.fs" />
+        <Compile Include="Update\NightUpdate.fs" />
+        <Compile Include="Update\GameUpdate.fs" />
         <Compile Include="Program.fs" />
         <EmbeddedResource Include="config.json" />
     </ItemGroup>

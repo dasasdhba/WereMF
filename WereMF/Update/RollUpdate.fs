@@ -2,26 +2,23 @@ module WereMF.Update.Roll
 
 open FSharpPlus
 open FSharpPlus.Data
-open WereMF.State.GameState
-open WereMF.State.MainState
-open WereMF.Type.Chara
-open WereMF.Type.Entity
-open WereMF.Game.Bind
-open WereMF.Type.Player
-open WereMF.State.RollState
-open WereMF.Game.Cli
+open WereMF.Common
+open WereMF.Module.Cli
+open WereMF.Module.Role
+open WereMF.Module.Roll
+open WereMF.State
     
-let getRemainingBar (r : RollContext) : CharaType list =
-    barPool |> List.filter (fun c ->
-        r.Rolls |> List.exists (fun s -> s.Type = c.Type) |> not
-    ) |> List.map (fun c -> c.Type)
+let getRemainingBar (r : RollResult) : CharaType list =
+    barCharaPool |> List.filter (fun c ->
+        r.Rolls |> List.exists (fun s -> s.Type = c) |> not
+    )
 
-let getRemainingBoom (r : RollContext) : CharaType list =
-    boomPool |> List.filter (fun c ->
-        r.Rolls |> List.exists (fun s -> s.Type = c.Type) |> not
-    ) |> List.map (fun c -> c.Type)
+let getRemainingBoom (r : RollResult) : CharaType list =
+    boomCharaPool |> List.filter (fun c ->
+        r.Rolls |> List.exists (fun s -> s.Type = c) |> not
+    )
 
-let getResetRolls (hasBar) (hasBoom) (r : RollContext) : RollPair list =
+let getResetRolls hasBar hasBoom (r : RollResult) : RollPair list =
     r.Rolls |> List.filter (fun r ->
         let camp = r.Type.GetCamp()
         (not r.Reset) && ((camp = Bar && hasBar) || (camp = Boom && hasBoom))
@@ -34,13 +31,13 @@ let rollAskLeaf () =
     }
     requestInputWithMessage msg parseBool
 
-let rollDraw (r :RollContext) = monad { 
+let rollDraw (r :RollResult) = monad { 
     let! main = Reader.ask
     let rng = main.Rng
     let count = main.Players.Length
     monad {
-        let! leaf = if count <= MinPlayer then Ok false
-                    elif count >= MaxPlayer then Ok true
+        let! leaf = if count <= minPlayer then Ok false
+                    elif count >= maxPlayer then Ok true
                     else rollAskLeaf ()
         let result = drawWith rng count leaf
         let rolls = [0..(count-1)] |> List.map (fun i ->
@@ -57,7 +54,7 @@ let rollDraw (r :RollContext) = monad {
     }
 }
 
-let rollReset (roll : RollContext) = monad {
+let rollReset (roll : RollResult) = monad {
     let! main = Reader.ask
     let rng = main.Rng
     
@@ -106,9 +103,9 @@ let rollReset (roll : RollContext) = monad {
     loop (Ok roll)
 }
 
-let rollInputLeaf leaf =
+let rollInputLeaf (leaf : RollPair) =
     let msg = { Type = ToPlayer leaf.Player ; Content = "输入叶子的四个身份" }
-    let isInvalidCharas c = c = FenXia || c = CaiMon || c = Zombie || c = Leaf
+    let isInvalidCharas c = c = FenXia || c = CaiMon || c = Leaf
     let parser = parseCharaList >> (function
         | Ok list when list.Length <> 4 ->
             Error "请输入四个不重复的身份"
@@ -121,7 +118,7 @@ let rollInputLeaf leaf =
     )
     requestInputWithMessage msg parser
 
-let rollSetLeaf (r : RollContext) = monad {
+let rollSetLeaf (r : RollResult) = monad {
     let! main = Reader.ask
     let rng = main.Rng
     let ye = r.Rolls |> List.tryFind (fun s -> s.Type = Leaf)
@@ -143,28 +140,26 @@ let rollSetLeaf (r : RollContext) = monad {
     }
 }
 
-let createEntities (r : RollContext) =
-    r.Rolls |> List.fold (fun entities roll ->
-            let someRole = createRole roll.Type
-            match someRole with
-            | Some role ->
-                { Player = roll.Player ; Role = role ; State = newEntityState } :: entities
-            | None ->
-                if roll.Type = Leaf then
-                    let leaf = createLeafRole r.LeafRolls
-                    { Player = roll.Player ; Role = leaf ; State = newEntityState } :: entities
-                else
-                    entities
-        ) []
+let createEntities (r : RollResult) =
+    r.Rolls |> List.map (fun p ->
+            { Player = p.Player ; Role = p.Type |> createRole r ; State = EntityState.New() }
+        )
 
 let rollUpdate () = monad {
-    let! main = Reader.ask
+    let! main = State.get
+    let roll = main.Roll
     let run f = Reader.run f main
-    monad {
-        let! r = run (rollDraw newRollContext)
+    let result = monad {
+        let! r = run (rollDraw roll)
         let! r = run (rollReset r)
         let! r = run (rollSetLeaf r)
-        let entities = createEntities r
-        createGameState entities |> Game
+        r
     }
+    match result with
+    | Ok r ->
+        let main = { main with Roll = r }
+        do! State.put main
+        let entities = createEntities r
+        Ok (GameState.New entities |> Game)
+    | Error e -> Error e
 }
