@@ -1,15 +1,26 @@
 module WereMF.Module.Game
 
-open WereMF.State
+open FSharpPlus
+open WereMF.Common
+open WereMF.Module.Role
 
-let private printSummaryWith printer (game: GameContext) =
-    game.Entities |> List.map (fun e -> e |> printer) |> String.concat "\n"
+let createPendingSkills (entities: Entity list) = monad {
+    let mutable result = []
+    for e in entities do
+        let! h = getPendingHandlers e.Player e.Role
+        let s = h |> List.map (fun u -> e |> Entity.createPendingSkill u)
+        result <- result @ s
+    return! Ok result
+ }
 
-let printNightSummary (game: GameContext) =
-    game |> printSummaryWith Entity.getNightSummary
+let private printSummaryWith printer entities=
+    entities |> List.map (fun e -> e |> printer) |> String.concat "\n"
+
+let printNightSummary entities =
+    entities |> printSummaryWith Entity.getNightSummary
     
-let printDaySummary (game: GameContext) =
-    game |> printSummaryWith Entity.getDaySummary
+let printDaySummary entities =
+    entities |> printSummaryWith Entity.getDaySummary
 
-let printSummary (game: GameContext) =
-    game |> printSummaryWith Entity.getSummary
+let printSummary entities =
+    entities |> printSummaryWith Entity.getSummary

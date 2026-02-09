@@ -18,6 +18,9 @@ type GameContext =
         this.Entities |> List.tryFind (fun e -> e.Player.Id = p)
     member this.GetEntity p =
         this.Entities |> List.find (fun e -> e.Player.Id = p)
+    member this.UpdateEntity e =
+        let r = this.Entities |> List.map (fun e' -> if e'.Player.Id = e.Player.Id then e else e')
+        { this with Entities = r }
 
 type GameState =
     {

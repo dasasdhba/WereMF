@@ -40,9 +40,6 @@ module EntityState =
         { state with Potion = round :: state.Potion }
     let addPotion state =
         state |> addPotionRound 2
-    
-    let setMilk state =
-        { state with Milk.Tonight = true }
         
     // in game marks
         
@@ -106,10 +103,6 @@ module EntityState =
         }
         
     let updateOnDayStart entity =
-        let updateMilk m =
-            if m.Tonight then { m with Tonight = false ; LastNight = true }
-            else { Tonight = false ; LastNight = false }
-        
         let removeRes l =
             l |> List.map (fun i -> i - 1) |> List.filter (fun i -> i > 0)
         {
@@ -118,7 +111,7 @@ module EntityState =
                 Smog = entity.Smog |> removeRes
                 Capsule = entity.Capsule |> removeRes
                 Potion = entity.Potion |> removeRes
-                Milk = entity.Milk |> updateMilk
+                Milk = entity.Milk.UpdateOnDayStart ()
                 JiaoHuaBlocked = 0
         }
         
@@ -132,6 +125,9 @@ module EntityState =
         }
     
 module Entity =
+    
+    let getState (entity : Entity) =
+        entity.State
         
     let getCamp (entity : Entity)=
         let camp = (entity.Role |> Role.getCharaType).GetCamp ()
@@ -213,12 +209,6 @@ module Entity =
                   State = entity.State |> EntityState.updateOnNightStart
                   Role = entity.Role |> Role.updateOnNightStart
         } |> updatePaoXianParty main
-        
-    let updateOnNightEnd entity =
-        {
-            entity with
-                Role = entity.Role |> Role.updateOnNightEnd
-        }
     
     let updateOnDayStart entity =
         {
@@ -235,15 +225,21 @@ module Entity =
         }
         
     // utils
-        
-    let createPendingSkill entity =
+
+    let createPendingSkill (handler: RoleHandler) (entity: Entity) =
+        let role = handler.GetFromEntity entity
         {
-            Handler = RoleHandler.Default
-            Type = entity.Role |> Role.getCharaType
+            Handler = handler
+            Type = role |> Role.getCharaType
             Source = entity.Player.Id
-            Priority = entity.Role |> Role.getPriority
+            Priority = role |> Role.getPriority
             Threaten = None
             Kidnapped = entity.State.Kidnapped.IsSome
             Blocked = false
-            FromKirby = false
         }
+        
+    let getHandlerCharaType (handler: RoleHandler) entity =
+        handler.GetFromEntity entity |> Role.getCharaType
+        
+    let getHandlerName (handler: RoleHandler) entity =
+        (getHandlerCharaType handler entity).ToString ()

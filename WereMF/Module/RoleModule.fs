@@ -1,22 +1,37 @@
 module WereMF.Module.Role
 
 open System
+open FSharpPlus
 open WereMF.Common
+open WereMF.Module.Cli
 open WereMF.State
 
 //----------------------------------------------------------------------------
 // interface
 
-type IRoleQueriedName =
-    abstract member Get : unit -> string
+// query
 
 type IRoleQueriedHandler =
-    abstract member Get : unit -> RoleHandler
+    abstract member Get : Random -> RoleHandler // leaf needs rng
+
+let getQueriedHandler (rng : Random) (role: IRole) =
+    match role with
+    | :? IRoleQueriedHandler as handler -> handler.Get rng
+    | _ -> IdHandler
+    
+// pending
+
+type IRolePendingHandlers =
+    abstract member Get : Player -> Result<RoleHandler list, CommandType> // kirby needs input
+
+let getPendingHandlers (player: Player) (role: IRole) =
+    match role with
+    | :? IRolePendingHandlers as handler -> handler.Get player
+    | _ -> Ok [IdHandler]
+    
+// in game update
     
 type IRoleUpdateOnNightStart =
-    abstract member Update : unit -> IRole
-    
-type IRoleUpdateOnNightEnd =
     abstract member Update : unit -> IRole
     
 type IRoleUpdateOnDayStart =
@@ -30,11 +45,6 @@ let updateOnNightStart (role : IRole) =
     | :? IRoleUpdateOnNightStart as h -> h.Update ()
     | _ -> role
     
-let updateOnNightEnd (role : IRole) =
-    match role with
-    | :? IRoleUpdateOnNightEnd as h -> h.Update ()
-    | _ -> role
-    
 let updateOnDayStart (role : IRole) =
     match role with
     | :? IRoleUpdateOnDayStart as h -> h.Update ()
@@ -45,11 +55,11 @@ let updateOnDead (role :IRole) =
     | :? IRoleUpdateOnDead as h -> h.Update ()
     | _ -> role
 
-let private createSubHandler<'T when 'T :> IRole>
-    (getter: 'T -> IRole) (setter: 'T -> IRole -> 'T) (subRole: IRole)  =
-    let copiedHandler = match subRole with
-                        | :? IRoleQueriedHandler as h -> h.Get()
-                        | _ -> RoleHandler.Default
+//---------------------------------------------------------------------------
+// functions
+
+let private createSubFunctor<'T when 'T :> IRole>
+    (getter: 'T -> IRole) (setter: IRole -> 'T -> 'T) =
     {
         Getter = function
             | :? 'T as k -> getter k
@@ -57,12 +67,9 @@ let private createSubHandler<'T when 'T :> IRole>
         Setter = fun r owner ->
             match owner with
             | :? 'T as k ->
-                r |> copiedHandler.Setter subRole |> setter k :> IRole
+                k |> setter r :> IRole
             | _ -> owner
     }
-
-//---------------------------------------------------------------------------
-// functions
 
 let getCharaType (role :IRole) =
     role.Base.CharaType
@@ -73,8 +80,39 @@ let getPriority (role :IRole) =
 let getSummaryName (role :IRole) =
     role.Base.SummaryName
 
+let getQueriedCharaType (handler: RoleHandler) (role: IRole) =
+    role |> handler.Getter |> getCharaType
+    
+let getQueriedName (handler: RoleHandler) (role: IRole) =
+    let chara = getQueriedCharaType handler role
+    match handler with
+    | KirbyHandler _ -> $"{chara.ToString()}{Kirby.ToString()}"
+    | _ -> chara.ToString()
+
 //---------------------------------------------------------------------------
 // define
+
+type SelectionState =
+    | SelectionState of NightRecord<PlayerId list>
+    static member New () =
+        SelectionState { LastNight = [] ; Tonight = [] }
+    member private this.Selected =
+        match this with
+        | SelectionState { Tonight = t ; LastNight = l } -> t @ l
+    member this.Has id =
+        this.Selected |> List.contains id
+    member this.Add id =
+        match this with
+        | SelectionState { Tonight = t; LastNight = l } ->
+            SelectionState { Tonight = id :: t ; LastNight = l }
+    member this.AddList ids =
+        match this with
+        | SelectionState { Tonight = t; LastNight = l } ->
+            SelectionState { Tonight = ids @ t ; LastNight = l }
+    member this.UpdateOnDayStart () =
+        match this with
+        | SelectionState { Tonight = t } ->
+            SelectionState { Tonight = [] ; LastNight = t }
 
 type CommonRole =
     | JiaoHuaRole
@@ -104,21 +142,21 @@ type CommonRole =
 
 type DogeRole =
     {
-        LastSelected : PlayerId list
+        LastSelected : SelectionState
     }
-    static member New () = { LastSelected = [] }
+    static member New () = { LastSelected = SelectionState.New () }
     interface IRole with
         member this.Base = {
             CharaType = Doge
             Priority = 10
             SummaryName = Doge.ToString ()
         }
-    interface IRoleUpdateOnNightEnd with
+    interface IRoleUpdateOnDayStart with
         member this.Update () =
-            { this with LastSelected = [] }
+            { this with LastSelected = this.LastSelected.UpdateOnDayStart () }
     interface IRoleUpdateOnDead with
         member this.Update () =
-            { this with LastSelected = [] }
+            { this with LastSelected = SelectionState.New () }
 
 type DoctorRole =
     {
@@ -149,21 +187,21 @@ type RabiRole =
 
 type SheLangRole =
     {
-        LastSelected : PlayerId list
+        LastSelected : SelectionState
     }
-    static member New () = { LastSelected = [] }
+    static member New () = { LastSelected = SelectionState.New () }
     interface IRole with
         member this.Base = {
             CharaType = SheLang
             Priority = 4
             SummaryName = SheLang.ToString ()
         }
-    interface IRoleUpdateOnNightEnd with
+    interface IRoleUpdateOnNightStart with
         member this.Update () =
-            { this with LastSelected = [] }
+            { this with LastSelected = this.LastSelected.UpdateOnDayStart () }
     interface IRoleUpdateOnDead with
         member this.Update () =
-            { this with LastSelected = [] }
+            { this with LastSelected = SelectionState.New () }
 
 type FaMaoRole =
     {
@@ -198,25 +236,38 @@ type KirbyRole =
             Priority = 100
             SummaryName = Kirby.ToString ()
         }
-    interface IRoleQueriedName with
-        member this.Get () =
-            match this.CopiedRole with
-            | Some role -> $"{(role |> getCharaType).ToString ()}{Kirby.ToString ()}"
-            | None -> Kirby.ToString ()
     interface IRoleQueriedHandler with
-        member this.Get () =
+        member this.Get random =
             match this.CopiedRole with
             | Some role ->
-               role |> createSubHandler
-                   (fun k -> k.CopiedRole.Value)
-                   (fun k v -> { k with CopiedRole = Some v })
-            | None -> RoleHandler.Default
+               let sub = createSubFunctor
+                           (fun k -> k.CopiedRole.Value)
+                           (fun v k -> { k with CopiedRole = Some v })
+               (sub |> KirbyHandler).Bind (role |> getQueriedHandler random)
+            | None -> IdHandler
+    interface IRolePendingHandlers with
+        member this.Get player =
+            match this.CopiedRole with
+            | Some role ->
+                let chara = role |> getCharaType
+                let msg = {
+                    Type = ToPlayer player
+                    Content = $"是否使用复制技能（{chara.ToString()}）？（1：使用；0：放弃并使用吸入技能）"
+                }
+                monad {
+                    let! yes = requestInputWithMessage msg parseBool
+                    if yes |> not then [IdHandler] else
+
+                    let sub = createSubFunctor
+                               (fun k -> k.CopiedRole.Value)
+                               (fun v k -> { k with CopiedRole = Some v })
+                    return! role |> getPendingHandlers player |> Result.map (
+                        fun l -> l |> List.map (fun h -> (sub |> KirbyHandler).Bind h))
+                }
+            | None -> Ok [IdHandler]
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             this.UpdateCopiedRoleWith updateOnNightStart
-    interface IRoleUpdateOnNightEnd with
-        member this.Update () =
-            this.UpdateCopiedRoleWith updateOnNightEnd
     interface IRoleUpdateOnDayStart with
         member this.Update () =
             this.UpdateCopiedRoleWith updateOnDayStart
@@ -227,24 +278,34 @@ type KirbyRole =
 type FenXiaRole =
     {
         FenCount : int
-        CopiedRole : IRole list
+        CopiedRoles : IRole list
         Reborn : bool
     }
-    static member New () = { FenCount = 3 ; CopiedRole = [] ; Reborn = false }
+    static member New () = { FenCount = 3 ; CopiedRoles = [] ; Reborn = false }
     member private this.UpdateCopiedRolesWith updater =
-        { this with CopiedRole = this.CopiedRole |> List.map updater }
+        { this with CopiedRoles = this.CopiedRoles |> List.map updater }
     interface IRole with
         member this.Base = {
             CharaType = FenXia
             Priority = 100
             SummaryName = FenXia.ToString ()
         }
+    interface IRolePendingHandlers with
+        member this.Get player = monad {
+            let mutable result = [IdHandler]
+            for i in 0..(this.CopiedRoles.Length - 1) do
+                let role = this.CopiedRoles[i]
+                let! hs = role |> getPendingHandlers player
+                let sub = createSubFunctor
+                               (fun k -> k.CopiedRoles[i])
+                               (fun v k ->
+                     { k with CopiedRoles = k.CopiedRoles |> List.updateAt i v })
+                result <- result @ (hs |> List.map (fun h -> (sub |> CommonHandler).Bind h))
+            result
+        }
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             this.UpdateCopiedRolesWith updateOnNightStart
-    interface IRoleUpdateOnNightEnd with
-        member this.Update () =
-            this.UpdateCopiedRolesWith updateOnNightEnd
     interface IRoleUpdateOnDayStart with
         member this.Update () =
             this.UpdateCopiedRolesWith updateOnDayStart
@@ -267,11 +328,11 @@ type CreeperRole =
         
 type ShiWuRole =
     {
-        LastSelected : PlayerId list
+        LastSelected : SelectionState
         Broadcasted : bool
         Exposed : bool
     }
-    static member New () = { LastSelected = [] ; Broadcasted = false ; Exposed = false }
+    static member New () = { LastSelected = SelectionState.New () ; Broadcasted = false ; Exposed = false }
     interface IRole with
         member this.Base = {
             CharaType = ShiWu
@@ -281,12 +342,12 @@ type ShiWuRole =
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             { this with Exposed = false }
-    interface IRoleUpdateOnNightEnd with
+    interface IRoleUpdateOnDayStart with
         member this.Update () =
-            { this with LastSelected = [] }
+            { this with LastSelected = this.LastSelected.UpdateOnDayStart () }
     interface IRoleUpdateOnDead with
         member this.Update () =
-            { this with LastSelected = [] }
+            { this with LastSelected = SelectionState.New () }
         
 type HuiKaRole =
     {
@@ -309,21 +370,26 @@ type HuiKaRole =
 type YinMoRole =
     {
         DiscCount : int
-        Disabled : bool
+        Disabled : bool option
     }
-    static member New count = { DiscCount = count ; Disabled = false }
+    static member New count = { DiscCount = count ; Disabled = None }
+    member this.IsDisabled ()
+        = this.Disabled.IsSome
     interface IRole with
         member this.Base = {
             CharaType = YinMo
             Priority = 2
             SummaryName = YinMo.ToString ()
         }
-    interface IRoleUpdateOnNightEnd with
+    interface IRoleUpdateOnDayStart with
         member this.Update () =
-            { this with Disabled = false }
+            let disabled = match this.Disabled with
+                            | Some true -> Some false
+                            | _ -> None
+            { this with Disabled = disabled }
     interface IRoleUpdateOnDead with
         member this.Update () =
-            { this with Disabled = false }
+            { this with Disabled = None }
         
 type CTFRole =
     {
@@ -350,23 +416,21 @@ type HeChongRole =
     interface IRole with
         member this.Base = {
             CharaType = HeChong
-            Priority = 100
+            Priority = 9
             SummaryName = HeChong.ToString ()
         }
     interface IRoleQueriedHandler with
-        member this.Get () =
+        member this.Get random =
             match this.CopiedRole with
             | Some role ->
-               role |> createSubHandler
-                   (fun k -> k.CopiedRole.Value)
-                   (fun k v -> { k with CopiedRole = Some v })
-            | None -> RoleHandler.Default
+               let sub = createSubFunctor
+                           (fun k -> k.CopiedRole.Value)
+                           (fun v k -> { k with CopiedRole = Some v })
+               (sub |> CommonHandler).Bind (role |> getQueriedHandler random)
+            | None -> IdHandler
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             this.UpdateCopiedRoleWith updateOnNightStart
-    interface IRoleUpdateOnNightEnd with
-        member this.Update () =
-            this.UpdateCopiedRoleWith updateOnNightEnd
     interface IRoleUpdateOnDayStart with
         member this.Update () =
             this.UpdateCopiedRoleWith updateOnDayStart
@@ -391,22 +455,27 @@ type CaiMonRole =
 type XianSongRole =
     {
         MfaList : PlayerId list
-        Reborn : bool
-        BugBlocked : bool
+        Reborn : bool option
+        Disabled : bool option
     }
-    static member New () = { MfaList = [] ; Reborn = false ; BugBlocked = false }
+    static member New () = { MfaList = [] ; Reborn = None ; Disabled = None }
+    member this.IsDisabled () =
+        this.Disabled.IsSome
     interface IRole with
         member this.Base = {
             CharaType = XianSong
             Priority = 1
             SummaryName = XianSong.ToString ()
         }
-    interface IRoleUpdateOnNightEnd with
+    interface IRoleUpdateOnDayStart with
         member this.Update () =
-            { this with BugBlocked = false }
+            let disabled = match this.Disabled with
+                            | Some true -> Some false
+                            | _ -> None
+            { this with Disabled = disabled }
     interface IRoleUpdateOnDead with
         member this.Update () =
-            { this with BugBlocked = false }
+            { this with Disabled = None }
         
 type JiangXianRole =
     {
@@ -445,25 +514,45 @@ type LeafRole =
         $"{Leaf.ToString()}（{selects}）"
     member private this.UpdateRolesWith updater =
         { this with Roles = this.Roles |> List.map updater }
-    // we don't use interface here since we need rng
-    member this.GetQueriedHandler (rng : Random) =
-        let idx = if this.Fury then rng.Next this.Roles.Length else 0
-        let role = this.Roles[idx]
-        role |> createSubHandler
-           (fun k -> k.Roles[idx])
-           (fun k v -> { k with Roles = k.Roles |> List.updateAt idx v })
     interface IRole with
         member this.Base = {
             CharaType = Leaf
             Priority = 100
             SummaryName = this.SummaryName
         }
+    interface IRoleQueriedHandler with
+        member this.Get (random : Random) =
+            let idx = if this.Fury then random.Next this.Roles.Length else 0
+            let role = this.Roles[idx]
+            let sub = createSubFunctor
+                       (fun k -> k.Roles[idx])
+                       (fun v k -> { k with Roles = k.Roles |> List.updateAt idx v })
+            (sub |> CommonHandler).Bind (role |> getQueriedHandler random)
+    interface IRolePendingHandlers with
+        member this.Get player = monad {
+            if this.Fury |> not then
+                let role = this.Roles[0]
+                let! hs = role |> getPendingHandlers player
+                let sub = createSubFunctor
+                               (fun k -> k.Roles[0])
+                               (fun v k ->
+                     { k with Roles = k.Roles |> List.updateAt 0 v })
+                hs |> List.map (fun h -> (sub |> CommonHandler).Bind h)
+            else
+                let mutable result = []
+                for i = 1 to this.Roles.Length - 1 do
+                    let role = this.Roles[i]
+                    let! hs = role |> getPendingHandlers player
+                    let sub = createSubFunctor
+                                   (fun k -> k.Roles[i])
+                                   (fun v k ->
+                         { k with Roles = k.Roles |> List.updateAt i v })
+                    result <- result @ (hs |> List.map (fun h -> (sub |> CommonHandler).Bind h))
+                result
+        }
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             this.UpdateRolesWith updateOnNightStart
-    interface IRoleUpdateOnNightEnd with
-        member this.Update () =
-            this.UpdateRolesWith updateOnNightEnd
     interface IRoleUpdateOnDayStart with
         member this.Update () =
             this.UpdateRolesWith updateOnDayStart
@@ -497,17 +586,3 @@ let rec createRole (r : RollResult) chara : IRole =
     | JiangXian -> JiangXianRole.New ()
     | Myz -> MyzRole.New ()
     | Leaf -> LeafRole.New (r.LeafRolls |> List.map (createRole r))
-    
-let getQueriedHandler (rng : Random) (role: IRole) =
-    match role with
-    | :? LeafRole as leaf -> leaf.GetQueriedHandler rng
-    | :? IRoleQueriedHandler as handler -> handler.Get ()
-    | _ -> RoleHandler.Default
-    
-let getQueriedCharaType (handler: RoleHandler) (role: IRole) =
-    role |> handler.Getter |> getCharaType
-    
-let getQueriedName (handler: RoleHandler) (role: IRole) =
-    match role with
-    | :? IRoleQueriedName as name -> name.Get ()
-    | _ -> (role |> handler.Getter |> getCharaType).ToString ()

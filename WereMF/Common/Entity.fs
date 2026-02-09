@@ -13,18 +13,34 @@ type RebornState =
     member this.Reborn = this.ReadyRound <= 0 && this.RebornRound > 0
 
 type ThreatenType =
-    | ThreatenSkill
-    | ThreatenVote of target : PlayerId * force : bool
+    | NightSkill
+    | DayVote of target : PlayerId * force : bool
 
 type ThreatenState = {
     Type : ThreatenType
     Source : PlayerId
 }
 
-type MilkState = {
-    Tonight : bool
-    LastNight : bool
-}
+type NightRecord<'T> =
+    {
+        Tonight : 'T
+        LastNight : 'T
+    }
+
+type MilkState =
+    | MilkState of NightRecord<bool>
+    static member New () =
+        MilkState { Tonight = false ; LastNight = false }
+    member this.HasLastMilk =
+        match this with
+        | MilkState { LastNight = true } -> true
+        | _ -> false
+    member this.Set () =
+        match this with
+        | MilkState { LastNight = l } -> MilkState { Tonight = true ; LastNight = l }
+    member this.UpdateOnDayStart () =
+        match this with
+        | MilkState { Tonight = v } -> MilkState { Tonight = false ; LastNight = v }
 
 type EntityState =
     {
@@ -68,7 +84,7 @@ type EntityState =
             Kidnapped = None
             Threaten = None
             Bomb = 0
-            Milk = { Tonight = false ; LastNight = false }
+            Milk = MilkState.New ()
             JiaoHuaVoteBlocked = false
             JiaoHuaProtected = false
             JiaoHuaBlocked = 0
