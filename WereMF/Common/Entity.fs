@@ -27,6 +27,28 @@ type NightRecord<'T> =
         LastNight : 'T
     }
 
+type SelectionState =
+    | SelectionState of NightRecord<PlayerId list>
+    static member New () =
+        SelectionState { LastNight = [] ; Tonight = [] }
+    member this.Selected =
+        match this with
+        | SelectionState { Tonight = t ; LastNight = l } -> t @ l
+    member this.Has id =
+        this.Selected |> List.contains id
+    member this.Add id =
+        match this with
+        | SelectionState { Tonight = t; LastNight = l } ->
+            SelectionState { Tonight = id :: t ; LastNight = l }
+    member this.AddList ids =
+        match this with
+        | SelectionState { Tonight = t; LastNight = l } ->
+            SelectionState { Tonight = ids @ t ; LastNight = l }
+    member this.UpdateOnDayStart () =
+        match this with
+        | SelectionState { Tonight = t } ->
+            SelectionState { Tonight = [] ; LastNight = t }
+
 type MilkState =
     | MilkState of NightRecord<bool>
     static member New () =

@@ -1,4 +1,4 @@
-module WereMF.Module.Game
+module WereMF.Module.Utils
 
 open FSharpPlus
 open WereMF.Common

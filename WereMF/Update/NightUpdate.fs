@@ -3,8 +3,8 @@ module WereMF.Update.Night
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Module.Cli
-open WereMF.Module.Game
-open WereMF.Module.Skill
+open WereMF.Module.Utils
+open WereMF.Role.Bind
 open WereMF.State
 open WereMF.Module
 
@@ -19,13 +19,13 @@ let nightStart () = monad {
 let nightAction night = monad {
     let! (main: MainContext, game : GameContext) = State.get
     let result = monad {
-        let! psList = createPendingSkills game.Entities
+        let! psList = createPendingSkills (game.Entities |> List.filter (
+            fun e -> e |> Entity.getState |> EntityState.isDead |> not))
         let night = { night with PendingSkills = psList }
-        let mutable m = main
-        let mutable g = game
-        let mutable n = night
+        // TODO: sending logic, should order by priority
+        let mutable m, g, n = main, game, night
         for ps in psList do
-            let r, (game, night) = State.run (sendSkill ps) (g, n)
+            let r, (game, night) = State.run (sendSkill g ps) (g, n)
             let! _ = r
             g <- game
             n <- night

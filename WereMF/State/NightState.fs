@@ -16,7 +16,7 @@ type NightContext =
     {
         PlayerStates : PlayerNightState list
         PendingSkills : PendingSkill list
-        Skills : Skill list
+        Skills : ISkill list
     }
     member this.GetPlayerPendingSkills player =
         this.PendingSkills |> List.filter (fun ps -> ps.Source = player)

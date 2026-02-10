@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -25,10 +25,29 @@
         <Compile Include="Module\RoleModule.fs" />
         <Compile Include="Module\EntityModule.fs" />
         <Compile Include="Module\SkillModule.fs" />
-        <Compile Include="Module\GameModule.fs" />
-        <!--Compile Include="Game\Send.fs" /-->
-        <!--Compile Include="Game\JiaoHua.fs" /-->
-        <!--Compile Include="Game\PaoXian.fs" /-->
+        <Compile Include="Role\JiaoHua.fs" />
+        <Compile Include="Role\Doge.fs" />
+        <Compile Include="Role\Doctor.fs" />
+        <Compile Include="Role\Mole.fs" />
+        <Compile Include="Role\Rabi.fs" />
+        <Compile Include="Role\SheLang.fs" />
+        <Compile Include="Role\FaMao.fs" />
+        <Compile Include="Role\Kirby.fs" />
+        <Compile Include="Role\FenXia.fs" />
+        <Compile Include="Role\Creeper.fs" />
+        <Compile Include="Role\PaoXian.fs" />
+        <Compile Include="Role\ShiWu.fs" />
+        <Compile Include="Role\HuiKa.fs" />
+        <Compile Include="Role\YinMo.fs" />
+        <Compile Include="Role\CTF.fs" />
+        <Compile Include="Role\HeChong.fs" />
+        <Compile Include="Role\CaiMon.fs" />
+        <Compile Include="Role\XianSong.fs" />
+        <Compile Include="Role\JiangXian.fs" />
+        <Compile Include="Role\Myz.fs" />
+        <Compile Include="Role\Leaf.fs" />
+        <Compile Include="Role\Bind.fs" />
+        <Compile Include="Update\Utils.fs" />
         <Compile Include="Update\Init.fs" />
         <Compile Include="Update\RollUpdate.fs" />
         <Compile Include="Update\NightUpdate.fs" />

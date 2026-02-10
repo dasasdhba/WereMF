@@ -60,7 +60,15 @@ type PendingSkill = {
     Blocked : bool
 }
 
-type Skill = {
-    Pending : PendingSkill
-    Target : PlayerId
-}
+type ISkill =
+    abstract member Pending : PendingSkill
+    abstract member Target : PlayerId
+
+type Skill =
+    {
+        Pending : PendingSkill
+        Target : PlayerId
+    }
+    interface ISkill with
+        member this.Pending = this.Pending
+        member this.Target = this.Target

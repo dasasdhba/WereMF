@@ -4,8 +4,8 @@ open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Cli
-open WereMF.Module.Role
 open WereMF.Module.Roll
+open WereMF.Role.Bind
 open WereMF.State
     
 let getRemainingBar (r : RollResult) : CharaType list =
