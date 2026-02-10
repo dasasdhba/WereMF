@@ -1,6 +1,7 @@
 module WereMF.Role.Doge
 
 open System
+open FSharpPlus
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Skill
@@ -62,41 +63,30 @@ let parseDogeInput (input: string) : Result<PlayerId * bool, string> =
     | _ ->
         Error "无效输入格式，请使用: 玩家ID [b]"
 
-// 创建过滤函数：排除上一晚保护过的人
-let filterLastNightProtected (lastNightList: PlayerId list) = function
-    | Ok p when lastNightList |> List.contains p -> Error "不能连续保护同一个玩家"
-    | value -> value
-
 // Doge 技能发送
 let dogeSendSkill ps (game: GameContext) =
     let entity = game.GetEntity ps.Source
     let lastNightList = getLastNightProtected ps.Handler entity
     
-    let title = "输入要保护的玩家编号（输入 0 放弃），结尾加 b 表示自爆，如: 3 b"
+    let title = "输入要保护的玩家编号（输入 0 放弃），结尾加 b 表示自爆；输入 0 放弃"
     
-    let baseFilter = filterGiveUp
-                    >> filterNonExists game
+    let filter = filterNonExists game
                     >> filterDead game
                     >> filterSelectable game
                     >> filterKidnapped ps
-                    >> filterLastNightProtected lastNightList
+                    >> filterExceptIndexList lastNightList "不能连续保护同一个玩家"
+    let filter = giveUpOrFilterWith filter
     
-    let parser (input: string) : Result<ISkill option list, string> =
-        match parseDogeInput input with
-        | Ok (targetId, isSuicide) when targetId <= PlayerId 0 ->
-            // 放弃
-            Ok [ None ]
-        | Ok (targetId, isSuicide) ->
-            // 保护目标（可能自爆）
-            match Ok targetId |> baseFilter with
-            | Error e -> Error e
-            | Ok _ ->
-                let dogeSkill = {
-                    Pending = ps
-                    Target = targetId
-                    IsSuicide = isSuicide
-                }
-                Ok [ dogeSkill :> ISkill |> Some ]
-        | Error e -> Error e
+    let parser (input: string) : Result<ISkill option list, string> = monad {
+        let! target, isSuicide = parseDogeInput input
+        let! target = Ok target |> filter
+        if target <= PlayerId 0 then [ None ] else
+        let dogeSkill = {
+            Pending = ps
+            Target = target
+            IsSuicide = isSuicide
+        }
+        [ dogeSkill :> ISkill |> Some ]
+    }
     
-    ps |> sendSkillWith title baseFilter parser
+    ps |> sendSkillWith title filter parser

@@ -1,6 +1,5 @@
 module WereMF.Role.Doctor
 
-open System
 open WereMF.Common
 open WereMF.Module.Skill
 open WereMF.Module.Cli
@@ -24,69 +23,26 @@ let getCapsuleCount (handler: RoleHandler) (entity: Entity) : int =
     | :? DoctorRole as doctorRole -> doctorRole.Capsule
     | _ -> 0
 
-// 解析庸医的输入，格式: "玩家ID1 玩家ID2 ..." 或 "0"
-// 返回玩家ID列表，检查是否有重复和数量限制
-type DoctorInputResult = 
-    | GiveUp
-    | Targets of PlayerId list
-
-let parseDoctorInput (maxCount: int) (input: string) : Result<DoctorInputResult, string> =
-    let trimmed = input.Trim()
-    if trimmed = "0" then
-        Ok GiveUp
-    else
-        match parsePlayerIdList trimmed with
-        | Error e -> Error e
-        | Ok ids ->
-            // 检查数量限制
-            if ids.Length > maxCount then
-                Error $"药丸数量不足，你只有 {maxCount} 个药丸，不能扎 {ids.Length} 个人"
-            elif ids.Length = 0 then
-                Ok GiveUp
-            else
-                // 检查是否有重复
-                let distinctIds = ids |> List.distinct
-                if distinctIds.Length <> ids.Length then
-                    Error "不能重复扎同一个玩家"
-                else
-                    Ok (Targets ids)
-
 // 庸医技能发送
 let doctorSendSkill ps (game: GameContext) =
     let entity = game.GetEntity ps.Source
     let capsuleCount = getCapsuleCount ps.Handler entity
     
-    let title = $"输入要扎针的玩家编号（最多 {capsuleCount} 个，空格分隔），输入 0 放弃"
+    let title = $"输入要扎针的玩家编号（最多 {capsuleCount} 个），输入 0 放弃"
     
-    let baseFilter = filterGiveUp
-                    >> filterNonExists game
-                    >> filterDead game
-                    >> filterSelectable game
-                    >> filterKidnapped ps
+    let config = {
+        MaxCount = capsuleCount
+        MaxCountError = Some $"药丸数量不足，你只有 {capsuleCount} 个药丸"
+        DuplicateError = Some "不能重复扎同一个玩家"
+    }
     
-    let parser (input: string) : Result<ISkill option list, string> =
-        match parseDoctorInput capsuleCount input with
-        | Ok GiveUp ->
-            // 放弃
-            Ok [ None ]
-        | Ok (Targets ids) ->
-            // 扎多个目标
-            let results = ids |> List.map (fun id ->
-                match Ok id |> baseFilter with
-                | Error e -> Error e
-                | Ok _ -> Ok id
-            )
-            
-            // 检查是否有错误
-            let errors = results |> List.choose (function Error e -> Some e | _ -> None)
-            if errors.Length > 0 then
-                Error (errors |> List.head)
-            else
-                let validIds = results |> List.choose (function Ok id -> Some id | _ -> None)
-                let skills = validIds |> List.map (fun id ->
-                    { Pending = ps; Target = id } :> ISkill |> Some
-                )
-                Ok skills
-        | Error e -> Error e
+    let filter = filterNonExists game
+                >> filterDead game
+                >> filterSelectable game
+                >> filterKidnapped ps
+                >> (if capsuleCount = 0 then filterDisabled "你没有药丸了" else id)
+    let filter = giveUpOrFilterWith filter
     
-    ps |> sendSkillWith title baseFilter parser
+    let createSkill id = { Pending = ps; Target = id } :> ISkill
+    let parser = parseMultiSkill config filter createSkill
+    ps |> sendSkillWith title filter parser

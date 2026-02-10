@@ -59,4 +59,18 @@ let sendSkill game (ps: PendingSkill) =
     | Mole -> moleSendSkill ps game
     | PaoXian -> paoXianSendSkill ps game
     | Kirby -> kirbySendSkill ps game
-    | _ -> failwith "not implemented"
+    | HeChong -> heChongSendSkill ps game
+    | Rabi -> rabbitSendSkill ps game
+    | SheLang -> sheLangSendSkill ps game
+    | FaMao -> faMaoSendSkill ps game
+    | FenXia -> fenXiaSendSkill ps game
+    | Creeper -> creeperSendSkill ps game
+    | ShiWu -> shiWuSendSkill ps game
+    | HuiKa -> huiKaSendSkill ps game
+    | YinMo -> yinMoSendSkill ps game
+    | CTF -> ctfSendSkill ps game
+    | CaiMon -> caiMonSendSkill ps game
+    | XianSong -> xianSongSendSkill ps game
+    | JiangXian -> jiangXianSendSkill ps game
+    | Myz -> myzSendSkill ps game
+    | value -> failwith $"{value.ToString}不应该发送技能"

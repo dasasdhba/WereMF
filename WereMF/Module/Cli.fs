@@ -154,3 +154,64 @@ let parsePlayerIdList (input : string)= monad {
     let! r = parseIntList input
     r |> List.map PlayerId
 }
+
+/// 解析多个玩家ID（支持最多 n 个，用空格分隔）
+/// 输入 "0" 表示放弃
+/// 返回 (PlayerId list, 是否放弃)
+type ParseMultiPlayerResult =
+    | GiveUp
+    | Targets of PlayerId list
+
+type ParseMultiPlayerConfig = {
+    MaxCount : int
+    MaxCountError : string option
+    DuplicateError : string option
+}
+
+let parseMultiPlayerId (config: ParseMultiPlayerConfig) (input: string) : Result<ParseMultiPlayerResult, string> = monad {
+    let! ids = parsePlayerIdList input
+    if ids.Length > config.MaxCount then
+        return! match config.MaxCountError with
+                | Some msg -> Error msg
+                | None -> Error$"超过最大数量限制（最多 {config.MaxCount} 个），输入了 {ids.Length} 个"
+    elif ids.Length = 1 && ids.Head <= PlayerId 0 then GiveUp else
+    // 检查重复
+    let distinctIds = ids |> List.distinct
+    if distinctIds.Length <> ids.Length then
+        return! match config.DuplicateError with
+                | Some msg -> Error msg
+                | None -> Error "不能重复选择同一个玩家"
+    else
+        Targets ids
+}
+
+/// 通用多目标技能发送 parser
+/// config: 多玩家解析配置
+/// filter: 玩家过滤函数
+/// createSkill: 创建技能的函数
+/// 返回 ISkill option list
+let parseMultiSkill 
+    (config: ParseMultiPlayerConfig) 
+    (filter: Result<PlayerId, string> -> Result<PlayerId, string>)
+    (createSkill: PlayerId -> ISkill)
+    (input: string) : Result<ISkill option list, string> = monad {
+    let! targets = parseMultiPlayerId config input
+    match targets with
+    | GiveUp -> [None]
+    | Targets ids ->
+        let results = ids |> List.map (fun id ->
+            match Ok id |> filter with
+            | Error e -> Error e
+            | Ok _ -> Ok id
+        )
+        
+        let errors = results |> List.choose (function Error e -> Some e | _ -> None)
+        if errors.Length > 0 then
+            return! Error (errors |> List.head)
+        else
+            let validIds = results |> List.choose (function Ok id -> Some id | _ -> None)
+            let skills = validIds |> List.map (fun id ->
+                createSkill id |> Some
+            )
+            skills
+}

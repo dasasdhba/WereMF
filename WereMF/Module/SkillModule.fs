@@ -9,9 +9,9 @@ open WereMF.State
 // ------------------------------------------------------------------
 // helpers
 
-let filterGiveUp = function
-    | Ok p when p <= PlayerId 0 -> Ok p
-    | value -> value
+let giveUpOrFilterWith filter = function
+    | Ok p when p <= PlayerId 0 -> Ok (PlayerId 0)
+    | value -> value |> filter
     
 let filterNonExists (game: GameContext) = function
     | Ok p when game.HasEntity p |> not -> Error "玩家不存在"
@@ -29,6 +29,11 @@ let filterDead (game: GameContext) = function
     | Ok p when p |> game.GetEntity |> Entity.getState |> EntityState.isDead
         -> Error "玩家已死亡"
     | value -> value
+    
+let filterAlive (game: GameContext) = function
+    | Ok p when p |> game.GetEntity |> Entity.getState |> EntityState.isDead |> not
+        -> Error "玩家未死亡"
+    | value -> value
 
 let filterSelectable (game: GameContext) = function
     | Ok p when p |> game.GetEntity |> Entity.getState |> EntityState.canBeSelected |> not
@@ -43,24 +48,30 @@ let filterSelectableWithoutSmog (game: GameContext) = function
 let filterKidnapped ps = function
     | Ok p when ps.Kidnapped && p <> ps.Source -> Error "你被绑架"
     | value -> value
+    
+let filterDisabled hint = function
+    | _ -> Error hint
 
 let private getThreatenResult filter (game: GameContext) ps=
     let entity = game.GetEntity ps.Source
     ps.Threaten |> Option.bind (fun threaten ->
         let target = threaten.Target
-        let t = target |> game.GetEntity
         if Ok target |> filter |> Result.isError then
             sendMessage { Type = ToPlayer (threaten.Source |> game.GetEntity).Player
                           Content = "威胁失败" }
             None
         else
+            
+        let msg = if target <= PlayerId 0 then "不发技能"
+                  else $"技能发给 {(target |> game.GetEntity).Player.ToCliString ()}"
+        
         if threaten.Force then
             sendMessage { Type = ToPlayer entity.Player
-                          Content = $"你被强制威胁技能发给 {t.Player.ToCliString ()}" }
+                          Content = $"你被强制威胁{msg}" }
             Some (Ok { Pending = ps ; Target = target })
         else
             sendMessage { Type = ToPlayer entity.Player
-                          Content = $"你被威胁技能发给 {t.Player.ToCliString ()}" }
+                          Content = $"你被威胁{msg}" }
             Some (Error threaten)
     )
     
@@ -87,8 +98,9 @@ let sendSkillWith title filter
     
     match threaten with
     | Some (Ok v) ->
-        let night = { night with Skills = v :: night.Skills }
-        do! State.put (game, night)
+        if v.Target <= PlayerId 0 then () else
+            let night = { night with Skills = v :: night.Skills }
+            do! State.put (game, night)
         Ok ()
     | _ ->
         let msg = { Type = ToPlayer entity.Player; Content = title }
