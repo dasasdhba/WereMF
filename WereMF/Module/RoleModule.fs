@@ -2,6 +2,7 @@ module WereMF.Module.Role
 
 open System
 open WereMF.Common
+open WereMF.State
 
 //----------------------------------------------------------------------------
 // interface
@@ -34,7 +35,39 @@ let getValidHandlers (role: IRole) =
     | :? IRoleValidHandlers as handler -> handler.Get ()
     | _ -> [IdHandler]
     
+// context for complex update
+
+type RoleContext =
+    {
+        Main : MainContext
+        Game : GameContext
+    }
+    member this.Get() =
+        this.Main, this.Game
+    static member Create (main: MainContext) (game: GameContext) =
+        {
+            Main = main
+            Game = game
+        }
+
+type RoleResult = {
+    NewContext : RoleContext
+    NewEntity : Entity
+    NewRole : IRole
+}
+
+type IRolePreventDead =
+    abstract member Prevent : RoleContext -> DeadType -> Entity -> RoleResult option
+
+let tryPreventDead (context : RoleContext) (deadType: DeadType) (entity: Entity) (role: IRole) =
+    match role with
+    | :? IRolePreventDead as h -> h.Prevent context deadType entity
+    | _ -> None
+    
 // in game update
+
+type IRoleGetNightStartDeadRequest =
+    abstract member Get : unit -> DeadRequest list
     
 type IRoleUpdateOnNightStart =
     abstract member Update : unit -> IRole
@@ -44,7 +77,12 @@ type IRoleUpdateOnDayStart =
     
 type IRoleUpdateOnDead =
     abstract member Update : unit -> IRole
-    
+
+let getNightStartDeadRequest (role : IRole) =
+    match role with
+    | :? IRoleGetNightStartDeadRequest as h -> h.Get ()
+    | _ -> []
+
 let updateOnNightStart (role : IRole) =
     match role with
     | :? IRoleUpdateOnNightStart as h -> h.Update ()
@@ -59,6 +97,12 @@ let updateOnDead (role :IRole) =
     match role with
     | :? IRoleUpdateOnDead as h -> h.Update ()
     | _ -> role
+    
+// leaf specific
+
+type IRoleLeaf =
+    abstract member Fury : bool
+    abstract member SetFury : unit -> IRole
 
 //---------------------------------------------------------------------------
 // functions
@@ -93,3 +137,8 @@ let getQueriedName (handler: RoleHandler) (role: IRole) =
     match handler with
     | KirbyHandler _ -> $"{chara.ToString()}{Kirby.ToString()}"
     | _ -> chara.ToString()
+
+let updateNightOptionBool bool : bool option =
+    match bool with
+    | Some true -> Some false
+    | _ -> None

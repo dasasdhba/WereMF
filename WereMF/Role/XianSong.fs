@@ -29,13 +29,19 @@ type XianSongRole =
         }
     interface IRoleUpdateOnDayStart with
         member this.Update () =
-            let disabled = match this.Disabled with
-                            | Some true -> Some false
-                            | _ -> None
+            let disabled = updateNightOptionBool this.Disabled
             { this with Disabled = disabled }
     interface IRoleUpdateOnDead with
         member this.Update () =
             { this with Disabled = None }
+    interface IRolePreventDead with
+        member this.Prevent context dead entity =
+            if dead = Force || this.Reborn.IsSome || this.MfaList.Length = 0 then None else
+            Some {
+                NewContext = context
+                NewEntity = entity
+                NewRole = { this with Reborn = Some true }
+            } 
 
 type XianSongSkill =
     {

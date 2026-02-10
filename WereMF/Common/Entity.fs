@@ -13,7 +13,7 @@ type RebornState =
     member this.Reborn = this.ReadyRound <= 0 && this.RebornRound > 0
 
 type ThreatenType =
-    | NightSkill
+    | QueuedDeath
     | DayVote of target : PlayerId * force : bool
 
 type ThreatenState = {
@@ -76,7 +76,7 @@ type EntityState =
         Bug : int // ctf
         Capsule : int list // 庸医
         Potion : int list // 法猫
-        XianSong : int // 闲松球
+        XianSong : int list // 闲松球
         Kidnapped : PlayerId option // 实物
         Threaten : ThreatenState option // myz
         Bomb : int // creeper
@@ -86,11 +86,12 @@ type EntityState =
         JiaoHuaProtected : bool // 脚滑人保护
         JiaoHuaBlocked : int // 脚滑人封技能
         
-        LeafProtected : bool // 叶子不可选中
+        LeafProtected : bool option // 叶子不可选中
     }
     member this.SmogCount = this.Smog.Length
     member this.CapsuleCount = this.Capsule.Length
     member this.PotionCount = this.Potion.Length
+    member this.XianSongCount = this.XianSong.Length
     static member New () =
         {
             BarLeader = None
@@ -102,7 +103,7 @@ type EntityState =
             Bug = 0
             Capsule = []
             Potion = []
-            XianSong = 0
+            XianSong = []
             Kidnapped = None
             Threaten = None
             Bomb = 0
@@ -110,7 +111,7 @@ type EntityState =
             JiaoHuaVoteBlocked = false
             JiaoHuaProtected = false
             JiaoHuaBlocked = 0
-            LeafProtected = false
+            LeafProtected = None
         }
 
 type Entity =
@@ -119,3 +120,22 @@ type Entity =
         Role : IRole
         State : EntityState
     }
+    
+type DeadType =
+    | Kill
+    | Sudden
+    | Force
+    | Vote
+    
+type DeadRequest =
+    {
+        DeadType : DeadType
+        GetName : Entity -> string
+        GetReveal : string -> Entity -> string
+    }
+    static member New t =
+        {
+            DeadType = t
+            GetName = fun e -> e.Player.Name
+            GetReveal = fun name e -> $"{e.Player.Name}是{name}"
+        }

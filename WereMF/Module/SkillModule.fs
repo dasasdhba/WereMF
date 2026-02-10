@@ -79,7 +79,7 @@ let private updateThreatenIfViolate targets result entity =
     match result with
     | Some (Error (threaten: ThreatenSkill)) ->
         if targets |> List.contains threaten.Target then entity
-        else { entity with Entity.State.Threaten = Some { Type = NightSkill ; Source = threaten.Source } }
+        else { entity with Entity.State.Threaten = Some { Type = QueuedDeath ; Source = threaten.Source } }
     | _ -> entity
     
 let sendSkillWith title filter

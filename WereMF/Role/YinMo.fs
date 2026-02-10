@@ -22,9 +22,7 @@ type YinMoRole =
         }
     interface IRoleUpdateOnDayStart with
         member this.Update () =
-            let disabled = match this.Disabled with
-                            | Some true -> Some false
-                            | _ -> None
+            let disabled = updateNightOptionBool this.Disabled
             { this with Disabled = disabled }
     interface IRoleUpdateOnDead with
         member this.Update () =

@@ -3,6 +3,7 @@ namespace WereMF.Module
 open System
 open WereMF.Common
 open WereMF.Module.Cli
+open WereMF.Module.Role
 open WereMF.State
 
 module EntityState =
@@ -41,6 +42,14 @@ module EntityState =
     let addPotion state =
         state |> addPotionRound 2
         
+    let addXianSongRound round state =
+        { state with XianSong = round :: state.XianSong }
+    let addXianSong state =
+        state |> addXianSongRound 1
+        
+    let isThreatenDead (state: EntityState) =
+        state.Threaten.IsSome && state.Threaten.Value.Type = QueuedDeath
+        
     // in game marks
         
     let clearMarks entity =
@@ -48,14 +57,14 @@ module EntityState =
         let entity = { entity with Bug = 0 }
         let entity = { entity with Capsule = [] }
         let entity = { entity with Potion = [] }
-        let entity = { entity with XianSong = 0 }
+        let entity = { entity with XianSong = [] }
         entity
         
     let getTopMark entity =
         let voteBlock = if entity.JiaoHuaVoteBlocked then "\u2716" else ""
         let protect = if entity.JiaoHuaProtected then "\U0001F6E1" else ""
         let roleBlock = if entity.JiaoHuaBlocked > 0 then "\u274c" else ""
-        let leafBlock = if entity.LeafProtected then "\u274e" else ""
+        let leafBlock = if entity.LeafProtected.IsSome then "\u274e" else ""
         voteBlock + protect + roleBlock + leafBlock
         
     let getBuffMark (entity : EntityState)=
@@ -65,7 +74,7 @@ module EntityState =
             else [1..n] |> List.map (fun i -> s) |> String.concat ""
         let smog = repeat entity.SmogCount "\u2601"
         let bug = repeat entity.Bug "\U0001F41E"
-        let xian = repeat entity.XianSong "\U0001F36A"
+        let xian = repeat entity.XianSongCount "\U0001F36A"
         let cap = repeat entity.CapsuleCount "\U0001F48A"
         let drop = repeat entity.PotionCount "\U0001F4A7"
         smog + bug + xian + cap + drop
@@ -73,11 +82,11 @@ module EntityState =
     // in game judge
     
     let canBeSelected state =
-        not (state.JiaoHuaProtected || state.LeafProtected || state.SmogCount > 0)
+        not (state.JiaoHuaProtected || state.LeafProtected.IsSome || state.SmogCount > 0)
     let canBeSelectedWithSmog state =
-        not (state.JiaoHuaProtected || state.LeafProtected)
+        not (state.JiaoHuaProtected || state.LeafProtected.IsSome)
     let canBeVoted state =
-        not state.LeafProtected
+        not state.LeafProtected.IsSome
     let canVote state =
         not state.JiaoHuaVoteBlocked
     
@@ -93,10 +102,10 @@ module EntityState =
             else reborn |> Option.map updateReborn
         {
              entity with
-                LeafProtected = false
+                LeafProtected = updateNightOptionBool entity.LeafProtected
                 Kidnapped = None
                 Threaten = None
-                XianSong = 0
+                XianSong = entity.XianSong |> List.map (fun i -> i - 1)
                 Bomb = 0
                 JiaoHuaVoteBlocked = false
                 Reborn = entity.Reborn |> updateRebornState
@@ -107,7 +116,7 @@ module EntityState =
             l |> List.map (fun i -> i - 1) |> List.filter (fun i -> i > 0)
         {
              entity with
-                LeafProtected = false
+                LeafProtected = updateNightOptionBool entity.LeafProtected
                 Smog = entity.Smog |> removeRes
                 Capsule = entity.Capsule |> removeRes
                 Potion = entity.Potion |> removeRes
@@ -129,6 +138,9 @@ module Entity =
     let getState (entity : Entity) =
         entity.State
         
+    let getCharaType (entity : Entity) =
+        entity.Role |> Role.getCharaType
+        
     let getCamp (entity : Entity)=
         let camp = (entity.Role |> Role.getCharaType).GetCamp ()
         if not entity.State.Reversed then camp
@@ -146,12 +158,16 @@ module Entity =
         
     let getInGameName entity =
         let reversed = if entity.State.Reversed then "反·" else ""
+        let leaf =
+            match entity.Role with
+            | :? IRoleLeaf as leaf when leaf.Fury -> "（叶子）"
+            | _ -> ""
         let reborn = match entity.State.Reborn with
                      | Some _ -> "（复活）"
                      | None -> ""
-        reversed + entity.Player.Name + reborn
+        reversed + entity.Player.Name + leaf + reborn
         
-    let getDeadName() handler (entity: Entity) =
+    let getDeadName handler (entity: Entity) =
         match handler with
         | Some v -> entity |> getQueriedName v
         | None -> "???"
@@ -178,12 +194,99 @@ module Entity =
     let getSummary (entity: Entity) =
         entity.Player.ToInGameString () + ": " + getSummaryName entity
         
+    // dead check
+    
+    let updateOnDead entity =
+        {
+            entity with
+                State = entity.State |> EntityState.updateOnDead
+                Role = entity.Role |> Role.updateOnDead
+        }
+    
+    let requestDead (request: DeadRequest) (context: RoleContext) entity =
+        let header = request.GetName entity
+        let reason = match request.DeadType with
+                     | Kill -> "死了"
+                     | Sudden -> "暴毙了"
+                     | Force -> "暴毙了"
+                     | Vote -> "出局"
+        sendMessage { Type = Public ; Content = $"{header}{reason}" }
+        let result = entity.Role |> tryPreventDead context request.DeadType entity
+        match result with
+        | Some result ->
+            sendMessage { Type = Public ; Content = $"但是{header}复活了" }
+            let entity = { result.NewEntity with Role = result.NewRole }
+            let context = result.NewContext
+            let context = { context with Game = context.Game.UpdateEntity entity }
+            context, entity
+        | None ->
+            let revealNormal () =
+                let h = entity |> getQueriedHandler context.Main.Rng
+                let name = entity |> getDeadName h
+                let reveal = entity |> request.GetReveal name
+                sendMessage { Type = Public ; Content = reveal }
+                let entity = { entity with State.Dead = { Dead = true ; Name = name } } |> updateOnDead
+                context, entity
+            match entity.Role with
+            | :? IRoleLeaf as leaf when leaf.Fury |> not ->
+                let context, entity = revealNormal ()
+                sendMessage { Type = Public ; Content = $"{entity.Player.Name}是叶子" }
+                let entity = { entity with
+                                   State.Dead.Dead = false
+                                   State.LeafProtected = Some true
+                                   Role = leaf.SetFury () }
+                context, entity
+            | :? IRoleLeaf ->
+                sendMessage { Type = Public ; Content = "叶子是叶子" }
+                let entity = { entity with State.Dead = { Dead = true ; Name = "叶子" } } |> updateOnDead
+                context, entity
+            | _ ->
+                revealNormal ()
+        
+    let updateOnNightStartRequestDead (context: RoleContext) (entity: Entity) =
+        // 爬行者炸弹
+        let rec bombKill count (c: RoleContext) (e: Entity) =
+            if count <= 0 then c, e else
+            sendMessage { Type = Public ; Content = $"{entity.Player.Name}身上的炸药爆炸了！" }
+            let c, e = requestDead (DeadRequest.New Kill) c e
+            if e.State |> EntityState.isDead then c, e else
+            bombKill (count - 1) c e
+        let context, entity = bombKill entity.State.Bomb context entity
+        if entity.State |> EntityState.isDead then context, entity else
+        
+        // myz 威胁
+        let context, entity =
+            if entity.State.Threaten.IsNone || entity.State |> EntityState.isThreatenDead |> not then
+                context, entity
+            else
+            let myz = entity.State.Threaten.Value
+            let source = myz.Source
+            if context.Game.GetEntity source |> getState |> EntityState.isDead then
+                context, entity
+            else
+                
+            sendMessage { Type = Public ; Content = $"{entity.Player.Name}无视了威胁！" }
+            requestDead (DeadRequest.New Kill) context entity
+        if entity.State |> EntityState.isDead then context, entity else
+         
+         // 身份各自处理（粉侠，彩怪复活后会暴毙的角色等）
+        let list = entity.Role |> Role.getNightStartDeadRequest
+        let rec loop (list: DeadRequest list) (context: RoleContext) (entity: Entity) =
+            let request = list.Head
+            let context, entity = requestDead request context entity
+            if entity.State |> EntityState.isDead || list.Length <= 1 then
+                context, entity
+            else
+                loop list.Tail context entity
+        if list.Length = 0 then context, entity
+        else loop list context entity
+        
     // in game update
     
     let private updatePaoXianParty (main : MainContext) entity =
         let roll = main.Roll
-        if entity.Role |> Role.getCharaType <> PaoXian
-           || entity.State.PaoXianParty.Length = roll.BoomCount - 1 then
+        if entity |> getCharaType <> PaoXian
+            || entity.State.PaoXianParty.Length = roll.BoomCount - 1 then
             entity
         else
 
@@ -204,6 +307,7 @@ module Entity =
             { entity with State.PaoXianParty = members |> List.map (fun m -> m.Player.Id) }
         
     let updateOnNightStart main entity =
+        if entity.State |> EntityState.isDead then entity else
         {
               entity with
                   State = entity.State |> EntityState.updateOnNightStart
@@ -211,17 +315,11 @@ module Entity =
         } |> updatePaoXianParty main
     
     let updateOnDayStart entity =
+        if entity.State |> EntityState.isDead then entity else
         {
             entity with
                 State = entity.State |> EntityState.updateOnDayStart
                 Role = entity.Role |> Role.updateOnDayStart
-        }
-        
-    let updateOnDead entity =
-        {
-            entity with
-                State = entity.State |> EntityState.updateOnDead
-                Role = entity.Role |> Role.updateOnDead
         }
         
     // utils

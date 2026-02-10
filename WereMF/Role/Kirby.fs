@@ -1,5 +1,6 @@
 module WereMF.Role.Kirby
 
+open FSharpPlus
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Skill
@@ -68,6 +69,21 @@ type KirbyRole =
     interface IRoleUpdateOnDead with
         member this.Update () =
             { this with CopiedRole = None }
+    interface IRoleGetNightStartDeadRequest with
+        member this.Get () =
+            if this.CopiedRole.IsNone then [] else
+            let role = this.CopiedRole.Value
+            getNightStartDeadRequest role
+    interface IRolePreventDead with
+        member this.Prevent context dead entity =
+            if this.CopiedRole.IsNone then None else
+            let role = this.CopiedRole.Value
+            let result = role |> tryPreventDead context dead entity
+            monad {
+                let! r = result
+                let role = { this with CopiedRole = Some r.NewRole }
+                { r with NewRole = role }
+            }
 
 // 卡比吸入技能（当没有复制身份时使用）
 let kirbySendSkill ps game =

@@ -2,17 +2,30 @@ module WereMF.Update.Night
 
 open FSharpPlus
 open FSharpPlus.Data
+open WereMF.Common
 open WereMF.Module.Cli
+open WereMF.Module.Role
 open WereMF.Module.Utils
-open WereMF.Role.Bind
 open WereMF.State
 open WereMF.Module
 
 let nightStart () = monad {
     let! (main: MainContext, game : GameContext) = State.get
-    let entities = game.Entities |> List.map (Entity.updateOnNightStart main)
-    let game = { game with Entities = entities }
     sendMessage { Type = Public ; Content = "晚上开始\n" + (printNightSummary game.Entities) }
+    
+    let rec updateNightDead idx (entities: Entity list) c =
+        if idx >= entities.Length then c, entities else
+        let (e: Entity) = entities[idx]
+        let c, e = e |> Entity.updateOnNightStartRequestDead c
+        let entities = entities |> List.updateAt idx e
+        updateNightDead (idx + 1) entities c
+    
+    let context = RoleContext.Create main game
+    let entities = game.Entities
+    let context, entities = updateNightDead 0 entities context
+    let main, game = context.Get ()
+    let entities = entities |> List.map (Entity.updateOnNightStart main)
+    let game = { game with Entities = entities }
     do! State.put (main, game)
 }
 

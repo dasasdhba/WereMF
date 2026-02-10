@@ -3,6 +3,7 @@ module WereMF.Role.CaiMon
 open System
 open FSharpPlus
 open WereMF.Common
+open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
 open WereMF.State
@@ -10,16 +11,38 @@ open WereMF.State
 type CaiMonRole =
     {
         CaiCount : int
-        Reborn : bool
+        RebornRound : int option
         RebornList : PlayerId list
     }
-    static member New () = { CaiCount = 3 ; Reborn = false ; RebornList = [] }
+    static member New () = { CaiCount = 3 ; RebornRound = None ; RebornList = [] }
     interface IRole with
         member this.Base = {
             CharaType = CaiMon
             Priority = 100
             SummaryName = CaiMon.ToString ()
         }
+    interface IRoleUpdateOnNightStart with
+        member this.Update () =
+            match this.RebornRound with
+            | None -> this
+            | Some v -> { this with RebornRound = Some (v - 1) }
+    interface IRoleGetNightStartDeadRequest with
+        member this.Get () =
+            if this.RebornRound.IsSome && this.RebornRound.Value <= 0 then
+                [DeadRequest.New Force]
+            else
+                []
+    interface IRolePreventDead with
+        member this.Prevent context dead entity =
+            if dead = Force || this.RebornRound.IsSome || this.CaiCount <= 1 then None else
+            let msg = { Type = ToPlayer entity.Player ; Content = "用一根彩条复活吗？（1：是；0：否）" }
+            let yes = requestInputWithMessage msg parseBool
+            if yes |> not then None else
+            Some {
+                NewContext = context
+                NewEntity = entity
+                NewRole = { this with RebornRound = Some 2 ; CaiCount = this.CaiCount - 1 }
+            }
 
 type CaiMonSkill =
     {
