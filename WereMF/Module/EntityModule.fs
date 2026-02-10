@@ -62,7 +62,7 @@ module EntityState =
         let repeat n s =
             if n <= 0 then ""
             elif n = 1 then s
-            else [ for i in 1 .. n -> s ] |> List.map (fun i -> s) |> String.concat ""
+            else [1..n] |> List.map (fun i -> s) |> String.concat ""
         let smog = repeat entity.SmogCount "\u2601"
         let bug = repeat entity.Bug "\U0001F41E"
         let xian = repeat entity.XianSong "\U0001F36A"

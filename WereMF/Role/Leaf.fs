@@ -32,28 +32,32 @@ type LeafRole =
                        (fun k -> k.Roles[idx])
                        (fun v k -> { k with Roles = k.Roles |> List.updateAt idx v })
             (sub |> CommonHandler).Bind (role |> getQueriedHandler random)
-    interface IRolePendingHandlers with
-        member this.Get player = monad {
-            if this.Fury |> not then
-                let role = this.Roles[0]
-                let! hs = role |> getPendingHandlers player
+    member private this.GetHandlersWith func =
+        if this.Fury |> not then
+            let role = this.Roles[0]
+            let hs = role |> func
+            let sub = createSubFunctor
+                           (fun k -> k.Roles[0])
+                           (fun v k ->
+                 { k with Roles = k.Roles |> List.updateAt 0 v })
+            hs |> List.map (fun h -> (sub |> CommonHandler).Bind h)
+        else
+            let mutable result = []
+            for i = 1 to this.Roles.Length - 1 do
+                let role = this.Roles[i]
+                let hs = role |> func
                 let sub = createSubFunctor
-                               (fun k -> k.Roles[0])
+                               (fun k -> k.Roles[i])
                                (fun v k ->
-                     { k with Roles = k.Roles |> List.updateAt 0 v })
-                hs |> List.map (fun h -> (sub |> CommonHandler).Bind h)
-            else
-                let mutable result = []
-                for i = 1 to this.Roles.Length - 1 do
-                    let role = this.Roles[i]
-                    let! hs = role |> getPendingHandlers player
-                    let sub = createSubFunctor
-                                   (fun k -> k.Roles[i])
-                                   (fun v k ->
-                          { k with Roles = k.Roles |> List.updateAt i v })
-                    result <- result @ (hs |> List.map (fun h -> (sub |> CommonHandler).Bind h))
-                result
-        }
+                      { k with Roles = k.Roles |> List.updateAt i v })
+                result <- result @ (hs |> List.map (fun h -> (sub |> CommonHandler).Bind h))
+            result
+    interface IRolePendingHandlers with
+        member this.Get player =
+            this.GetHandlersWith (getPendingHandlers player)
+    interface IRoleValidHandlers with
+        member this.Get () =
+            this.GetHandlersWith getValidHandlers
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             this.UpdateRolesWith updateOnNightStart

@@ -42,9 +42,9 @@ let parseRabbitInput (input: string) : Result<PlayerId * MilkType, string> =
     let parts = input.Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
     match parts.Length with
     | 2 ->
-        let playerIdResult = parsePlayerId parts.[0]
+        let playerIdResult = parsePlayerId parts[0]
         let milkType =
-            match parts.[1].ToLower() with
+            match parts[1].ToLower() with
             | "x" -> Ok Fresh
             | "d" -> Ok Dry
             | _ -> Error "请输入 x（鲜奶）或 d（毒奶）"

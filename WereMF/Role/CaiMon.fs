@@ -36,11 +36,11 @@ let parseCaiMonInput (input: string) : Result<PlayerId * bool, string> =
     let parts = input.Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
     match parts.Length with
     | 1 ->
-        parsePlayerId parts.[0] |> Result.map (fun id -> (id, false))  // 默认一根
+        parsePlayerId parts[0] |> Result.map (fun id -> (id, false))  // 默认一根
     | 2 ->
-        let isDouble = parts.[1].ToLower() = "d"
+        let isDouble = parts[1].ToLower() = "d"
         if not isDouble then Error "请输入 d 表示用两根彩条"
-        else parsePlayerId parts.[0] |> Result.map (fun id -> (id, true))
+        else parsePlayerId parts[0] |> Result.map (fun id -> (id, true))
     | _ -> Error "请输入格式: 玩家编号 [d]"
 
 // 彩怪技能发送

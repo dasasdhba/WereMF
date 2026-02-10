@@ -93,7 +93,7 @@ let sendSkillWith title filter
         let name = entity |> Entity.getHandlerName ps.Handler
         sendMessage { Type = ToPlayer entity.Player
                       Content = $"你的{name}技能不可用" }
-        Ok ()
+        ()
     else
     
     match threaten with
@@ -101,35 +101,32 @@ let sendSkillWith title filter
         if v.Target <= PlayerId 0 then () else
             let night = { night with Skills = v :: night.Skills }
             do! State.put (game, night)
-        Ok ()
+        ()
     | _ ->
         let msg = { Type = ToPlayer entity.Player; Content = title }
-        let request = requestInputWithMessage msg parser
-        match request with
-        | Ok results ->
-            let targets = results |> List.map (function
-                | Some skill -> skill.Target
-                | None -> PlayerId 0)
-            let entity = entity |> updateThreatenIfViolate targets threaten
-            let game = game.UpdateEntity entity
-            let skills = results |> List.choose id
-            let night = { night with Skills = skills @ night.Skills }
-            do! State.put (game, night)
-            Ok ()
-        | Error e -> Error e
+        let results = requestInputWithMessage msg parser
+        let targets = results |> List.map (function
+            | Some skill -> skill.Target
+            | None -> PlayerId 0)
+        let entity = entity |> updateThreatenIfViolate targets threaten
+        let game = game.UpdateEntity entity
+        let skills = results |> List.choose id
+        let night = { night with Skills = skills @ night.Skills }
+        do! State.put (game, night)
+        ()
 }
 
 // ------------------------------------------------------------------
 // execution
 
 type ISkillExecuteImmediate =
-    abstract member Execute : Skill ->
-        Reader<MainContext * GameContext * NightContext,
-            State<MainContext * GameContext * NightContext,
-                Result<ISkillExecuteImmediate, CommandType>>>
+    abstract member CanExecute : unit ->
+        Reader<MainContext * GameContext * NightContext, bool>
+    abstract member Execute : unit ->
+        State<MainContext * GameContext * NightContext, ISkillExecuteImmediate>
 
 type ISkillExecuteSummary =
-    abstract member Execute : Skill ->
-        Reader<MainContext * GameContext * NightContext,
-            State<MainContext * GameContext * NightContext,
-                Result<ISkillExecuteSummary, CommandType>>>
+    abstract member CanExecute : unit ->
+        Reader<MainContext * GameContext * NightContext, bool>
+    abstract member Execute : unit ->
+        State<MainContext * GameContext * NightContext, ISkillExecuteImmediate>

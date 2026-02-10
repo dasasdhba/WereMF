@@ -35,31 +35,28 @@ let rollDraw (r :RollResult) = monad {
     let! main = Reader.ask
     let rng = main.Rng
     let count = main.Players.Length
-    monad {
-        let! leaf = if count <= minPlayer then Ok false
-                    elif count >= maxPlayer then Ok true
-                    else rollAskLeaf ()
-        let result = drawWith rng count leaf
-        let rolls = [0..(count-1)] |> List.map (fun i ->
-            let player = main.Players[i]
-            let chara = result[i]
-            sendMessage { Type = ToPlayer player ; Content = chara.ToString() }
-            {
-                Player = player
-                Type = chara
-                Reset = false
-            }
-        )
-        { r with Rolls = rolls }
-    }
+    let leaf = if count <= minPlayer then false
+                elif count >= maxPlayer then true
+                else rollAskLeaf ()
+    let result = drawWith rng count leaf
+    let rolls = [0..(count-1)] |> List.map (fun i ->
+        let player = main.Players[i]
+        let chara = result[i]
+        sendMessage { Type = ToPlayer player ; Content = chara.ToString() }
+        {
+            Player = player
+            Type = chara
+            Reset = false
+        }
+    )
+    { r with Rolls = rolls }
 }
 
 let rollReset (roll : RollResult) = monad {
     let! main = Reader.ask
     let rng = main.Rng
     
-    let rec loop rc = monad {
-        let! r = rc
+    let rec loop r =
         let remainingBar = getRemainingBar r
         let remainingBoom = getRemainingBoom r
         let resetRolls = getResetRolls (remainingBar.Length > 0) (remainingBoom.Length > 0) r
@@ -83,7 +80,7 @@ let rollReset (roll : RollResult) = monad {
            | value -> value
         )
 
-        let! result = requestInputWithMessage msg parser
+        let result = requestInputWithMessage msg parser
         if result <= 0 then r else
         
         let pId = PlayerId result
@@ -97,10 +94,9 @@ let rollReset (roll : RollResult) = monad {
         let newRolls = r.Rolls |> List.map (fun s ->
             if s = p then newP else s
         )
-        return! loop (Ok { r with Rolls = newRolls })
-    }
+        loop {r with Rolls = newRolls }
         
-    loop (Ok roll)
+    loop roll
 }
 
 let rollInputLeaf (leaf : RollPair) =
@@ -123,21 +119,20 @@ let rollSetLeaf (r : RollResult) = monad {
     let rng = main.Rng
     let ye = r.Rolls |> List.tryFind (fun s -> s.Type = Leaf)
     match ye with
-    | None -> Ok r
-    | Some leaf -> monad {
-        let! result = rollInputLeaf leaf
+    | None -> r
+    | Some leaf ->
+        let result = rollInputLeaf leaf
         let result = result |> List.randomShuffleWith rng
         sendMessage { Type = ToPlayer leaf.Player ; Content = $"第一身份：{result.Head}" }
         let r = { r with LeafRolls = result }
         
         let msg = { Type = ToPlayer leaf.Player ; Content = "是否重抽第一身份？（1：重抽；0：放弃）" }
-        let! result = requestInputWithMessage msg parseBool
+        let result = requestInputWithMessage msg parseBool
         if not result then r else
 
         let list = r.LeafRolls |> List.randomShuffleWith rng
         sendMessage { Type = ToPlayer leaf.Player ; Content = $"第一身份：{list.Head}" }
         { r with LeafRolls = list }
-    }
 }
 
 let createEntities (r : RollResult) =
@@ -149,17 +144,11 @@ let rollUpdate () = monad {
     let! main = State.get
     let roll = main.Roll
     let run f = Reader.run f main
-    let result = monad {
-        let! r = run (rollDraw roll)
-        let! r = run (rollReset r)
-        let! r = run (rollSetLeaf r)
-        r
-    }
-    match result with
-    | Ok r ->
-        let main = { main with Roll = r }
-        do! State.put main
-        let entities = createEntities r
-        Ok (GameState.New entities |> Game)
-    | Error e -> Error e
+    let r = run (rollDraw roll)
+    let r = run (rollReset r)
+    let r = run (rollSetLeaf r)
+    let main = { main with Roll = r }
+    do! State.put main
+    let entities = createEntities r
+    GameState.New entities |> Game
 }

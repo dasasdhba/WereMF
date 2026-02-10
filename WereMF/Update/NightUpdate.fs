@@ -18,38 +18,19 @@ let nightStart () = monad {
 
 let nightAction night = monad {
     let! (main: MainContext, game : GameContext) = State.get
-    let result = monad {
-        let! psList = createPendingSkills (game.Entities |> List.filter (
-            fun e -> e |> Entity.getState |> EntityState.isDead |> not))
-        let night = { night with PendingSkills = psList }
-        // TODO: sending logic, should order by priority
-        let mutable m, g, n = main, game, night
-        for ps in psList do
-            let r, (game, night) = State.run (sendSkill g ps) (g, n)
-            let! _ = r
-            g <- game
-            n <- night
-        m, g, n
-    }
-    match result with
-    | Error e -> Error e
-    | Ok (main, game, night) ->
-        do! State.put (main, game)
-        Ok night
+    let psList = createPendingSkills (game.Entities |> List.filter (
+        fun e -> e |> Entity.getState |> EntityState.isDead |> not))
+    let night = { night with PendingSkills = psList }
+    // TODO: sending logic, should order by priority
+    do! State.put (main, game)
+    night
 }
 
 let nightUpdate (night : NightContext) = monad {
     let! (main :MainContext, game : GameContext) = State.get
     let _, (main, game) = State.run (nightStart ()) (main, game)
-    let next = monad {
-        let rn, (main, game) = State.run (nightAction night) (main, game)
-        let! night = rn
-        main, game
-    }
-    match next with
-    | Error e -> Error e
-    | Ok (main, game) ->
-        do! State.put (main, game)
-        // TODO: maybe game win
-        Ok Day
+    let night, (main, game) = State.run (nightAction night) (main, game)
+    do! State.put (main, game)
+    // TODO: maybe game win
+    Day
 }

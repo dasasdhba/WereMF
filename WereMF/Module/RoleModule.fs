@@ -2,7 +2,6 @@ module WereMF.Module.Role
 
 open System
 open WereMF.Common
-open WereMF.Module.Cli
 
 //----------------------------------------------------------------------------
 // interface
@@ -17,15 +16,23 @@ let getQueriedHandler (rng : Random) (role: IRole) =
     | :? IRoleQueriedHandler as handler -> handler.Get rng
     | _ -> IdHandler
     
-// pending
+// pending & valid
 
 type IRolePendingHandlers =
-    abstract member Get : Player -> Result<RoleHandler list, CommandType> // kirby needs input
+    abstract member Get : Player -> RoleHandler list // kirby needs input
+
+type IRoleValidHandlers =
+    abstract member Get : unit -> RoleHandler list
 
 let getPendingHandlers (player: Player) (role: IRole) =
     match role with
     | :? IRolePendingHandlers as handler -> handler.Get player
-    | _ -> Ok [IdHandler]
+    | _ -> [IdHandler]
+    
+let getValidHandlers (role: IRole) =
+    match role with
+    | :? IRoleValidHandlers as handler -> handler.Get ()
+    | _ -> [IdHandler]
     
 // in game update
     

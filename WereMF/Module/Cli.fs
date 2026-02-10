@@ -38,6 +38,8 @@ type CommandType =
     | Restart
     | Reboot
 
+exception CommandEx of CommandType
+
 let parseCommand (input : string) =
     match input with
     | "\\undo" ->
@@ -75,7 +77,7 @@ let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =
                     else cliReplay.Head
         let command = parseCommand input
         match command with
-        | Ok c -> Error c
+        | Ok c -> raise (c |> CommandEx)
         | Error true -> loop ()
         | Error false ->
             match parser input with
@@ -85,7 +87,7 @@ let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =
                     cliRedo <- []
                 else
                     cliReplay <- cliReplay.Tail
-                Ok result
+                result
             | Error msg -> 
                 Console.WriteLine msg
                 loop ()
@@ -173,7 +175,7 @@ let parseMultiPlayerId (config: ParseMultiPlayerConfig) (input: string) : Result
     if ids.Length > config.MaxCount then
         return! match config.MaxCountError with
                 | Some msg -> Error msg
-                | None -> Error$"超过最大数量限制（最多 {config.MaxCount} 个），输入了 {ids.Length} 个"
+                | None -> Error $"超过最大数量限制（最多 {config.MaxCount} 个），输入了 {ids.Length} 个"
     elif ids.Length = 1 && ids.Head <= PlayerId 0 then GiveUp else
     // 检查重复
     let distinctIds = ids |> List.distinct
@@ -202,7 +204,8 @@ let parseMultiSkill
         let results = ids |> List.map (fun id ->
             match Ok id |> filter with
             | Error e -> Error e
-            | Ok _ -> Ok id
+            | Ok i when i <= PlayerId 0 -> Error "想放弃请仅输入 0"
+            | _ -> Ok id
         )
         
         let errors = results |> List.choose (function Error e -> Some e | _ -> None)

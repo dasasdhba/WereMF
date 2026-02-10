@@ -1,6 +1,5 @@
 module WereMF.Role.Kirby
 
-open FSharpPlus
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Skill
@@ -39,17 +38,27 @@ type KirbyRole =
                     Type = ToPlayer player
                     Content = $"是否使用复制技能（{chara.ToString()}）？（1：使用；0：放弃并使用吸入技能）"
                 }
-                monad {
-                    let! yes = requestInputWithMessage msg parseBool
-                    if yes |> not then [IdHandler] else
 
+                let yes = requestInputWithMessage msg parseBool
+                if yes |> not then [IdHandler] else
+
+                let sub = createSubFunctor
+                           (fun k -> k.CopiedRole.Value)
+                           (fun v k -> { k with CopiedRole = Some v })
+                role |> getPendingHandlers player |> List.map (
+                    fun h -> (sub |> KirbyHandler).Bind h)
+            | None -> [IdHandler]
+    interface IRoleValidHandlers with
+        member this.Get () =
+            match this.CopiedRole with
+                | Some role ->
                     let sub = createSubFunctor
                                (fun k -> k.CopiedRole.Value)
                                (fun v k -> { k with CopiedRole = Some v })
-                    return! role |> getPendingHandlers player |> Result.map (
-                        fun l -> l |> List.map (fun h -> (sub |> KirbyHandler).Bind h))
-                }
-            | None -> Ok [IdHandler]
+                    let subList = role |> getValidHandlers |> List.map (
+                        fun h -> (sub |> KirbyHandler).Bind h)
+                    IdHandler :: subList
+                | None -> [IdHandler]
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             this.UpdateCopiedRoleWith updateOnNightStart

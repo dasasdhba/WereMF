@@ -9,19 +9,15 @@ open WereMF.Update.Roll
 let mutable seed = DateTime.UtcNow.Ticks.GetHashCode()
 
 let rec updateMain main : MainState =
-    let runState runner =
-        let r, c = State.run runner main.Context
-        r |> Result.map (fun s -> s, c)
-    
-    let next =
-       match main.Status with
-       | InputPlayers -> runState (initPlayers ())
-       | Roll -> runState (rollUpdate ())
-       | Game game -> runState (gameUpdate game)
-    
-    match next with
-    | Ok (s, c) -> updateMain { main with Status = s; Context = c }
-    | Error c ->
+    try 
+        let s, c =
+           match main.Status with
+           | InputPlayers -> State.run (initPlayers ()) main.Context
+           | Roll -> State.run (rollUpdate ()) main.Context
+           | Game game -> State.run (gameUpdate game) main.Context
+        updateMain { main with Status = s; Context = c }
+    with
+    | CommandEx c ->
         match c with
         | Undo ->
             cliRedo <- cliRedo @ [cliUndo |> List.last]
@@ -52,5 +48,6 @@ let rec updateMain main : MainState =
             cliSilent <- true
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
             updateMain (MainState.New seed)
+    | ex -> raise ex
 
 updateMain (MainState.New seed) |> ignore

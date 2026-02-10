@@ -23,19 +23,23 @@ type FenXiaRole =
             Priority = 100
             SummaryName = FenXia.ToString ()
         }
+    member private this.GetHandlersWith func =
+        let mutable result = [IdHandler]
+        for i in 0..(this.CopiedRoles.Length - 1) do
+            let role = this.CopiedRoles[i]
+            let hs = role |> func
+            let sub = createSubFunctor
+                           (fun k -> k.CopiedRoles[i])
+                           (fun v k ->
+                 { k with CopiedRoles = k.CopiedRoles |> List.updateAt i v })
+            result <- result @ (hs |> List.map (fun h -> (sub |> CommonHandler).Bind h))
+        result
     interface IRolePendingHandlers with
-        member this.Get player = monad {
-            let mutable result = [IdHandler]
-            for i in 0..(this.CopiedRoles.Length - 1) do
-                let role = this.CopiedRoles[i]
-                let! hs = role |> getPendingHandlers player
-                let sub = createSubFunctor
-                               (fun k -> k.CopiedRoles[i])
-                               (fun v k ->
-                     { k with CopiedRoles = k.CopiedRoles |> List.updateAt i v })
-                result <- result @ (hs |> List.map (fun h -> (sub |> CommonHandler).Bind h))
-            result
-        }
+        member this.Get player =
+            this.GetHandlersWith (getPendingHandlers player)
+    interface IRoleValidHandlers with
+        member this.Get () =
+            this.GetHandlersWith getValidHandlers
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             let r = this.UpdateCopiedRolesWith updateOnNightStart

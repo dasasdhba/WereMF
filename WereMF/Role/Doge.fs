@@ -52,14 +52,14 @@ let parseDogeInput (input: string) : Result<PlayerId * bool, string> =
     | 0 -> Error "输入不能为空"
     | 1 ->
         // 仅保护，不自爆
-        parsePlayerId parts.[0] |> Result.map (fun id -> (id, false))
+        parsePlayerId parts[0] |> Result.map (fun id -> (id, false))
     | 2 ->
         // 保护 + 自爆
-        let isSuicide = parts.[1].ToLower() = "b"
+        let isSuicide = parts[1].ToLower() = "b"
         if not isSuicide then
             Error "无效输入格式，请使用: 玩家ID [b]"
         else
-            parsePlayerId parts.[0] |> Result.map (fun id -> (id, true))
+            parsePlayerId parts[0] |> Result.map (fun id -> (id, true))
     | _ ->
         Error "无效输入格式，请使用: 玩家ID [b]"
 

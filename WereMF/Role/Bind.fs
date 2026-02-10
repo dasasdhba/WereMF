@@ -1,10 +1,7 @@
 module WereMF.Role.Bind
 
-open FSharpPlus
-open FSharpPlus.Data
 open WereMF.Common
 open WereMF.State
-open WereMF.Module.Cli
 open WereMF.Role.CaiMon
 open WereMF.Role.Creeper
 open WereMF.Role.CTF

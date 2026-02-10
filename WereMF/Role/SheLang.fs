@@ -56,8 +56,8 @@ let parseSheLangInput (input: string) : Result<PlayerId * PlayerId option, strin
     | GiveUp -> PlayerId 0, None
     | Targets ids ->
         match ids.Length with
-        | 1 -> ids.[0], None
-        | v when v >= 2 -> ids.[0], Some ids.[1]
+        | 1 -> ids[0], None
+        | v when v >= 2 -> ids[0], Some ids[1]
         | _ -> return! Error "未知格式"
 }
 

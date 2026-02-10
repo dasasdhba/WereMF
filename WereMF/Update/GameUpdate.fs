@@ -23,22 +23,15 @@ let gameInit (main : MainContext) (game: GameContext) =
     
 let gameUpdate (game: GameState) = monad {
     let! main = State.get
+    let status, (main, gc) =
+        match game.Status with
+        | Start ->
+           do gameInit main game.Context
+           main.Players |> List.map (fun p -> p.Id) |> NightContext.New |> Night, (main, game.Context)
+        | Night night -> State.run (nightUpdate night) (main, game.Context)
+        | _ -> raise (Reboot |> CommandEx)
     
-    let runState runner =
-        let r, c = State.run runner (main, game.Context)
-        r |> Result.map (fun s -> s, c)
-    
-    let next = match game.Status with
-               | Start ->
-                   do gameInit main game.Context
-                   Ok (main.Players |> List.map (fun p -> p.Id) |> NightContext.New |> Night, (main, game.Context))
-               | Night night -> runState (nightUpdate night)
-               | _ -> Error Reboot
-       
-    match next with
-    | Ok (status, (main, gc)) ->
-        let game = { game with Context = gc ; Status = status }
-        do! State.put main
-        Ok (game |> Game)
-    | Error e -> Error e
+    let game = { game with Context = gc ; Status = status }
+    do! State.put main
+    game |> Game
 }

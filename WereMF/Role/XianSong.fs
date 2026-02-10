@@ -53,17 +53,17 @@ let parseXianSongInput (input: string) : Result<PlayerId * bool option, string> 
     let parts = input.Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
     match parts.Length with
     | 1 ->
-        parsePlayerId parts.[0] |> Result.map (fun id -> (id, None))
+        parsePlayerId parts[0] |> Result.map (fun id -> (id, None))
     | 2 ->
         let forceMfa =
-            match parts.[1].ToLower() with
+            match parts[1].ToLower() with
             | "m" -> Some true   // 强制要mfa
             | "x" -> Some false  // 强制丢球
             | _ -> None
         if forceMfa.IsNone then
             Error "请输入 m（强制要mfa）或 x（强制丢咸松球）"
         else
-            parsePlayerId parts.[0] |> Result.map (fun id -> (id, forceMfa))
+            parsePlayerId parts[0] |> Result.map (fun id -> (id, forceMfa))
     | _ -> Error "请输入格式: 玩家编号 [m/x]"
 
 // 贤松技能发送
