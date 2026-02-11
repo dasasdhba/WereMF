@@ -3,8 +3,8 @@ module WereMF.Role.Kirby
 open FSharpPlus
 open WereMF.Common
 open WereMF.Module.Role
-open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.State
 
 type KirbyRole =
     {
@@ -18,7 +18,7 @@ type KirbyRole =
     interface IRole with
         member this.Base = {
             CharaType = Kirby
-            Priority = 100
+            Priority = 9
             SummaryName = Kirby.ToString ()
         }
     interface IRoleQueriedHandler with
@@ -67,8 +67,8 @@ type KirbyRole =
         member this.Update () =
             this.UpdateCopiedRoleWith updateOnDayStart
     interface IRoleUpdateOnDead with
-        member this.Update () =
-            { this with CopiedRole = None }
+        member this.Update dead =
+            this.UpdateCopiedRoleWith (updateOnDead dead)
     interface IRoleGetNightStartDeadRequest with
         member this.Get () =
             if this.CopiedRole.IsNone then [] else
@@ -84,17 +84,3 @@ type KirbyRole =
                 let role = { this with CopiedRole = Some r.NewRole }
                 { r with NewRole = role }
             }
-
-// 卡比吸入技能（当没有复制身份时使用）
-let kirbySendSkill ps game =
-    let title = "输入一名玩家的编号吸入，输入 0 放弃"
-    let filter = filterNonExists game
-                >> filterDead game
-                >> filterExceptIndex ps.Source "你不能吸入自己"
-                >> filterSelectable game
-                >> filterKidnapped ps
-    let filter = giveUpOrFilterWith filter
-    let parser = parsePlayerId >> filter >> Result.map (
-        fun r -> if r <= PlayerId 0 then [ None ]
-                 else [ { Pending = ps; Target = r } :> ISkill |> Some ])
-    ps |> sendSkillWith title filter parser

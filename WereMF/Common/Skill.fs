@@ -57,18 +57,32 @@ type PendingSkill = {
     Priority : int
     Threaten : ThreatenSkill option
     Kidnapped : bool
-    Blocked : bool
 }
 
-type ISkill =
-    abstract member Pending : PendingSkill
-    abstract member Target : PlayerId
+type SpringType =
+    | Normal
+    | Recursed
 
-type Skill =
+type SendingSkill =
     {
         Pending : PendingSkill
         Target : PlayerId
+        Spring : SpringType option
     }
-    interface ISkill with
-        member this.Pending = this.Pending
-        member this.Target = this.Target
+
+type ISkill = interface end
+
+type Skill =
+    {
+        Sending : SendingSkill
+        Actor : ISkill
+    }
+    static member New pending target actor =
+        {
+            Sending = {
+                Pending = pending
+                Target = target
+                Spring = None
+            }
+            Actor = actor
+        }

@@ -76,7 +76,7 @@ type IRoleUpdateOnDayStart =
     abstract member Update : unit -> IRole
     
 type IRoleUpdateOnDead =
-    abstract member Update : unit -> IRole
+    abstract member Update : DeadType -> IRole
 
 let getNightStartDeadRequest (role : IRole) =
     match role with
@@ -93,9 +93,9 @@ let updateOnDayStart (role : IRole) =
     | :? IRoleUpdateOnDayStart as h -> h.Update ()
     | _ -> role
 
-let updateOnDead (role :IRole) =
+let updateOnDead dead (role :IRole) =
     match role with
-    | :? IRoleUpdateOnDead as h -> h.Update ()
+    | :? IRoleUpdateOnDead as h -> h.Update dead
     | _ -> role
     
 // leaf specific
@@ -141,4 +141,20 @@ let getQueriedName (handler: RoleHandler) (role: IRole) =
 let updateNightOptionBool bool : bool option =
     match bool with
     | Some true -> Some false
+    | _ -> None
+    
+let updateRoleWithHandler<'T when 'T :> IRole> (updater: 'T -> 'T) (handler: RoleHandler) entity =
+    let role = handler.GetFromEntity entity
+    let role =
+        match role with
+        | :? 'T as k ->
+            k |> updater :> IRole
+        | _ -> role
+    handler.SetToEntity role entity
+    
+let getFromRoleWithHandler<'S,'T when 'T :> IRole> (getter: 'T -> 'S) (handler: RoleHandler) entity =
+    let role = handler.GetFromEntity entity
+    match role with
+    | :? 'T as k ->
+        k |> getter |> Some
     | _ -> None

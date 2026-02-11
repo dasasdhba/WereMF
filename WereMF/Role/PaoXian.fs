@@ -1,8 +1,6 @@
 module WereMF.Role.PaoXian
 
 open WereMF.Common
-open WereMF.Module.Skill
-open WereMF.Module.Cli
 
 type PaoXianRole =
     | PaoXianRole
@@ -12,16 +10,3 @@ type PaoXianRole =
             Priority = 0
             SummaryName = PaoXian.ToString ()
         }
-
-let paoXianSendSkill ps game =
-    let title = "输入一名玩家的编号令其死亡，输入 0 放弃"
-    let filter = filterNonExists game
-                >> filterDead game
-                >> filterExceptIndex ps.Source "你不能杀死自己"
-                >> filterSelectable game
-                >> filterKidnapped ps
-    let filter = giveUpOrFilterWith filter
-    let parser = parsePlayerId >> filter >> Result.map (
-        fun r -> if r <= PlayerId 0 then [ None ]
-                 else [ { Pending = ps; Target = r } :> ISkill |> Some ])
-    ps |> sendSkillWith title filter parser

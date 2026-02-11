@@ -73,7 +73,7 @@ type EntityState =
         Dead : DeadState
         Reborn : RebornState option // 彩怪
         Smog : int list // 灰卡比
-        Bug : int // ctf
+        Bug : int option // ctf
         Capsule : int list // 庸医
         Potion : int list // 法猫
         XianSong : int list // 闲松球
@@ -92,6 +92,7 @@ type EntityState =
     member this.CapsuleCount = this.Capsule.Length
     member this.PotionCount = this.Potion.Length
     member this.XianSongCount = this.XianSong.Length
+    member this.BugCount = if this.Bug.IsSome then this.Bug.Value else 0
     static member New () =
         {
             BarLeader = None
@@ -100,7 +101,7 @@ type EntityState =
             Dead = { Dead = false ; Name = "" }
             Reborn = None
             Smog = []
-            Bug = 0
+            Bug = None
             Capsule = []
             Potion = []
             XianSong = []
@@ -138,4 +139,14 @@ type DeadRequest =
             DeadType = t
             GetName = fun e -> e.Player.Name
             GetReveal = fun name e -> $"{e.Player.Name}是{name}"
+        }
+    static member FromSelf header t =
+        {
+            DeadType = t
+            GetName = fun e -> header
+            GetReveal = (fun name e ->
+                    let result = $"这个{header}是{e.Player.Name}"
+                    if header = name then result
+                    else $"{result}，{e.Player.Name}是{name}"
+                )
         }

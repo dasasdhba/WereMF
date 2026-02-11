@@ -1,27 +1,22 @@
 module WereMF.Role.JiaoHua
 
 open WereMF.Common
-open WereMF.Module.Skill
-open WereMF.Module.Cli
+open WereMF.Module.Role
 
 type JiaoHuaRole =
-    | JiaoHuaRole
+    {
+        VoteBlock : bool
+    }
+    static member New () = { VoteBlock = false }
     interface IRole with
         member this.Base = {
             CharaType = JiaoHua
             Priority = 5
             SummaryName = JiaoHua.ToString ()
         }
-
-let jiaoHuaSendSkill ps game =
-    let title = "输入一名玩家的编号查询其身份，输入 0 以放弃"
-    let filter = filterNonExists game
-                >> filterDead game
-                >> filterExceptIndex ps.Source "你不能查自己"
-                >> filterSelectable game
-                >> filterKidnapped ps
-    let filter = giveUpOrFilterWith filter
-    let parser = parsePlayerId >> filter >> Result.map (
-        fun r -> if r <= PlayerId 0 then [ None ]
-                 else [ { Pending = ps; Target = r } :> ISkill |> Some ])
-    ps |> sendSkillWith title filter parser
+    interface IRoleUpdateOnNightStart with
+        member this.Update () =
+            { this with VoteBlock = false }
+    interface IRoleUpdateOnDead with
+        member this.Update dead =
+            if dead <> Kill then this else { this with VoteBlock = true }

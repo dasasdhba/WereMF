@@ -75,8 +75,8 @@ type LeafRole =
         member this.Update () =
             this.UpdateRolesWith updateOnDayStart
     interface IRoleUpdateOnDead with
-        member this.Update () =
-            this.UpdateRolesWith updateOnDead
+        member this.Update dead =
+            this.UpdateRolesWith (updateOnDead dead)
     interface IRoleGetNightStartDeadRequest with
         member this.Get () =
             if this.Fury |> not then

@@ -195,8 +195,8 @@ let parseMultiPlayerId (config: ParseMultiPlayerConfig) (input: string) : Result
 let parseMultiSkill 
     (config: ParseMultiPlayerConfig) 
     (filter: Result<PlayerId, string> -> Result<PlayerId, string>)
-    (createSkill: PlayerId -> ISkill)
-    (input: string) : Result<ISkill option list, string> = monad {
+    (createSkill: PlayerId -> Skill)
+    (input: string) : Result<Skill option list, string> = monad {
     let! targets = parseMultiPlayerId config input
     match targets with
     | GiveUp -> [None]

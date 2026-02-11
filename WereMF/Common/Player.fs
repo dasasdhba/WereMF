@@ -5,6 +5,9 @@ type PlayerId =
     member this.ToInt() =
         let (PlayerId id) = this
         id
+    member this.Reverse() =
+        let id = this.ToInt()
+        -id |> PlayerId
     override this.ToString() =
         this.ToInt().ToString()
     member this.ToCircleString() =

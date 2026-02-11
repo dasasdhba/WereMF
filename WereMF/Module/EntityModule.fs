@@ -54,7 +54,7 @@ module EntityState =
         
     let clearMarks entity =
         let entity = { entity with Smog = [] }
-        let entity = { entity with Bug = 0 }
+        let entity = { entity with Bug = None }
         let entity = { entity with Capsule = [] }
         let entity = { entity with Potion = [] }
         let entity = { entity with XianSong = [] }
@@ -73,7 +73,7 @@ module EntityState =
             elif n = 1 then s
             else [1..n] |> List.map (fun i -> s) |> String.concat ""
         let smog = repeat entity.SmogCount "\u2601"
-        let bug = repeat entity.Bug "\U0001F41E"
+        let bug = repeat entity.BugCount "\U0001F41E"
         let xian = repeat entity.XianSongCount "\U0001F36A"
         let cap = repeat entity.CapsuleCount "\U0001F48A"
         let drop = repeat entity.PotionCount "\U0001F4A7"
@@ -82,7 +82,8 @@ module EntityState =
     // in game judge
     
     let canBeSelected state =
-        not (state.JiaoHuaProtected || state.LeafProtected.IsSome || state.SmogCount > 0)
+        not (state.JiaoHuaProtected || state.LeafProtected.IsSome
+             || state.Smog |> List.exists (fun i -> i > 1))
     let canBeSelectedWithSmog state =
         not (state.JiaoHuaProtected || state.LeafProtected.IsSome)
     let canBeVoted state =
@@ -196,11 +197,11 @@ module Entity =
         
     // dead check
     
-    let updateOnDead entity =
+    let updateOnDead dead entity =
         {
             entity with
                 State = entity.State |> EntityState.updateOnDead
-                Role = entity.Role |> Role.updateOnDead
+                Role = entity.Role |> Role.updateOnDead dead
         }
     
     let requestDead (request: DeadRequest) (context: RoleContext) entity =
@@ -225,7 +226,7 @@ module Entity =
                 let name = entity |> getDeadName h
                 let reveal = entity |> request.GetReveal name
                 sendMessage { Type = Public ; Content = reveal }
-                let entity = { entity with State.Dead = { Dead = true ; Name = name } } |> updateOnDead
+                let entity = { entity with State.Dead = { Dead = true ; Name = name } } |> updateOnDead request.DeadType
                 context, entity
             match entity.Role with
             | :? IRoleLeaf as leaf when leaf.Fury |> not ->
@@ -238,7 +239,7 @@ module Entity =
                 context, entity
             | :? IRoleLeaf ->
                 sendMessage { Type = Public ; Content = "叶子是叶子" }
-                let entity = { entity with State.Dead = { Dead = true ; Name = "叶子" } } |> updateOnDead
+                let entity = { entity with State.Dead = { Dead = true ; Name = "叶子" } } |> updateOnDead request.DeadType
                 context, entity
             | _ ->
                 revealNormal ()
@@ -333,7 +334,6 @@ module Entity =
             Priority = role |> Role.getPriority
             Threaten = None
             Kidnapped = entity.State.Kidnapped.IsSome
-            Blocked = false
         }
         
     let getHandlerCharaType (handler: RoleHandler) entity =
@@ -341,3 +341,22 @@ module Entity =
         
     let getHandlerName (handler: RoleHandler) entity =
         (getHandlerCharaType handler entity).ToString ()
+    
+    let updateBlockIfBug (night: NightContext) entity =
+        if entity.State.BugCount < 3 then night, entity else
+        let state = night.GetPlayerState entity.Player.Id
+        let state = { state with Blocked = true }
+        let night = night.SetPlayerState state
+        night, entity
+    
+    let updateBugOnNight (night: NightContext) entity =
+        if entity.State.Bug = None then night, entity else
+        let night = night.AddMessage $"{entity.Player}身上多了一只虫子"
+        let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 1) }
+        updateBlockIfBug night entity
+        
+    let updateSpringBugOnNight (night: NightContext) entity =
+        if entity.State.Bug = None then night, entity else
+        let night = night.AddMessage $"{entity.Player}身上多了无数只虫子"
+        let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 3) }
+        updateBlockIfBug night entity

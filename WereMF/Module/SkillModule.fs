@@ -4,10 +4,11 @@ open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Cli
+open WereMF.Module.Entity
 open WereMF.State
 
 // ------------------------------------------------------------------
-// helpers
+// sending helpers
 
 let giveUpOrFilterWith filter = function
     | Ok p when p <= PlayerId 0 -> Ok (PlayerId 0)
@@ -52,7 +53,8 @@ let filterKidnapped ps = function
 let filterDisabled hint = function
     | _ -> Error hint
 
-let private getThreatenResult filter (game: GameContext) ps=
+let private getThreatenResult filter (creator: unit -> ISkill)
+    (game: GameContext) ps=
     let entity = game.GetEntity ps.Source
     ps.Threaten |> Option.bind (fun threaten ->
         let target = threaten.Target
@@ -68,7 +70,7 @@ let private getThreatenResult filter (game: GameContext) ps=
         if threaten.Force then
             sendMessage { Type = ToPlayer entity.Player
                           Content = $"你被强制威胁{msg}" }
-            Some (Ok { Pending = ps ; Target = target })
+            Some (Ok (Skill.New ps target (creator())))
         else
             sendMessage { Type = ToPlayer entity.Player
                           Content = $"你被威胁{msg}" }
@@ -83,10 +85,10 @@ let private updateThreatenIfViolate targets result entity =
     | _ -> entity
     
 let sendSkillWith title filter
-    (parser: string -> Result<ISkill option list, string>) ps = monad {
+    (parser: string -> Result<Skill option list, string>) creator ps = monad {
     let! (game: GameContext, night: NightContext) = State.get
     let entity = game.GetEntity ps.Source
-    let threaten = ps |> getThreatenResult filter game
+    let threaten = ps |> getThreatenResult filter creator game
     
     if game.Entities |> List.exists (fun e ->
         Ok e.Player.Id |> filter |> Result.isOk) |> not then
@@ -98,7 +100,7 @@ let sendSkillWith title filter
     
     match threaten with
     | Some (Ok v) ->
-        if v.Target <= PlayerId 0 then () else
+        if v.Sending.Target <= PlayerId 0 then () else
             let night = { night with Skills = v :: night.Skills }
             do! State.put (game, night)
         ()
@@ -106,7 +108,7 @@ let sendSkillWith title filter
         let msg = { Type = ToPlayer entity.Player; Content = title }
         let results = requestInputWithMessage msg parser
         let targets = results |> List.map (function
-            | Some skill -> skill.Target
+            | Some skill -> skill.Sending.Target
             | None -> PlayerId 0)
         let entity = entity |> updateThreatenIfViolate targets threaten
         let game = game.UpdateEntity entity
@@ -119,14 +121,108 @@ let sendSkillWith title filter
 // ------------------------------------------------------------------
 // execution
 
-type ISkillExecuteImmediate =
-    abstract member CanExecute : unit ->
-        Reader<MainContext * GameContext * NightContext, bool>
-    abstract member Execute : unit ->
-        State<MainContext * GameContext * NightContext, ISkillExecuteImmediate>
+type SkillContext =
+    {
+        Main : MainContext
+        Game : GameContext
+        Night : NightContext
+    }
+    static member Create main game night =
+        {
+            Main = main
+            Game = game
+            Night = night
+        }
+    member this.Get () =
+        this.Main, this.Game, this.Night
+        
+type ISkillCanExecute =
+    abstract member CanExecute : SkillContext -> SendingSkill -> bool
 
-type ISkillExecuteSummary =
-    abstract member CanExecute : unit ->
-        Reader<MainContext * GameContext * NightContext, bool>
-    abstract member Execute : unit ->
-        State<MainContext * GameContext * NightContext, ISkillExecuteImmediate>
+type ISkillExecute =
+    abstract member Execute : SendingSkill ->
+        State<SkillContext, ISkill>
+
+type SkillDeadRequest = {
+    Target : Entity
+    Request : DeadRequest
+}
+
+type ISkillSummary =
+    abstract member Priority : int
+    abstract member GetRealTarget : SendingSkill -> PlayerId
+    abstract member Summarize : SendingSkill ->
+        State<SkillContext, SkillDeadRequest option>
+        
+type ISkillHealDeadKill =
+    abstract member CanHeal : unit -> bool
+    abstract member Heal : string -> ISkill
+    
+type ISkillHealDeadSudden =
+    abstract member CanHeal : unit -> bool
+    abstract member Heal : string -> ISkill
+
+// ------------------------------------------------------------------
+// executing helpers
+
+let getRealTarget (skill: SendingSkill) =
+    match skill.Spring with
+    | None -> skill.Target
+    | Some Normal -> skill.Pending.Source
+    | Some Recursed -> PlayerId 0
+
+let updateBugWith (context: SkillContext) (skill : SendingSkill) =
+    let update (updater : NightContext -> Entity -> NightContext * Entity) (c: SkillContext) (id: PlayerId) =
+        let e = c.Game.GetEntity id
+        let n, e = updater c.Night e
+        { c with Game = c.Game.UpdateEntity e ; Night = n }
+    match skill.Spring with
+    | None ->
+        let context = update updateBugOnNight context skill.Pending.Source
+        update updateBugOnNight context skill.Target
+    | Some Normal ->
+        let context = update updateBugOnNight context skill.Pending.Source
+        let context = update updateBugOnNight context skill.Target
+        update updateBugOnNight context skill.Pending.Source
+    | Some Recursed ->
+        let context = update updateSpringBugOnNight context skill.Pending.Source
+        update updateSpringBugOnNight context skill.Target
+
+let canExecute context (skill: Skill) =
+    match skill.Actor with
+    | :? ISkillCanExecute as actor -> skill.Sending |> actor.CanExecute context
+    | _ ->
+        // by default, we check recursed and if target alive
+        let target = skill.Sending |> getRealTarget
+        if context.Game.HasEntity target |> not then false else
+        let entity = context.Game.GetEntity target
+        entity.State |> EntityState.isDead |> not
+
+let setSpring context (skill: SendingSkill) =
+    if (context.Night.GetPlayerState skill.Target).Spring then
+        if (context.Night.GetPlayerState skill.Pending.Source).Spring then
+            { skill with Spring = Some Recursed }
+        else
+            { skill with Spring = Some Normal }
+    else
+        { skill with Spring = None }
+        
+let isDoged (night: NightContext) target =
+    let state = night.GetPlayerState target
+    state.Doge.IsSome
+    
+let getSource (skill : SendingSkill) =
+    skill.Pending.Source
+    
+let getHandler (skill: SendingSkill) =
+    skill.Pending.Handler
+    
+let getSenderName (game: GameContext) (skill :SendingSkill) =
+    let source = skill |> getSource
+    let handler = skill.Pending.Handler
+    let entity = game.GetEntity source
+    getHandlerName handler entity
+    
+let getPlayerName (game: GameContext) (player : PlayerId)=
+    let entity = game.GetEntity player
+    entity.Player.Name
