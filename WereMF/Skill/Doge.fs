@@ -33,7 +33,7 @@ type DogeSkill =
                 this
         }
     interface ISkillSummary with
-        member this.Priority = 0
+        member this.Priority = -1
         member this.GetRealTarget sending =
             sending |> getSource
         member this.Summarize sending = monad {

@@ -1,6 +1,7 @@
 module WereMF.Skill.SheLang
 
 open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Skill
 open WereMF.Module.Cli
@@ -12,6 +13,33 @@ type SheLangSkill =
         Target2 : PlayerId option
     }
     interface ISkill
+    interface ISkillExecute with
+        member this.Execute sending = monad {
+            let! context = State.get
+            
+            let context =
+                if this.Target2.IsNone then context else
+                let t2 = this.Target2.Value
+                let skill = {
+                    Sending = { sending with Target = t2 }
+                    Actor = { Target2 = None }
+                }
+                { context with Night.Skills = skill :: context.Night.Skills }
+            
+            let target = sending |> getRealTarget
+            if target |> isDoged context.Night then
+                let sender = sending |> getSenderName context.Game
+                let recv = target |> getPlayerName context.Game
+                let night = context.Night.AddMessage $"{sender}想给{recv}扔弹簧，被 doge 挡了"
+                do! State.put { context with Night = night }
+                this
+            else
+                let state = context.Night.GetPlayerState target
+                let state = { state with Spring = true }
+                let night = context.Night.SetPlayerState state
+                do! State.put { context with Night = night }
+                this
+        }
 
 // 解析铯郎的输入，格式: "玩家ID" 或 "玩家ID1 玩家ID2"
 let parseSheLangInput (input: string) : Result<PlayerId * PlayerId option, string> = monad {

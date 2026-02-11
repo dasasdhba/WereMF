@@ -31,6 +31,7 @@ type PaoXianSkill =
         member this.GetRealTarget sending =
             sending |> getRealTarget
         member this.Summarize sending = monad {
+            if this.Success |> not then None else
             let! context = State.get
             
             let sender = sending |> getSenderName context.Game

@@ -1,7 +1,6 @@
 module WereMF.Skill.FaMao
 
 open WereMF.Common
-open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
 open WereMF.State

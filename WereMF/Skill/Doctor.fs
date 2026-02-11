@@ -41,7 +41,7 @@ type DoctorSkill =
                 { this with Success = true }
         }
     interface ISkillSummary with
-        member this.Priority = -1
+        member this.Priority = -5
         member this.GetRealTarget sending =
             sending |> getRealTarget
         member this.Summarize sending = monad {
@@ -51,9 +51,8 @@ type DoctorSkill =
             
             let target = sending |> getRealTarget
             let entity = context.Game.GetEntity target
-            let sender = sending |> getSenderName context.Game
             let recv = target |> getPlayerName context.Game
-            sendMessage { Type = Public ; Content = $"{recv}被{sender}扎了一针" }
+            sendMessage { Type = Public ; Content = $"{recv}被扎了一针" }
             
             let entity = { entity with State = entity.State |> EntityState.addCapsule }
             let context = { context with Game = context.Game.UpdateEntity entity }
