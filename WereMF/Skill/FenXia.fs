@@ -9,6 +9,7 @@ open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
 open WereMF.Role.Bind
+open WereMF.Role.ShiWu
 open WereMF.State
 open WereMF.Role.FenXia
 
@@ -66,15 +67,31 @@ type FenXiaSkill =
                 do! State.put { context with Night = night }
                 skill
             else
-                let handlers = getValidHandlers tEntity.Role
-                let msg = { Type = ToPlayer entity.Player ; Content = "选择一个技能" }
-                let chara = requestCharaTypeFromHandlers handlers tEntity msg (fun c -> c <> FenXia || c <> Leaf)
-                if chara.IsNone then
+                if tEntity.State |> EntityState.isDead && tEntity.State.Dead.Name = "???" then
                     sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
                     skill
                 else
                 
-                let chara = chara.Value
+                let h = tEntity |> Entity.getQueriedHandler context.Main.Rng
+                
+                if h.IsNone then
+                    sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                    skill
+                else
+                
+                // 实物
+                let h = h.Value
+                let tEntity = tEntity |> exposeIfShiWu h
+                let context = { context with Game = context.Game.UpdateEntity tEntity }
+                do! State.put context
+
+                let chara = getHandlerCharaType h tEntity
+                if chara = FenXia || chara = Leaf then
+                    sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
+                    skill
+                else
+                
+                sendMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () }
                 let role = createRole context.Main.Roll chara
                 let entity = entity |> updateRoleWithHandler
                                  (fun (f: FenXiaRole) -> { f with CopiedRoles = role :: f.CopiedRoles })

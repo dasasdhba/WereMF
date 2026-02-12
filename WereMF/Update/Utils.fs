@@ -1,5 +1,6 @@
 module WereMF.Module.Utils
 
+open System
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Cli
@@ -7,6 +8,9 @@ open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Role.Bind
 open WereMF.Role.Kirby
+
+// ----------------------------------------------------------------------------------
+// night skill
 
 let executeSkill (context: SkillContext) (skill : Skill) =
     let source = skill.Sending.Pending.Source
@@ -78,13 +82,23 @@ let executeSkill (context: SkillContext) (skill : Skill) =
     let context = skill.Sending |> updateBugWith context
     context, skill, success
 
-let createPendingSkills (entities: Entity list) =
+let createPendingSkills (entities: Entity list, rng : Random) =
+    let rec jiaoHuaBlock remaining (list: PendingSkill list) (player: Player) =
+        if remaining = 0 || list.Length = 0 then list else
+        let list = list |> List.randomShuffleWith rng
+        let blocked = list.Head
+        sendMessage { Type = ToPlayer player; Content = $"你的{blocked.Type.ToString()}被禁用" }
+        jiaoHuaBlock (remaining - 1) list.Tail player
     let mutable result = []
     for e in entities do
         let h = getPendingHandlers e.Player e.Role
         let s = h |> List.map (fun u -> e |> Entity.createPendingSkill u)
+        let s = jiaoHuaBlock e.State.JiaoHuaBlocked s e.Player
         result <- result @ s
     result
+
+// ----------------------------------------------------------------------------------
+// summary
 
 let private printSummaryWith printer entities=
     entities |> List.map (fun e -> e |> printer) |> String.concat "\n"

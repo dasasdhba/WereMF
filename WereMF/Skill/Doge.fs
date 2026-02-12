@@ -4,6 +4,7 @@ open System
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
 open WereMF.State
@@ -15,6 +16,20 @@ type DogeSkill =
         IsSuicide : bool
     }
     interface ISkill
+    interface ISkillCost with
+        member this.Cost sending = monad {
+            let! context = State.get
+            let source = sending |> getSource
+            let entity = source |> context.Game.GetEntity
+            let handler = sending |> getHandler
+            let target = sending |> getRealTarget
+            let entity = entity |> updateRoleWithHandler
+                             (fun (d: DogeRole) -> { d with LastSelected = d.LastSelected.Add target })
+                             handler
+            let context = { context with Game = entity |> context.Game.UpdateEntity }
+            do! State.put context
+            this
+        }
     interface ISkillExecute with
         member this.Execute sending = monad {
             let! context = State.get

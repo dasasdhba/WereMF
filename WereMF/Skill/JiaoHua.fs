@@ -17,7 +17,7 @@ type JiaoHuaSkill =
             let target = sending |> getRealTarget
             let entity = context.Game.GetEntity target
             let handler = entity |> getQueriedHandler context.Main.Rng
-            let player = (context.Game.GetEntity sending.Pending.Source).Player
+            let player = (sending |> getSource |> context.Game.GetEntity).Player
             
             // 烟雾
             if handler.IsNone then

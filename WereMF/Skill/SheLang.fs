@@ -17,16 +17,17 @@ type SheLangSkill =
     interface ISkill
     interface ISkillCost with
         member this.Cost sending = monad {
-            if this.Disabled |> not then this else
             let! context = State.get
-            
             let source = sending |> getSource
             let entity = source |> context.Game.GetEntity
             let handler = sending |> getHandler
+            let target = sending |> getRealTarget
             let entity = entity |> updateRoleWithHandler
-                             (fun (s: SheLangRole) -> { s with Disabled = Some true })
+                             (fun (s: SheLangRole) -> { s with
+                                                         LastSelected = s.LastSelected.Add target
+                                                         Disabled = if this.Disabled then Some true else s.Disabled })
                              handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
+            let context = { context with Game = entity |> context.Game.UpdateEntity }
             do! State.put context
             this
         }
