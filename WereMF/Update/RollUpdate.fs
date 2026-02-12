@@ -129,8 +129,10 @@ let rollSetLeaf (r : RollResult) = monad {
         let msg = { Type = ToPlayer leaf.Player ; Content = "是否重抽第一身份？（1：重抽；0：放弃）" }
         let result = requestInputWithMessage msg parseBool
         if not result then r else
-
-        let list = r.LeafRolls |> List.randomShuffleWith rng
+        
+        let head = r.LeafRolls.Head
+        let remaining = r.LeafRolls.Tail
+        let list = (remaining |> List.randomShuffleWith rng) @ [head]
         sendMessage { Type = ToPlayer leaf.Player ; Content = $"第一身份：{list.Head}" }
         { r with LeafRolls = list }
 }
