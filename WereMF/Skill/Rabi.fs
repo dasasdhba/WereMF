@@ -27,7 +27,7 @@ type RabiSkill =
             let sender = sending |> getSenderName context.Game
             let recv = target |> getPlayerName context.Game
             if target |> isDoged context.Night then
-                let night = context.Night.AddMessage $"{sender}想给{recv}喂奶，被doge挡了"
+                let night = context.Night.AddMessage $"{sender}想给{recv}喂奶，被Doge挡了"
                 do! State.put { context with Night = night }
                 this
             else
@@ -139,6 +139,7 @@ let rabbitSendSkill ps (game: GameContext) =
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! playerId, milkType = parseRabbitInput input
         let! playerId = Ok playerId |> filter
+        if playerId <= PlayerId 0 then [ None ] else
         let rabiSkill = Skill.New ps playerId { MilkType = milkType }
         [ rabiSkill |> Some ]
     }

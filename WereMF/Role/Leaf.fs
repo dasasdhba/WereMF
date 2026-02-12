@@ -62,6 +62,8 @@ type LeafRole =
                       { k with Roles = k.Roles |> List.updateAt i v })
                 result <- result @ (hs |> List.map (fun h -> (sub |> CommonHandler).Bind h))
             result
+    member this.GetQueriedHandlers (random : Random) =
+        this.GetHandlersWith (fun h -> [getQueriedHandler random h])
     interface IRolePendingHandlers with
         member this.Get player =
             this.GetHandlersWith (getPendingHandlers player)
@@ -85,6 +87,14 @@ type LeafRole =
             else
                 this.Roles[1..] |> List.map (fun role ->
                     role |> getNightStartDeadRequest) |> List.concat
+    interface IRoleGetDayStartDeadRequest with
+        member this.Get () =
+            if this.Fury |> not then
+                let role = this.Roles[0]
+                role |> getDayStartDeadRequest
+            else
+                this.Roles[1..] |> List.map (fun role ->
+                    role |> getDayStartDeadRequest) |> List.concat
     interface IRolePreventDead with
         member this.Prevent context dead entity =
             let rec loop idx =

@@ -3,7 +3,6 @@ module WereMF.Role.CaiMon
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
-open WereMF.State
 
 type CaiMonRole =
     {
@@ -25,10 +24,15 @@ type CaiMonRole =
             | Some v -> { this with RebornRound = Some (v - 1) }
     interface IRoleGetNightStartDeadRequest with
         member this.Get () =
-            if this.RebornRound.IsSome && this.RebornRound.Value <= 0 then
-                [DeadRequest.New Force]
-            else
-                []
+            let skills =
+                if this.RebornRound.IsSome && this.RebornRound.Value <= 0 then
+                    [DeadRequest.New Force]
+                else
+                    []
+            if this.CaiCount <= 0 then DeadRequest.New Force :: skills else skills
+    interface IRoleGetDayStartDeadRequest with
+        member this.Get () =
+            if this.CaiCount <= 0 then [ DeadRequest.New Force ] else []
     interface IRolePreventDead with
         member this.Prevent context dead entity =
             if dead = Force || this.RebornRound.IsSome || this.CaiCount <= 1 then None else

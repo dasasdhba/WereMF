@@ -94,13 +94,6 @@ module EntityState =
     // in game update
         
     let updateOnNightStart entity =
-        let updateRebornState (reborn : RebornState option) =
-            let updateReborn r =
-                if r.ReadyRound > 0 then { r with ReadyRound = r.ReadyRound - 1 }
-                elif r.RebornRound > 0 then { r with RebornRound = r.RebornRound - 1 }
-                else r
-            if reborn.IsNone then reborn
-            else reborn |> Option.map updateReborn
         {
              entity with
                 LeafProtected = updateNightOptionBool entity.LeafProtected
@@ -109,7 +102,6 @@ module EntityState =
                 XianSong = entity.XianSong |> List.map (fun i -> i - 1)
                 Bomb = 0
                 JiaoHuaVoteBlocked = false
-                Reborn = entity.Reborn |> updateRebornState
         }
         
     let updateOnDayStart entity =
@@ -227,6 +219,7 @@ module Entity =
                 let reveal = entity |> request.GetReveal name
                 sendMessage { Type = Public ; Content = reveal }
                 let entity = { entity with State.Dead = { Dead = true ; Name = name } } |> updateOnDead request.DeadType
+                let context = { context with Game = context.Game.UpdateEntity entity }
                 context, entity
             match entity.Role with
             | :? IRoleLeaf as leaf when leaf.Fury |> not ->
@@ -236,15 +229,44 @@ module Entity =
                                    State.Dead.Dead = false
                                    State.LeafProtected = Some true
                                    Role = leaf.SetFury () }
+                let context = { context with Game = context.Game.UpdateEntity entity }
                 context, entity
             | :? IRoleLeaf ->
                 sendMessage { Type = Public ; Content = "叶子是叶子" }
                 let entity = { entity with State.Dead = { Dead = true ; Name = "叶子" } } |> updateOnDead request.DeadType
+                let context = { context with Game = context.Game.UpdateEntity entity }
                 context, entity
             | _ ->
                 revealNormal ()
         
     let updateOnNightStartRequestDead (context: RoleContext) (entity: Entity) =
+        // 彩怪复活与暴毙
+        let updateRebornState (reborn : RebornState option) =
+            let updateReborn r =
+                if r.ReadyRound > 0 then { r with ReadyRound = r.ReadyRound - 1 }
+                elif r.RebornRound > 0 then { r with RebornRound = r.RebornRound - 1 }
+                else r
+            if reborn.IsNone then reborn
+            else reborn |> Option.map updateReborn
+        let state = { entity.State with Reborn = updateRebornState entity.State.Reborn }
+        let state =
+            if state |> EntityState.isDead && state.Reborn.IsSome && state.Reborn.Value.Reborn then
+                sendMessage { Type = ToPlayer entity.Player ; Content = "你复活了" }
+                { state with Dead.Dead = false }
+            else
+                state
+        
+        let entity = { entity with State = state }
+        let context, entity =
+            if state |> EntityState.isDead |> not
+               && state.Reborn.IsSome && state.Reborn.Value.Reborn |> not then
+                let request = DeadRequest.New Force
+                requestDead request context entity
+            else
+                context, entity
+        
+        if entity.State |> EntityState.isDead then context, entity else
+        
         // 爬行者炸弹
         let rec bombKill count (c: RoleContext) (e: Entity) =
             if count <= 0 then c, e else
@@ -281,7 +303,22 @@ module Entity =
                 loop list.Tail context entity
         if list.Length = 0 then context, entity
         else loop list context entity
-        
+       
+    let updateOnDayStartRequestDead (context: RoleContext) (entity: Entity) =
+        if entity.State |> EntityState.isDead then context, entity else
+         
+         // 身份各自处理（彩怪失去所有彩条等）
+        let list = entity.Role |> Role.getDayStartDeadRequest
+        let rec loop (list: DeadRequest list) (context: RoleContext) (entity: Entity) =
+            let request = list.Head
+            let context, entity = requestDead request context entity
+            if entity.State |> EntityState.isDead || list.Length <= 1 then
+                context, entity
+            else
+                loop list.Tail context entity
+        if list.Length = 0 then context, entity
+        else loop list context entity
+    
     // in game update
     
     let private updatePaoXianParty (main : MainContext) entity =
@@ -341,28 +378,3 @@ module Entity =
         
     let getHandlerName (handler: RoleHandler) entity =
         (getHandlerCharaType handler entity).ToString ()
-    
-    let updateBlockIfBug (night: NightContext) entity =
-        if entity.State.BugCount < 3 then night, entity else
-        let state = night.GetPlayerState entity.Player.Id
-        let state = { state with Blocked = true }
-        let night = night.SetPlayerState state
-        night, entity
-    
-    let updateBugOnNight (night: NightContext) entity =
-        if entity.State.Bug = None then night, entity else
-        let night = if entity.State.BugCount < 3 then
-                        night.AddMessage $"{entity.Player}身上多了一只虫子"
-                    else
-                        night
-        let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 1) }
-        updateBlockIfBug night entity
-        
-    let updateSpringBugOnNight (night: NightContext) entity =
-        if entity.State.Bug = None then night, entity else
-        let night = if entity.State.BugCount < 3 then
-                        night.AddMessage $"{entity.Player}身上多了无数只虫子"
-                    else
-                        night
-        let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 3) }
-        updateBlockIfBug night entity

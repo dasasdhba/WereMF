@@ -28,6 +28,11 @@ type HeChongRole =
                            (fun v k -> { k with CopiedRole = Some v })
                (sub |> CommonHandler).Bind (role |> getQueriedHandler random)
             | None -> IdHandler
+    interface IRoleGetDayStartDeadRequest with
+        member this.Get () =
+            if this.CopiedRole.IsNone then [] else
+            let role = this.CopiedRole.Value
+            getDayStartDeadRequest role
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             { this with CopiedRole = None }

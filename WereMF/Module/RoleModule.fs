@@ -69,6 +69,9 @@ let tryPreventDead (context : RoleContext) (deadType: DeadType) (entity: Entity)
 type IRoleGetNightStartDeadRequest =
     abstract member Get : unit -> DeadRequest list
     
+type IRoleGetDayStartDeadRequest =
+    abstract member Get : unit -> DeadRequest list
+    
 type IRoleUpdateOnNightStart =
     abstract member Update : unit -> IRole
     
@@ -81,6 +84,11 @@ type IRoleUpdateOnDead =
 let getNightStartDeadRequest (role : IRole) =
     match role with
     | :? IRoleGetNightStartDeadRequest as h -> h.Get ()
+    | _ -> []
+    
+let getDayStartDeadRequest (role : IRole) =
+    match role with
+    | :? IRoleGetDayStartDeadRequest as h -> h.Get ()
     | _ -> []
 
 let updateOnNightStart (role : IRole) =

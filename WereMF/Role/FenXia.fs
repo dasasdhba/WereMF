@@ -56,12 +56,19 @@ type FenXiaRole =
             this.UpdateCopiedRolesWith (updateOnDead dead)
     interface IRoleGetNightStartDeadRequest with
         member this.Get () =
-            let requests = this.CopiedRoles |> List.map (fun role ->
-                role |> getNightStartDeadRequest) |> List.concat
-            if this.RebornRound.IsSome && this.RebornRound.Value <= 0 then
-                DeadRequest.New Force :: requests
-            else
-                requests
+            let skills =
+                let requests = this.CopiedRoles |> List.map (fun role ->
+                    role |> getNightStartDeadRequest) |> List.concat
+                if this.RebornRound.IsSome && this.RebornRound.Value <= 0 then
+                    DeadRequest.New Force :: requests
+                else
+                    requests
+            if this.FenCount <= 0 then DeadRequest.New Force :: skills else skills
+    interface IRoleGetDayStartDeadRequest with
+        member this.Get () =
+            let skills = this.CopiedRoles |> List.map (fun role ->
+                    role |> getNightStartDeadRequest) |> List.concat
+            if this.FenCount <= 0 then DeadRequest.New Force :: skills else skills
     interface IRolePreventDead with
         member this.Prevent context dead entity =
             let rec loop idx =

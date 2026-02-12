@@ -74,6 +74,11 @@ type KirbyRole =
             if this.CopiedRole.IsNone then [] else
             let role = this.CopiedRole.Value
             getNightStartDeadRequest role
+    interface IRoleGetDayStartDeadRequest with
+        member this.Get () =
+            if this.CopiedRole.IsNone then [] else
+            let role = this.CopiedRole.Value
+            getDayStartDeadRequest role
     interface IRolePreventDead with
         member this.Prevent context dead entity =
             if this.CopiedRole.IsNone then None else

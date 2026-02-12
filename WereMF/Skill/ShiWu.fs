@@ -41,7 +41,7 @@ type ShiWuSkill =
             let sender = sending |> getSenderName context.Game
             let recv = target |> getPlayerName context.Game
             if target |> isDoged context.Night then
-                let night = context.Night.AddMessage $"{sender}想绑架{recv}，被doge挡了"
+                let night = context.Night.AddMessage $"{sender}想绑架{recv}，被Doge挡了"
                 do! State.put { context with Night = night }
                 this
             else
@@ -73,11 +73,13 @@ type ShiWuSkill =
             let context = { context with Game = tEntity |> context.Game.UpdateEntity }
             let pending = context.Night.PendingSkills
             let idx = pending |> List.indexed |> List.filter (fun (i, p) -> p.Source = target)
-            let i, ps = idx |> List.randomChoiceWith context.Main.Rng
-            let ps = { ps with Kidnapped = true }
-            let pending = pending |> List.updateAt i ps
-            let night = { context.Night with PendingSkills = pending }
-            let context = { context with Night = night }
+            let context =
+                if idx.IsEmpty then context else
+                let i, ps = idx |> List.randomChoiceWith context.Main.Rng
+                let ps = { ps with Kidnapped = true }
+                let pending = pending |> List.updateAt i ps
+                let night = { context.Night with PendingSkills = pending }
+                { context with Night = night }
             do! State.put context
             { this with Success = true }
         }

@@ -63,7 +63,7 @@ type FenXiaSkill =
                 sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
                 let sender = sending |> getSenderName context.Game
                 let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}发粉条，被doge挡了"
+                let night = context.Night.AddMessage $"{sender}想给{recv}发粉条，被Doge挡了"
                 do! State.put { context with Night = night }
                 skill
             else

@@ -28,7 +28,7 @@ type KirbySkill =
             let recv = target |> getPlayerName context.Game
             if target |> isDoged context.Night then
                 sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
-                let night = context.Night.AddMessage $"{sender}想吸入{recv}，被doge挡了"
+                let night = context.Night.AddMessage $"{sender}想吸入{recv}，被Doge挡了"
                 do! State.put { context with Night = night }
                 this
             else

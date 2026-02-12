@@ -1,14 +1,132 @@
 module WereMF.Skill.CTF
 
+open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module.Entity
+open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Role.XianSong
 open WereMF.State
 open WereMF.Role.CTF
+
+let private updateStateIfBug (night: NightContext) entity =
+    // 闲松技能失效
+    
+    let hs = entity.Role |> getValidHandlers
+             |> List.filter (fun h -> (entity |> getHandlerCharaType h) = XianSong)
+    let mutable e = entity
+    for h in hs do
+        let r = e |> h.GetFromEntity
+        e <- e |> updateRoleWithHandler
+                             (fun (x: XianSongRole) -> { x with Disabled = Some true })
+                             h
+    let entity = e
+    
+    // 暴毙阻断
+    if entity.State.BugCount < 3 then night, entity else
+    let state = night.GetPlayerState entity.Player.Id
+    let state = { state with Blocked = true }
+    let night = night.SetPlayerState state
+    night, entity
+    
+let updateBugOnNight (night: NightContext) entity =
+    if entity.State.Bug = None then night, entity else
+    let night = if entity.State.BugCount < 3 then
+                    night.AddMessage $"{entity.Player.Name}身上多了一只虫子"
+                else
+                    night
+    let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 1) }
+    updateStateIfBug night entity
+    
+let updateSpringBugOnNight (night: NightContext) entity =
+    if entity.State.Bug = None then night, entity else
+    let night = if entity.State.BugCount < 3 then
+                    night.AddMessage $"{entity.Player.Name}身上多了无数只虫子"
+                else
+                    night
+    let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 3) }
+    updateStateIfBug night entity
+
+let private addBugSilent entity=
+    let bug = entity.State.Bug
+    let bug =
+        match bug with
+        | None -> Some 0
+        | Some b -> Some (b + 1)
+    { entity with State.Bug = bug }
+
+let private addBugWithMsg (night: NightContext)  entity=
+    let bug = entity.State.Bug
+    let bug, night =
+        match bug with
+        | None -> Some 0, night
+        | Some b ->
+            let msg = $"{entity.Player.Name}身上多了一只虫子"
+            Some (b + 1), night.AddMessage msg
+    night, { entity with State.Bug = bug }
 
 type CTFSkill =
     | CTFSkill
     interface ISkill
+    interface ISkillCanExecute with
+        member this.CanExecute context sending =
+            canExecuteIfAlive context sending
+    interface ISkillCost with
+        member this.Cost sending = monad {
+            let! context = State.get
+            
+            let source = sending |> getSource
+            let entity = source |> context.Game.GetEntity
+            let handler = sending |> getHandler
+            let entity = entity |> updateRoleWithHandler
+                             (fun (c: CTFRole) -> { c with BugCount = c.BugCount - 1 })
+                             handler
+            let context = { context with Game = context.Game.UpdateEntity entity }
+            do! State.put context
+            this
+        }
+    interface ISkillExecute with
+        member this.Execute sending = monad {
+            let! context = State.get
+            
+            let source = sending |> getSource
+            let entity = source |> context.Game.GetEntity
+            if sending.Spring.IsSome && sending.Spring.Value = Recursed then
+                let target = sending.Target
+                let tEntity = target |> context.Game.GetEntity
+                
+                let night = context.Night
+                let entity = addBugSilent entity
+                let tEntity = addBugSilent tEntity
+                let night, entity = updateSpringBugOnNight night entity
+                let night, tEntity = updateSpringBugOnNight night tEntity
+                
+                let game = context.Game
+                let game = game.UpdateEntity entity
+                let game = game.UpdateEntity tEntity
+                let context = { context with Game = game ; Night = night }
+                do! State.put context
+                this
+            else
+            
+            let target = sending |> getRealTarget
+            if target |> isDoged context.Night then
+                let sender = sending |> getSenderName context.Game
+                let recv = target |> getPlayerName context.Game
+                let night = context.Night.AddMessage $"{sender}想给{recv}丢虫子，被Doge挡了"
+                do! State.put { context with Night = night }
+                this
+            else
+                let tEntity = target |> context.Game.GetEntity
+                let night = context.Night
+                let night, tEntity = addBugWithMsg night tEntity
+                let game = context.Game.UpdateEntity tEntity
+                let context = { context with Game = game ; Night = night }
+                do! State.put context
+                this
+        }
 
 // CTF技能发送
 let ctfSendSkill ps (game: GameContext) =
@@ -22,7 +140,7 @@ let ctfSendSkill ps (game: GameContext) =
     
     let filter = filterNonExists game
                 >> filterDead game
-                >> filterExceptIndex ps.Source "不能给自己虫子"
+                >> filterExceptIndex ps.Source "你不能给自己虫子"
                 >> filterSelectable game
                 >> filterKidnapped ps
                 >> (if bugCount <= 0 then filterDisabled "你没有虫子了" else id)

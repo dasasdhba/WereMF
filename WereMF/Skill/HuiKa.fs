@@ -1,6 +1,10 @@
 module WereMF.Skill.HuiKa
 
+open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module
+open WereMF.Module.Game
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
@@ -10,6 +14,37 @@ open WereMF.Role.HuiKa
 type HuiKaSkill =
     | HuiKaSkill
     interface ISkill
+    interface ISkillExecute with
+        member this.Execute sending = monad {
+            let! context = State.get
+            let target = sending |> getRealTarget
+            let recv = target |> getPlayerName context.Game
+            if target |> isDoged context.Night then
+                let sender = sending |> getSenderName context.Game
+                let night = context.Night.AddMessage $"{sender}想给{recv}丢烟雾弹，被Doge挡了"
+                do! State.put { context with Night = night }
+                this
+            else
+                let tEntity = target |> context.Game.GetEntity
+                sendMessage { Type = Public ; Content = $"{recv}被烟雾弥漫！" }
+                let tEntity = { tEntity with State = tEntity.State |> EntityState.addSmog }
+                let context = { context with Game = context.Game.UpdateEntity tEntity }
+                let context =
+                    if tEntity.State.SmogCount < 2 then context else
+                    sendMessage { Type = Public ; Content = $"{recv}窒息了！" }
+                    let tEntity = { tEntity with State.Smog = [] }
+                    let context = { context with Game = context.Game.UpdateEntity tEntity }
+                    let r = RoleContext.Create context.Main context.Game
+                    let request = DeadRequest.New Kill
+                    let r, tEntity = tEntity |> Entity.requestDead request r
+                    let r = involveIfDoge tEntity context.Night r
+                    let main, game = r.Get ()
+                    { context with Main = main ; Game = game }
+                
+                do! State.put context
+                sendMessage { Type = Public ; Content = $"\n{printNightSummary context.Game.Entities}" }
+                this
+        }
 
 // 获取最大投掷数量（第一轮2个，之后1个）
 let getHuiKaMaxCount (handler: RoleHandler) (entity: Entity) : int =

@@ -48,6 +48,8 @@ let rec updateMain main : MainState =
             cliSilent <- true
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
             updateMain (MainState.New seed)
-    | ex -> raise ex
+    | ex ->
+        printfn "%s" ex.Message
+        reraise()
 
 updateMain (MainState.New seed) |> ignore

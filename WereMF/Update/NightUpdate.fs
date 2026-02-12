@@ -1,16 +1,133 @@
 module WereMF.Update.Night
 
+open System
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Cli
 open WereMF.Module.Entity
+open WereMF.Module.Game
 open WereMF.Module.Role
 open WereMF.Module.Skill
-open WereMF.Module.Utils
+open WereMF.Role.Bind
+open WereMF.Role.Kirby
 open WereMF.Skill.Bind
+open WereMF.Skill.CTF
 open WereMF.State
 open WereMF.Module
+
+let private updateBugWith (context: SkillContext) (skill : SendingSkill) =
+    let update (updater : NightContext -> Entity -> NightContext * Entity) (c: SkillContext) (id: PlayerId) =
+        let e = c.Game.GetEntity id
+        let n, e = updater c.Night e
+        { c with Game = c.Game.UpdateEntity e ; Night = n }
+    let source = skill.Pending.Source
+    let target = skill.Target
+    let entity = context.Game.GetEntity source
+    match skill.Spring with
+    | None ->
+        let context = update updateBugOnNight context source
+        update updateBugOnNight context skill.Target
+    | Some Normal ->
+        let context =
+            // CTF 被弹簧弹了虫子，此时只判定一次
+            if skill.Pending.Type = CTF && entity.State.BugCount = 0 then context else
+            update updateBugOnNight context source
+        let context = update updateBugOnNight context target
+        update updateBugOnNight context source
+    | Some Recursed ->
+        let context = update updateSpringBugOnNight context source
+        update updateSpringBugOnNight context target
+
+let private executeSkill (context: SkillContext) (skill : Skill) =
+    let source = skill.Sending.Pending.Source
+    let sEntity = context.Game.GetEntity source
+    let blocked = (context.Night.GetPlayerState source).Blocked
+    if blocked then
+        sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+        context, skill, false
+    else
+    
+    if skill.Sending.Target <= PlayerId 0 then
+        sendMessage { Type = Internal ; Content = $"无效的技能：{skill.Sending.Pending.Type}，请检查输入处理是否正确" }
+        context, skill, false
+    else
+    
+    // spring
+    let skill = { skill with Sending = skill.Sending |> setSpring context }
+    
+    // cost
+    let context, skill =
+        match skill.Actor with
+        | :? ISkillCost as cost ->
+            let actor, context = (State.run (cost.Cost skill.Sending) context)
+            let skill = { skill with Actor = actor }
+            context, skill
+        | _ -> context, skill
+    
+    // kirby
+    let target = skill.Sending |> getRealTarget
+    let context, success =
+        if context.Game.HasEntity target |> not then context, false else
+        
+        let state = context.Night.GetPlayerState target
+        if state.Kirby.IsNone then context, false else
+        
+        let kirby, handler = state.Kirby.Value
+        let state = { state with Kirby = None }
+        let context = { context with Night = context.Night.SetPlayerState state }
+        
+        let kEntity = context.Game.GetEntity kirby
+        let chara = skill.Sending.Pending.Type
+        if chara = Kirby then
+            sendMessage { Type = ToPlayer kEntity.Player ; Content = "失败" }
+            sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+            context, true
+        else
+            sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+            sendMessage { Type = ToPlayer kEntity.Player ; Content = chara.ToString () }
+            let role = handler.GetFromEntity kEntity
+            match role with
+            | :? KirbyRole as k ->
+                let k = { k with CopiedRole = Some (createRole context.Main.Roll chara) }
+                let kEntity = kEntity |> handler.SetToEntity k
+                let context = { context with Game = context.Game.UpdateEntity kEntity }
+                context, true
+            | _ ->
+                context, true
+    
+    // general
+    let skill, context, success =
+        if success then skill, context, false else
+        match skill.Actor with
+        | :? ISkillExecute as exe ->
+            let (actor, context), success =
+                if skill |> canExecute context then
+                    (State.run (exe.Execute skill.Sending) context), true
+                else
+                    sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+                    (skill.Actor, context), false
+            let skill = { skill with Actor = actor }
+            skill, context, success
+        | _ -> skill, context, false
+        
+    let context = skill.Sending |> updateBugWith context
+    context, skill, success
+
+let private createPendingSkills (entities: Entity list) (rng : Random) =
+    let rec jiaoHuaBlock remaining (list: PendingSkill list) (player: Player) =
+        if remaining = 0 || list.Length = 0 then list else
+        let list = list |> List.randomShuffleWith rng
+        let blocked = list.Head
+        sendMessage { Type = ToPlayer player; Content = $"你的{blocked.Type.ToString()}被禁用" }
+        jiaoHuaBlock (remaining - 1) list.Tail player
+    let mutable result = []
+    for e in entities do
+        let h = getPendingHandlers e.Player e.Role
+        let s = h |> List.map (fun u -> e |> Entity.createPendingSkill u)
+        let s = jiaoHuaBlock e.State.JiaoHuaBlocked s e.Player
+        result <- result @ s
+    result
 
 let nightStart () = monad {
     let! (main: MainContext, game : GameContext) = State.get
@@ -104,10 +221,11 @@ let private tryHeal (list: Skill list) (request: DeadRequest) (target: Entity) =
         let list = list |> List.updateAt idx h
         list, true
 
-let private involveIfDoge (target: Entity) (night: NightContext) (role: RoleContext) (list: Skill list) =
-    if target.State |> EntityState.isDead then role, list else
+let private involveIfDogeSummary (target: Entity) (night: NightContext) (role: RoleContext) (list: Skill list) =
+    if target.State |> EntityState.isDead |> not then role, list else
     let prots = night.PlayerStates |> List.filter (fun ps ->
-        ps.Doge.IsSome && ps.Doge.Value = target.Player.Id)
+        ps.Id |> role.Game.GetEntity |> getState |> EntityState.isDead |> not
+        && ps.Doge.IsSome && ps.Doge.Value = target.Player.Id)
     let mutable r, l = role, list
     for ps in prots do
         let entity = role.Game.GetEntity ps.Id
@@ -147,9 +265,9 @@ let nightSummary (night: NightContext) = monad {
         if heal then
             skills <- sk
         else
-            let c, _ = bug |> requestDead request roleContext
+            let c, bug = bug |> requestDead request roleContext
             roleContext <- c
-            let r, l = involveIfDoge bug night roleContext skills
+            let r, l = involveIfDogeSummary bug night roleContext skills
             roleContext <- r
             skills <- l
      
@@ -168,9 +286,9 @@ let nightSummary (night: NightContext) = monad {
         if heal then
             skills <- sk
         else
-            let c, _ = x |> requestDead request roleContext
+            let c, x = x |> requestDead request roleContext
             roleContext <- c
-            let r, l = involveIfDoge x night roleContext skills
+            let r, l = involveIfDogeSummary x night roleContext skills
             roleContext <- r
             skills <- l
     
@@ -206,8 +324,8 @@ let nightSummary (night: NightContext) = monad {
             
             // dead request
             let role = RoleContext.Create context.Main context.Game
-            let role, _ = r.Target |> requestDead r.Request role
-            let role, sList = involveIfDoge r.Target night role sList
+            let role, target = r.Target |> requestDead r.Request role
+            let role, sList = involveIfDogeSummary target night role sList
             let main, game = role.Get ()
             let context = { context with Main = main ; Game = game }
             updateSkills context sList

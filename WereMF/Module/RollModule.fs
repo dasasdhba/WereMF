@@ -149,7 +149,7 @@ let private drawFromPoolWith (random : Random) (pool: CharaRoll list) (count: in
     guaranteed @ randomResults |> List.take (min count (guaranteed.Length + available.Length))
 
 let private getBarBoomCount count =
-    let barCount = if (count % 2) = 1 then count / 2 + 1 else count / 2
+    let barCount = count / 2 + 1
     let boomCount = count - barCount
     barCount, boomCount
 

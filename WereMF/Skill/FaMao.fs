@@ -25,7 +25,7 @@ type FaMaoSkill =
             if target |> isDoged context.Night then
                 let sender = sending |> getSenderName context.Game
                 let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}丢药水，被doge挡了"
+                let night = context.Night.AddMessage $"{sender}想给{recv}丢药水，被Doge挡了"
                 do! State.put { context with Night = night }
                 this
             else
@@ -99,6 +99,7 @@ let faMaoSendSkill ps (game: GameContext) =
     
     let filter = filterNonExists game
                 >> filterDead game
+                >> filterExceptIndex ps.Source "你不能给自己丢药水"
                 >> filterSelectable game
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
