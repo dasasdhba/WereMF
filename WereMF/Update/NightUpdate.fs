@@ -103,6 +103,25 @@ let private tryHeal (list: Skill list) (request: DeadRequest) (target: Entity) =
         let list = list |> List.updateAt idx h
         list, true
 
+let private involveIfDoge (target: Entity) (night: NightContext) (role: RoleContext) (list: Skill list) =
+    if target.State |> EntityState.isDead then role, list else
+    let prots = night.PlayerStates |> List.filter (fun ps ->
+        ps.Doge.IsSome && ps.Doge.Value = target.Player.Id)
+    let mutable r, l = role, list
+    for ps in prots do
+        let entity = role.Game.GetEntity ps.Id
+        let name = entity.Player.Name
+        let msg = $"{target.Player.Name}保护了{name}"
+        sendMessage { Type = Public ; Content = msg }
+        let request = DeadRequest.New Kill
+        let sk, heal = tryHeal l request entity
+        if heal then
+            l <- sk
+        else
+            let c, _ = entity |> requestDead request r
+            r <- c
+    r, l
+
 let nightSummary (night: NightContext) = monad {
     sendMessage { Type = Public; Content = "今晚" }
     for msg in night.Messages do
@@ -129,6 +148,9 @@ let nightSummary (night: NightContext) = monad {
         else
             let c, _ = bug |> requestDead request roleContext
             roleContext <- c
+            let r, l = involveIfDoge bug night roleContext skills
+            roleContext <- r
+            skills <- l
      
     // 闲松球
     
@@ -147,6 +169,9 @@ let nightSummary (night: NightContext) = monad {
         else
             let c, _ = x |> requestDead request roleContext
             roleContext <- c
+            let r, l = involveIfDoge x night roleContext skills
+            roleContext <- r
+            skills <- l
     
     // 其他技能
     
@@ -181,6 +206,7 @@ let nightSummary (night: NightContext) = monad {
             // dead request
             let role = RoleContext.Create context.Main context.Game
             let role, _ = r.Target |> requestDead r.Request role
+            let role, sList = involveIfDoge r.Target night role sList
             let main, game = role.Get ()
             let context = { context with Main = main ; Game = game }
             updateSkills context sList

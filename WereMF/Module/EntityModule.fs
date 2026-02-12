@@ -351,12 +351,18 @@ module Entity =
     
     let updateBugOnNight (night: NightContext) entity =
         if entity.State.Bug = None then night, entity else
-        let night = night.AddMessage $"{entity.Player}身上多了一只虫子"
+        let night = if entity.State.BugCount < 3 then
+                        night.AddMessage $"{entity.Player}身上多了一只虫子"
+                    else
+                        night
         let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 1) }
         updateBlockIfBug night entity
         
     let updateSpringBugOnNight (night: NightContext) entity =
         if entity.State.Bug = None then night, entity else
-        let night = night.AddMessage $"{entity.Player}身上多了无数只虫子"
+        let night = if entity.State.BugCount < 3 then
+                        night.AddMessage $"{entity.Player}身上多了无数只虫子"
+                    else
+                        night
         let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 3) }
         updateBlockIfBug night entity
