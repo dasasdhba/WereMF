@@ -129,7 +129,7 @@ let private updateForceThreaten (game: GameContext) (day: DayContext)=
 
 let dayStart (day: DayContext) = monad {
     let! (main: MainContext, game : GameContext) = State.get
-    sendMessage { Type = Public ; Content = "白天开始\n" + (printDaySummary game.Entities) }
+    sendMessage { Type = Public ; Content = "白天开始\n" + (printNightSummary game.Entities) }
     
     let rec updateDayDead idx (entities: Entity list) c =
         if idx >= entities.Length then c, entities else

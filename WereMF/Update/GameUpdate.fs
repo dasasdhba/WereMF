@@ -18,6 +18,8 @@ let gameInit (main : MainContext) (game: GameContext) =
     let hua = bars |> List.tryFind (fun e -> e |> Entity.getCharaType = JiaoHua)
     let bars = if hua.IsSome then bars |> List.filter (fun e -> e <> hua.Value) else bars
     let barLeader = bars |> List.randomChoiceWith rng
+    let barLeader = { barLeader with State.BarLeader = Some true }
+    let game = game.UpdateEntity barLeader
     let message =
         match hua with
         | Some v ->
@@ -51,12 +53,15 @@ let gameInit (main : MainContext) (game: GameContext) =
        sendMessage { Type = ToPlayer xian.Player ; Content = msg }
     } |> ignore
     
+    game
+    
 let gameUpdate (game: GameState) = monad {
     let! main = State.get
     let status, (main, gc) =
         match game.Status with
         | Start ->
-           do gameInit main game.Context
+           let context = gameInit main game.Context
+           let game = { game with Context = context }
            main.Players |> List.map (fun p -> p.Id) |> NightContext.New |> Night, (main, game.Context)
            //main.Players |> List.map (fun p -> p.Id) |> DayContext.New |> Day, (main, game.Context)
         | Night night -> State.run (nightUpdate night) (main, game.Context)
