@@ -82,7 +82,7 @@ let executeSkill (context: SkillContext) (skill : Skill) =
     let context = skill.Sending |> updateBugWith context
     context, skill, success
 
-let createPendingSkills (entities: Entity list, rng : Random) =
+let createPendingSkills (entities: Entity list) (rng : Random) =
     let rec jiaoHuaBlock remaining (list: PendingSkill list) (player: Player) =
         if remaining = 0 || list.Length = 0 then list else
         let list = list |> List.randomShuffleWith rng

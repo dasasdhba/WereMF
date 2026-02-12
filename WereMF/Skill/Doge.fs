@@ -34,9 +34,9 @@ type DogeSkill =
         member this.Execute sending = monad {
             let! context = State.get
             let target = sending |> getRealTarget
-            let sender = sending |> getSenderName context.Game
-            let recv = target |> getPlayerName context.Game
             if target |> isDoged context.Night then
+                let sender = sending |> getSenderName context.Game
+                let recv = target |> getPlayerName context.Game
                 let night = context.Night.AddMessage $"{sender}想保护{recv}，被doge挡了"
                 do! State.put { context with Night = night }
                 this

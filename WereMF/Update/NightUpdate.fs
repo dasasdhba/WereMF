@@ -70,7 +70,7 @@ let rec private pendingSkills (context: SkillContext) =
 let nightAction night = monad {
     let! (main: MainContext, game : GameContext) = State.get
     let psList = createPendingSkills (game.Entities |> List.filter (
-        fun e -> e |> Entity.getState |> EntityState.isDead |> not))
+        fun e -> e |> Entity.getState |> EntityState.isDead |> not)) main.Rng
     let night = { night with PendingSkills = psList }
     let context = SkillContext.Create main game night
     let context = pendingSkills context
