@@ -27,7 +27,7 @@ type RabiSkill =
             let sender = sending |> getSenderName context.Game
             let recv = target |> getPlayerName context.Game
             if target |> isDoged context.Night then
-                let night = context.Night.AddMessage $"{sender}想给{recv}喂奶，被 doge 挡了"
+                let night = context.Night.AddMessage $"{sender}想给{recv}喂奶，被doge挡了"
                 do! State.put { context with Night = night }
                 this
             else
@@ -83,7 +83,7 @@ type RabiSkill =
             this
     }
     interface ISkillSummary with
-         member this.Priority = 1
+         member this.Priority = 2
          member this.GetRealTarget sending =
              sending |> getRealTarget
          member this.Summarize sending = monad {

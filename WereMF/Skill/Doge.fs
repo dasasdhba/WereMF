@@ -22,7 +22,7 @@ type DogeSkill =
             let sender = sending |> getSenderName context.Game
             let recv = target |> getPlayerName context.Game
             if target |> isDoged context.Night then
-                let night = context.Night.AddMessage $"{sender}想保护{recv}，被 doge 挡了"
+                let night = context.Night.AddMessage $"{sender}想保护{recv}，被doge挡了"
                 do! State.put { context with Night = night }
                 this
             else

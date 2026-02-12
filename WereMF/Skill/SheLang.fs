@@ -3,6 +3,7 @@ module WereMF.Skill.SheLang
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
 open WereMF.State
@@ -10,27 +11,34 @@ open WereMF.Role.SheLang
 
 type SheLangSkill =
     {
-        Target2 : PlayerId option
+        Disabled : bool
     }
+    static member New() = { Disabled = false }
     interface ISkill
+    interface ISkillCost with
+        member this.Cost sending = monad {
+            if this.Disabled |> not then this else
+            let! context = State.get
+            
+            let source = sending |> getSource
+            let entity = source |> context.Game.GetEntity
+            let handler = sending |> getHandler
+            let entity = entity |> updateRoleWithHandler
+                             (fun (s: SheLangRole) -> { s with Disabled = Some true })
+                             handler
+            let context = { context with Game = context.Game.UpdateEntity entity }
+            do! State.put context
+            this
+        }
     interface ISkillExecute with
         member this.Execute sending = monad {
             let! context = State.get
-            
-            let context =
-                if this.Target2.IsNone then context else
-                let t2 = this.Target2.Value
-                let skill = {
-                    Sending = { sending with Target = t2 }
-                    Actor = { Target2 = None }
-                }
-                { context with Night.Skills = skill :: context.Night.Skills }
             
             let target = sending |> getRealTarget
             if target |> isDoged context.Night then
                 let sender = sending |> getSenderName context.Game
                 let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}扔弹簧，被 doge 挡了"
+                let night = context.Night.AddMessage $"{sender}想给{recv}扔弹簧，被doge挡了"
                 do! State.put { context with Night = night }
                 this
             else
@@ -74,7 +82,7 @@ let sheLangSendSkill ps (game: GameContext) =
                     >> filterKidnapped ps
                     >> (if isDisabled then filterDisabled "你上晚发了两个弹簧，今晚无法行动" else id)
     let filter = giveUpOrFilterWith filter
-    let def () = { Target2 = None } :> ISkill
+    let def () = SheLangSkill.New () :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! results = parseSheLangInput input
@@ -86,13 +94,15 @@ let sheLangSendSkill ps (game: GameContext) =
             let target2 = target2 |> Option.map (fun t -> Ok t |> filter)
             match target2 with
             | None ->
-                let skill = Skill.New ps target1 { Target2 = None }
+                let skill = Skill.New ps target1 (SheLangSkill.New())
                 [ skill |> Some ]
             | Some r ->
                 let! t2 = r
-                let t2 = if t2 <= PlayerId 0 then None else Some t2
-                let skill = Skill.New ps target1 { Target2 = t2 }
-                [ skill |> Some ]
+                let s = [ Skill.New ps target1 (SheLangSkill.New()) |> Some ]
+                let s = 
+                    if t2 <= PlayerId 0 then s
+                    else s @ [ Skill.New ps t2 { Disabled = true } |> Some ]
+                s
     }
     
     ps |> sendSkillWith title filter parser def

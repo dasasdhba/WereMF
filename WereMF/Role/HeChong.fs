@@ -6,8 +6,9 @@ open WereMF.Module.Role
 type HeChongRole =
     {
         CopiedRole : IRole option
+        LastSelected : SelectionState
     }
-    static member New () = { CopiedRole = None }
+    static member New () = { CopiedRole = None ; LastSelected = SelectionState.New () }
     member private this.UpdateCopiedRoleWith updater =
         match this.CopiedRole with
         | Some role -> { this with CopiedRole = Some (role |> updater) }
@@ -29,10 +30,12 @@ type HeChongRole =
             | None -> IdHandler
     interface IRoleUpdateOnNightStart with
         member this.Update () =
-            this.UpdateCopiedRoleWith updateOnNightStart
+            { this with CopiedRole = None }
     interface IRoleUpdateOnDayStart with
         member this.Update () =
-            this.UpdateCopiedRoleWith updateOnDayStart
+            let r = this.UpdateCopiedRoleWith updateOnDayStart
+            { r with LastSelected = r.LastSelected.UpdateOnDayStart () }
     interface IRoleUpdateOnDead with
-        member this.Update _ =
-            { this with CopiedRole = None }
+        member this.Update dead =
+            this.UpdateCopiedRoleWith (updateOnDead dead)
+                

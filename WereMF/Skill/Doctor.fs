@@ -17,8 +17,8 @@ type DoctorSkill =
     }
     static member New () = { Success = false ; Healed = false }
     interface ISkill
-    interface ISkillExecute with
-        member this.Execute sending = monad {
+    interface ISkillCost with
+        member this.Cost sending = monad {
             let! context = State.get
             
             let source = sending |> getSource
@@ -28,12 +28,18 @@ type DoctorSkill =
                              (fun (d: DoctorRole) -> { d with Capsule = d.Capsule - 1 })
                              handler
             let context = { context with Game = context.Game.UpdateEntity entity }
+            do! State.put context
+            this
+        }
+    interface ISkillExecute with
+        member this.Execute sending = monad {
+            let! context = State.get
             
             let target = sending |> getRealTarget
             if target |> isDoged context.Night then
                 let sender = sending |> getSenderName context.Game
                 let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}扎针，被 doge 挡了"
+                let night = context.Night.AddMessage $"{sender}想给{recv}扎针，被doge挡了"
                 do! State.put { context with Night = night }
                 this
             else

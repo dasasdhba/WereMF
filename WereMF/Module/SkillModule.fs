@@ -141,6 +141,10 @@ type SkillContext =
 type ISkillCanExecute =
     abstract member CanExecute : SkillContext -> SendingSkill -> bool
 
+type ISkillCost =
+    abstract member Cost : SendingSkill ->
+        State<SkillContext, ISkill>
+
 type ISkillExecute =
     abstract member Execute : SendingSkill ->
         State<SkillContext, ISkill>
@@ -178,17 +182,29 @@ let updateBugWith (context: SkillContext) (skill : SendingSkill) =
         let e = c.Game.GetEntity id
         let n, e = updater c.Night e
         { c with Game = c.Game.UpdateEntity e ; Night = n }
+    let source = skill.Pending.Source
+    let target = skill.Target
+    let entity = context.Game.GetEntity source
     match skill.Spring with
     | None ->
-        let context = update updateBugOnNight context skill.Pending.Source
+        let context = update updateBugOnNight context source
         update updateBugOnNight context skill.Target
     | Some Normal ->
-        let context = update updateBugOnNight context skill.Pending.Source
-        let context = update updateBugOnNight context skill.Target
-        update updateBugOnNight context skill.Pending.Source
+        let context =
+            // CTF 被弹簧弹了虫子，此时只判定一次
+            if skill.Pending.Type = CTF && entity.State.BugCount = 0 then context else
+            update updateBugOnNight context source
+        let context = update updateBugOnNight context target
+        update updateBugOnNight context source
     | Some Recursed ->
-        let context = update updateSpringBugOnNight context skill.Pending.Source
-        update updateSpringBugOnNight context skill.Target
+        let context = update updateSpringBugOnNight context source
+        update updateSpringBugOnNight context target
+
+let canExecuteIfAlive (context: SkillContext) (skill: SendingSkill) =
+    let target = skill.Target
+    if context.Game.HasEntity target |> not then false else
+    let entity = context.Game.GetEntity target
+    entity.State |> EntityState.isDead |> not
 
 let canExecute context (skill: Skill) =
     match skill.Actor with
@@ -228,3 +244,26 @@ let getSenderName (game: GameContext) (skill :SendingSkill) =
 let getPlayerName (game: GameContext) (player : PlayerId)=
     let entity = game.GetEntity player
     entity.Player.Name
+
+let requestCharaTypeFromHandlers (handlers: RoleHandler list) (entity :Entity) 
+    (hint: Message) (filter: CharaType -> bool)=
+    let charas = handlers |> List.map (fun h -> entity |> getHandlerCharaType h)
+                 |> List.filter filter
+                 |> List.distinct
+    if charas.Length = 0 then
+        None
+    elif charas.Length = 1 then
+        sendMessage { hint with Content = charas.Head.ToString () }
+        Some charas.Head
+    else
+    
+    let append = [1..charas.Length] |> List.map (fun i -> $"{i}：{charas[i-1].ToString()}") |> String.concat "；"
+    let msg = { hint with Content = hint.Content + "（" +  append + "）" }
+    let parser input = monad {
+        let! int = parseInt input
+        if int < 1 || int > charas.Length then
+            return! Error "未知格式"
+        else
+            charas[int-1]
+    }
+    requestInputWithMessage msg parser |> Some

@@ -67,7 +67,7 @@ type MoleSkill =
             if target |> isDoged context.Night then
                 let sender = sending |> getSenderName context.Game
                 let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想突击{recv}，被 doge 挡了"
+                let night = context.Night.AddMessage $"{sender}想突击{recv}，被doge挡了"
                 do! State.put { context with Night = night }
                 skill
             else

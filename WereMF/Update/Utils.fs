@@ -20,6 +20,15 @@ let executeSkill (context: SkillContext) (skill : Skill) =
     // spring
     let skill = { skill with Sending = skill.Sending |> setSpring context }
     
+    // cost
+    let context, skill =
+        match skill.Actor with
+        | :? ISkillCost as cost ->
+            let actor, context = (State.run (cost.Cost skill.Sending) context)
+            let skill = { skill with Actor = actor }
+            context, skill
+        | _ -> context, skill
+    
     // kirby
     let target = skill.Sending |> getRealTarget
     let context, success =

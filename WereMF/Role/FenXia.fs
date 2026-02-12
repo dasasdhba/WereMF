@@ -1,11 +1,8 @@
 module WereMF.Role.FenXia
 
-open FSharpPlus
 open WereMF.Common
-open WereMF.Module
 open WereMF.Module.Role
 open WereMF.Module.Cli
-open WereMF.State
 
 type FenXiaRole =
     {
@@ -14,13 +11,19 @@ type FenXiaRole =
         RebornRound : int option
     }
     static member New () = { FenCount = 3 ; CopiedRoles = [] ; RebornRound = None }
+    member private this.SummaryName =
+        if this.CopiedRoles.Length = 0 then FenXia.ToString() else
+        let selects = this.CopiedRoles
+                        |> List.map getSummaryName
+                        |> String.concat " "
+        $"{FenXia.ToString()}（{selects}）"
     member private this.UpdateCopiedRolesWith updater =
         { this with CopiedRoles = this.CopiedRoles |> List.map updater }
     interface IRole with
         member this.Base = {
             CharaType = FenXia
             Priority = 100
-            SummaryName = FenXia.ToString ()
+            SummaryName = this.SummaryName
         }
     member private this.GetHandlersWith func =
         let mutable result = [IdHandler]

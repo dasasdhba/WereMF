@@ -84,7 +84,8 @@ let private tryHeal (list: Skill list) (request: DeadRequest) (target: Entity) =
     if t = Force || t = Vote then list, false else
     
     let idx = list |> List.tryFindIndex (
-         fun s -> match s.Actor with
+         fun s -> if s.Sending |> getRealTarget <> target.Player.Id then false else
+                  match s.Actor with
                   | :? ISkillHealDeadKill as k when t = Kill && k.CanHeal () -> true
                   | :? ISkillHealDeadSudden as s when t = Sudden && s.CanHeal () -> true
                   | _ -> false
