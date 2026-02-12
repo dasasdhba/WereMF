@@ -1,11 +1,12 @@
 namespace WereMF.State
 
 open WereMF.Common
+open WereMF.State
 
 type GameStatus =
     | Start
     | Night of NightContext
-    | Day
+    | Day of DayContext
     | End
 
 type GameContext =
@@ -18,7 +19,7 @@ type GameContext =
         this.Entities |> List.tryFind (fun e -> e.Player.Id = p)
     member this.GetEntity p =
         this.Entities |> List.find (fun e -> e.Player.Id = p)
-    member this.UpdateEntity e =
+    member this.UpdateEntity (e: Entity) =
         let r = this.Entities |> List.map (fun e' -> if e'.Player.Id = e.Player.Id then e else e')
         { this with Entities = r }
 

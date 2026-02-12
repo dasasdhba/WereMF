@@ -12,12 +12,12 @@ type private CharaRoll = {
     Prob : float
 }
 
-type private CharaRollJson = {
+type CharaRollJson = {
     Chara : string
     Prob : float
 }
 
-type private CharaRollJsonArray = {
+type CharaRollJsonArray = {
     Charas : CharaRollJson array
 }
 

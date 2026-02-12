@@ -69,7 +69,7 @@ type ShiWuSkill =
                 sendMessage { Type = Public; Content = $"{recv}是{name}" }
                 context
             
-            let tEntity = { tEntity with State.Kidnapped = Some source }
+            let tEntity = { tEntity with State.Kidnapped = source :: tEntity.State.Kidnapped }
             let context = { context with Game = tEntity |> context.Game.UpdateEntity }
             let pending = context.Night.PendingSkills
             let idx = pending |> List.indexed |> List.filter (fun (i, p) -> p.Source = target)
@@ -102,7 +102,7 @@ type ShiWuSkill =
             if exposed |> not then None else
             
             let sender = sending |> getSenderName context.Game
-            sendMessage { Type = Public ; Content = $"{sender}被查出了身份！" }
+            sendMessage { Type = Public ; Content = $"{sender}被查出了身份，{sender}撕票了！" }
             let target = sending |> getRealTarget
             let tEntity = target |> context.Game.GetEntity
             Some {

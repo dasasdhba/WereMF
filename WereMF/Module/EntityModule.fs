@@ -97,7 +97,7 @@ module EntityState =
         {
              entity with
                 LeafProtected = updateNightOptionBool entity.LeafProtected
-                Kidnapped = None
+                Kidnapped = []
                 Threaten = None
                 XianSong = entity.XianSong |> List.map (fun i -> i - 1)
                 Bomb = 0
@@ -370,7 +370,7 @@ module Entity =
             Source = entity.Player.Id
             Priority = role |> Role.getPriority
             Threaten = None
-            Kidnapped = entity.State.Kidnapped.IsSome
+            Kidnapped = entity.State.Kidnapped.Length > 0
         }
         
     let getHandlerCharaType (handler: RoleHandler) entity =
@@ -378,3 +378,7 @@ module Entity =
         
     let getHandlerName (handler: RoleHandler) entity =
         (getHandlerCharaType handler entity).ToString ()
+    
+    let getValidCharaTypes entity =
+        let handlers = entity.Role |> getValidHandlers
+        handlers |> List.map (fun h -> h.GetFromEntity entity |> Role.getCharaType)

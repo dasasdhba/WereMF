@@ -6,6 +6,7 @@ open WereMF.Common
 open WereMF.Module.Cli
 open WereMF.State
 open WereMF.Module
+open WereMF.Update.Day
 open WereMF.Update.Night
 
 let gameInit (main : MainContext) (game: GameContext) =
@@ -57,7 +58,9 @@ let gameUpdate (game: GameState) = monad {
         | Start ->
            do gameInit main game.Context
            main.Players |> List.map (fun p -> p.Id) |> NightContext.New |> Night, (main, game.Context)
+           //main.Players |> List.map (fun p -> p.Id) |> DayContext.New |> Day, (main, game.Context)
         | Night night -> State.run (nightUpdate night) (main, game.Context)
+        | Day day -> State.run (dayUpdate day) (main, game.Context)
         | _ -> raise (Reboot |> CommandEx)
     
     let game = { game with Context = gc ; Status = status }

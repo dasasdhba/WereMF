@@ -12,8 +12,9 @@ open WereMF.Role.SheLang
 type SheLangSkill =
     {
         Disabled : bool
+        Success : PlayerNightState option
     }
-    static member New() = { Disabled = false }
+    static member New() = { Disabled = false ; Success = None }
     interface ISkill
     interface ISkillCost with
         member this.Cost sending = monad {
@@ -43,11 +44,21 @@ type SheLangSkill =
                 do! State.put { context with Night = night }
                 this
             else
-                let state = context.Night.GetPlayerState target
+                let night = context.Night
+                let state = night.GetPlayerState target
                 let state = { state with Spring = true }
-                let night = context.Night.SetPlayerState state
-                do! State.put { context with Night = night }
-                this
+                { this with Success = Some state }
+        }
+    interface ISkillExecuteQueued with
+        member this.Execute sending = monad {
+            if this.Success.IsNone then this else
+            let state = this.Success.Value
+            let! context = State.get
+            let night = context.Night
+            let night = night.SetPlayerState state
+            let context = { context with Night = night }
+            do! State.put context
+            this
         }
 
 // 解析铯郎的输入，格式: "玩家ID" 或 "玩家ID1 玩家ID2"
@@ -102,7 +113,7 @@ let sheLangSendSkill ps (game: GameContext) =
                 let s = [ Skill.New ps target1 (SheLangSkill.New()) |> Some ]
                 let s = 
                     if t2 <= PlayerId 0 then s
-                    else s @ [ Skill.New ps t2 { Disabled = true } |> Some ]
+                    else s @ [ Skill.New ps t2 { Disabled = true ; Success = None } |> Some ]
                 s
     }
     

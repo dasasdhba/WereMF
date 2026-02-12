@@ -77,7 +77,7 @@ type EntityState =
         Capsule : int list // 庸医
         Potion : int list // 法猫
         XianSong : int list // 闲松球
-        Kidnapped : PlayerId option // 实物
+        Kidnapped : PlayerId list // 实物
         Threaten : ThreatenState option // myz
         Bomb : int // creeper
         Milk : MilkState
@@ -105,7 +105,7 @@ type EntityState =
             Capsule = []
             Potion = []
             XianSong = []
-            Kidnapped = None
+            Kidnapped = []
             Threaten = None
             Bomb = 0
             Milk = MilkState.New ()

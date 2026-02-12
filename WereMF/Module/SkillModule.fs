@@ -149,6 +149,10 @@ type ISkillExecute =
     abstract member Execute : SendingSkill ->
         State<SkillContext, ISkill>
 
+type ISkillExecuteQueued =
+    abstract member Execute : SendingSkill ->
+        State<SkillContext, ISkill>
+
 type SkillDeadRequest = {
     Target : Entity
     Request : DeadRequest
@@ -204,7 +208,7 @@ let setSpring context (skill: SendingSkill) =
         
 let isDoged (night: NightContext) target =
     let state = night.GetPlayerState target
-    state.Doge.IsSome
+    state.Doge.Length > 0
     
 let getSource (skill : SendingSkill) =
     skill.Pending.Source

@@ -12,9 +12,9 @@ open WereMF.Role.YinMo
 
 type YinMoSkill =
     {
-        Success : bool
+        Success : PlayerNightState option
     }
-    static member New () = { Success = false }
+    static member New () = { Success = None }
     interface ISkill
     interface ISkillExecute with
         member this.Execute sending = monad {
@@ -31,17 +31,25 @@ type YinMoSkill =
                 let night = context.Night
                 let state = night.GetPlayerState target
                 let state = { state with Blocked = true }
-                let night = night.SetPlayerState state
-                let context = { context with Night = night }
-                do! State.put context
-                { this with Success = true }
+                { this with Success = Some state }
+        }
+    interface ISkillExecuteQueued with
+        member this.Execute sending = monad {
+            if this.Success.IsNone then this else
+            let state = this.Success.Value
+            let! context = State.get
+            let night = context.Night
+            let night = night.SetPlayerState state
+            let context = { context with Night = night }
+            do! State.put context
+            this
         }
     interface ISkillSummary with
         member this.Priority = 1
         member this.GetRealTarget sending =
             sending |> getRealTarget
         member this.Summarize sending = monad {
-            if this.Success |> not then None else
+            if this.Success.IsNone then None else
             let! context = State.get
             
             let sender = sending |> getSenderName context.Game

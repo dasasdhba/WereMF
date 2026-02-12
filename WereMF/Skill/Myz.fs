@@ -50,7 +50,7 @@ type MyzSkill =
             let entity = source |> context.Game.GetEntity
             if this.IsNight then
                 let pending = context.Night.PendingSkills
-                let idx = pending |> List.indexed |> List.filter (fun (i, p) -> p.Source = target)
+                let idx = pending |> List.indexed |> List.filter (fun (i, p) -> p.Source = target && p.Threaten = None)
                 let context =
                     if idx.IsEmpty then
                         sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
@@ -65,6 +65,11 @@ type MyzSkill =
                 this
             else
                 let tEntity = target |> context.Game.GetEntity
+                if tEntity.State.Threaten.IsSome then
+                    sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                    this
+                else
+                
                 let threaten = {
                     Type = DayVote (this.Threaten.Target, this.Threaten.Force)
                     Source = this.Threaten.Source
@@ -117,7 +122,7 @@ let myzSendSkill ps (game: GameContext) =
         match ps.Handler.GetFromEntity entity with
         | :? MyzRole as myz -> myz.Revealed
         | _ -> true
-    let reveal = reveal |> not
+    let reveal = reveal
     
     let title = "输入要威胁的玩家编号，威胁目标的编号，威胁类型（n：晚上；d：白天），输入 0 放弃"
     let title = if reveal then title else title + "；在结尾输入 f 以自爆身份，并使威胁强制生效"

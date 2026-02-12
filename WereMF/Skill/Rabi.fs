@@ -18,6 +18,7 @@ type MilkType =
 type RabiSkill =
     {
         MilkType : MilkType
+        Success : PlayerNightState option
     }
     interface ISkill
     interface ISkillExecute with
@@ -75,19 +76,28 @@ type RabiSkill =
                 else
                     let state = context.Night.GetPlayerState target
                     let state = { state with Blocked = true }
-                    let night = context.Night.SetPlayerState state
-                    do! State.put { context with Night = night }
-                    this
+                    { this with Success = Some state }
             else
             
             this
     }
+    interface ISkillExecuteQueued with
+        member this.Execute sending = monad {
+            if this.Success.IsNone then this else
+            let state = this.Success.Value
+            let! context = State.get
+            let night = context.Night
+            let night = night.SetPlayerState state
+            let context = { context with Night = night }
+            do! State.put context
+            this
+        }
     interface ISkillSummary with
          member this.Priority = 2
          member this.GetRealTarget sending =
              sending |> getRealTarget
          member this.Summarize sending = monad {
-            if this.MilkType = Fresh then None else
+            if this.Success.IsNone then None else
 
             let! context = State.get
 
@@ -103,23 +113,21 @@ type RabiSkill =
 
 // 解析兔子的输入，格式: "玩家ID x" 或 "玩家ID d"
 // x = 鲜奶(可以让目标再次行动)，d = 毒奶(造成死亡)
-let parseRabbitInput (input: string) : Result<PlayerId * MilkType, string> =
+let parseRabbitInput (input: string) : Result<PlayerId * MilkType, string> = monad {
     let parts = input.Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
     match parts.Length with
-    | 1 when parts[0] = "0" -> Ok (PlayerId 0, Fresh)
+    | 1 when parts[0] = "0" -> PlayerId 0, Fresh
     | 2 ->
-        let playerIdResult = parsePlayerId parts[0]
-        let milkType =
+        let! playerId = parsePlayerId parts[0]
+        let! milkType =
             match parts[1].ToLower() with
             | "x" -> Ok Fresh
             | "d" -> Ok Dry
             | _ -> Error "请输入 x（鲜奶）或 d（毒奶）"
         
-        match playerIdResult, milkType with
-        | Ok playerId, Ok mt -> Ok (playerId, mt)
-        | Error e, _ -> Error e
-        | _, Error e -> Error e
-    | _ -> Error "请输入格式: 玩家编号 奶类型(x/d)"
+        playerId, milkType
+    | _ -> return! Error "请输入格式: 玩家编号 奶类型(x/d)"
+}
 
 let rabbitSendSkill ps (game: GameContext) =
     let entity = game.GetEntity ps.Source
@@ -134,13 +142,14 @@ let rabbitSendSkill ps (game: GameContext) =
     let def () =
         let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择给鲜奶还是毒奶（1：鲜奶；0：毒奶）" }
         let yes = requestInputWithMessage msg parseBool
-        { MilkType = if yes then Fresh else Dry } :> ISkill
+        let t = if yes then Fresh else Dry
+        { MilkType = t; Success = None } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! playerId, milkType = parseRabbitInput input
         let! playerId = Ok playerId |> filter
         if playerId <= PlayerId 0 then [ None ] else
-        let rabiSkill = Skill.New ps playerId { MilkType = milkType }
+        let rabiSkill = Skill.New ps playerId { MilkType = milkType ; Success = None }
         [ rabiSkill |> Some ]
     }
     

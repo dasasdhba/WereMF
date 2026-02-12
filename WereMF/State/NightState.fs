@@ -5,13 +5,13 @@ open WereMF.Common
 type PlayerNightState =
     {
         Id : PlayerId
-        Doge : PlayerId option
+        Doge : PlayerId list
         Kirby : (PlayerId * RoleHandler) option
         Spring : bool
         Blocked : bool
     }
     static member New player =
-        { Id = player ; Doge = None ; Kirby = None ; Spring = false ; Blocked = false }
+        { Id = player ; Doge = [] ; Kirby = None ; Spring = false ; Blocked = false }
 
 type NightContext =
     {
@@ -19,6 +19,7 @@ type NightContext =
         PendingSkills : PendingSkill list
         Skills : Skill list
         QueuedSkills: Skill list
+        SummarySkills: Skill list
         Messages: string list
     }
     member this.GetPlayerPendingSkills player =
@@ -39,6 +40,7 @@ type NightContext =
             PendingSkills = []
             Skills = []
             QueuedSkills = []
+            SummarySkills = []
             Messages = []
         }
 

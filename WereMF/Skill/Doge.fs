@@ -14,6 +14,7 @@ open WereMF.Role.Doge
 type DogeSkill =
     {
         IsSuicide : bool
+        Success : PlayerId option
     }
     interface ISkill
     interface ISkillCost with
@@ -41,11 +42,19 @@ type DogeSkill =
                 do! State.put { context with Night = night }
                 this
             else
-                let state = context.Night.GetPlayerState target
-                let state = { state with Doge = Some sending.Pending.Source }
-                let night = context.Night.SetPlayerState state
-                do! State.put { context with Night = night }
-                this
+                { this with Success = Some target }
+        }
+    interface ISkillExecuteQueued with
+        member this.Execute sending = monad {
+            if this.Success.IsNone then this else
+            let! context = State.get
+            let source = sending |> getSource
+            let target = this.Success.Value
+            let state = context.Night.GetPlayerState target
+            let state = { state with Doge = source :: state.Doge }
+            let night = context.Night.SetPlayerState state
+            do! State.put { context with Night = night }
+            this
         }
     interface ISkillSummary with
         member this.Priority = -1
@@ -105,12 +114,12 @@ let dogeSendSkill ps (game: GameContext) =
     let def () =
         let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择是否自爆（1：是；0：否）" }
         let yes = requestInputWithMessage msg parseBool
-        { IsSuicide = yes } :> ISkill
+        { IsSuicide = yes ; Success = None } :> ISkill
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! target, isSuicide = parseDogeInput input
         let! target = Ok target |> filter
         if target <= PlayerId 0 then [ None ] else
-        let dogeSkill = Skill.New ps target { IsSuicide = isSuicide }
+        let dogeSkill = Skill.New ps target { IsSuicide = isSuicide ; Success = None }
         [ dogeSkill |> Some ]
     }
     

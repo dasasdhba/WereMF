@@ -173,6 +173,20 @@ let rec private executeSkills (context: SkillContext) =
         if success |> not then context else
         { context with Night.QueuedSkills = context.Night.QueuedSkills @ [skill] }
     executeSkills context
+    
+let rec private executeQueuedSkills (context: SkillContext) =
+    if context.Night.QueuedSkills.Length = 0 then context else
+    let skill = context.Night.QueuedSkills.Head
+    let context = { context with Night.QueuedSkills = context.Night.QueuedSkills.Tail }
+    let skill, context =
+        match skill.Actor with
+        | :? ISkillExecuteQueued as exe ->
+            let actor, context =
+                State.run (exe.Execute skill.Sending) context
+            { skill with Actor = actor }, context
+        | _ -> skill, context
+    let context = { context with Night.SummarySkills = context.Night.SummarySkills @ [skill] }
+    executeQueuedSkills context
 
 let rec private pendingSkills (context: SkillContext) =
     if context.Night.PendingSkills.Length = 0 then context else
@@ -182,6 +196,7 @@ let rec private pendingSkills (context: SkillContext) =
     let n = { n with PendingSkills = remain }
     let context = { context with Game = g ; Night = n }
     let context = executeSkills context
+    let context = executeQueuedSkills context
     pendingSkills context
 
 let nightAction night = monad {
@@ -225,7 +240,7 @@ let private involveIfDogeSummary (target: Entity) (night: NightContext) (role: R
     if target.State |> EntityState.isDead |> not then role, list else
     let prots = night.PlayerStates |> List.filter (fun ps ->
         ps.Id |> role.Game.GetEntity |> getState |> EntityState.isDead |> not
-        && ps.Doge.IsSome && ps.Doge.Value = target.Player.Id)
+        && ps.Doge |> List.contains target.Player.Id)
     let mutable r, l = role, list
     for ps in prots do
         let entity = role.Game.GetEntity ps.Id
@@ -253,7 +268,7 @@ let nightSummary (night: NightContext) = monad {
     
     // 虫子
     
-    let mutable skills = night.QueuedSkills
+    let mutable skills = night.SummarySkills
     let mutable roleContext = RoleContext.Create main game
     let bugs = roleContext.Game.Entities |> List.filter (fun e -> e.State.BugCount >= 3)
     for bug in bugs do
@@ -338,12 +353,33 @@ let nightSummary (night: NightContext) = monad {
     ()
 }
 
+let gameWin (game: GameContext) : bool =
+    let alive = game.Entities |> List.filter (fun e -> e.State |> EntityState.isDead |> not)
+    if alive.Length = 0 then
+        sendMessage { Type = Public ; Content = "游戏结束，无人生还" }
+        true
+    else
+    
+    if alive |> List.forall (fun e -> e |> getCamp = Bar) then
+        sendMessage { Type = Public ; Content = "游戏结束，吧方获胜" }
+        true
+    elif alive |> List.forall (fun e -> e |> getCamp = Boom) then
+        sendMessage { Type = Public ; Content = "游戏结束，爆方获胜" }
+        true
+    elif alive |> List.forall (fun e -> e |> getCamp = Yezi) then
+        sendMessage { Type = Public ; Content = "游戏结束，叶子获胜" }
+        true
+    else
+        false
+
 let nightUpdate (night : NightContext) = monad {
     let! (main :MainContext, game : GameContext) = State.get
     let _, (main, game) = State.run (nightStart ()) (main, game)
     let night, (main, game) = State.run (nightAction night) (main, game)
     let _, (main, game) = State.run (nightSummary night) (main, game)
     do! State.put (main, game)
-    // TODO: maybe game win
-    Day
+    if gameWin game then
+        End
+    else
+        DayContext.New (game.Entities |> List.map (fun e -> e.Player.Id)) |> Day
 }

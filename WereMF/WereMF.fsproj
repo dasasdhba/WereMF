@@ -18,6 +18,7 @@
         <Compile Include="Common\Entity.fs" />
         <Compile Include="Common\Skill.fs" />
         <Compile Include="State\NightState.fs" />
+        <Compile Include="State\DayState.fs" />
         <Compile Include="State\GameState.fs" />
         <Compile Include="State\MainState.fs" />
         <Compile Include="Module\Cli.fs" />
@@ -72,6 +73,7 @@
         <Compile Include="Update\Init.fs" />
         <Compile Include="Update\RollUpdate.fs" />
         <Compile Include="Update\NightUpdate.fs" />
+        <Compile Include="Update\DayUpdate.fs" />
         <Compile Include="Update\GameUpdate.fs" />
         <Compile Include="Program.fs" />
         <EmbeddedResource Include="config.json" />

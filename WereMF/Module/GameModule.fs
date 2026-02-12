@@ -10,7 +10,7 @@ let involveIfDoge (target: Entity) (night: NightContext) (role: RoleContext)=
     if target.State |> EntityState.isDead |> not then role else
     let prots = night.PlayerStates |> List.filter (fun ps ->
         ps.Id |> role.Game.GetEntity |> getState |> EntityState.isDead |> not
-        && ps.Doge.IsSome && ps.Doge.Value = target.Player.Id)
+        && ps.Doge |> List.contains target.Player.Id)
     let mutable r = role
     for ps in prots do
         let entity = role.Game.GetEntity ps.Id
@@ -22,7 +22,7 @@ let involveIfDoge (target: Entity) (night: NightContext) (role: RoleContext)=
         r <- c
     r
 
-let private printSummaryWith printer entities=
+let printSummaryWith printer entities=
     entities |> List.map (fun e -> e |> printer) |> String.concat "\n"
 
 let printNightSummary entities =
