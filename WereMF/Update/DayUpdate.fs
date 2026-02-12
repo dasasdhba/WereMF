@@ -55,6 +55,9 @@ let private updateJiaoHuaBlocked (gameContext: GameContext)=
             let role = h.GetFromEntity e
             match role with
             | :? JiaoHuaRole as jiaoHua when jiaoHua.VoteBlock ->
+                let jiaoHua = { jiaoHua with VoteBlock = false }
+                let e = h.SetToEntity jiaoHua e
+                let g = g.UpdateEntity e
                 if g.Entities |> List.exists (fun p -> Ok p.Player.Id |> voteJiaoHuaFilter g |> Result.isOk ) then
                     let parser input =
                         input |> parsePlayerId |> voteJiaoHuaFilter g
