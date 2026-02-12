@@ -12,8 +12,6 @@ type XianSongRole =
     static member New () = { MfaList = [] ; Reborn = None ; Disabled = None }
     member this.IsDisabled () =
         this.Disabled.IsSome
-    member this.IsReborn () =
-        this.Reborn.IsSome
     member this.IsRebornChoice () =
         this.Reborn.IsSome && this.Reborn.Value = true
     interface IRole with

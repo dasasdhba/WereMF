@@ -2,10 +2,13 @@ module WereMF.Skill.XianSong
 
 open System
 open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Role.ShiWu
 open WereMF.State
 open WereMF.Role.XianSong
 
@@ -14,6 +17,92 @@ type XianSongSkill =
         ForceMfa : bool option
     }
     interface ISkill
+    interface ISkillCost with
+        member this.Cost sending = monad {
+            if this.ForceMfa.IsNone then this else
+            
+            let! context = State.get
+            let source = sending |> getSource
+            let entity = source |> context.Game.GetEntity
+            let handler = sending |> getHandler
+            let entity = entity |> updateRoleWithHandler
+                             (fun (x: XianSongRole) -> { x with Reborn = Some false })
+                             handler
+            let context = { context with Game = context.Game.UpdateEntity entity }
+            do! State.put context
+            this
+        }
+    interface ISkillExecute with
+        member this.Execute sending = monad {
+            let! context = State.get
+            let source = sending |> getSource
+            let entity = source |> context.Game.GetEntity
+            let handler = sending |> getHandler
+            let mfas = entity |> getFromRoleWithHandler
+                                (fun (x: XianSongRole) -> x.MfaList)
+                                 handler
+            let mfas = defaultArg mfas []
+            let target = sending |> getRealTarget
+            let forceBall = mfas |> List.contains target
+                            || (this.ForceMfa.IsSome && this.ForceMfa.Value = false)
+            let target = sending |> getRealTarget
+            
+            // 虫子失效
+            let tEntity = target |> context.Game.GetEntity
+            let entity =
+                if tEntity.State.BugCount <= 0 then entity else
+                entity |> updateRoleWithHandler
+                         (fun (x: XianSongRole) -> { x with Disabled = Some true })
+                         handler
+            let context = { context with Game = context.Game.UpdateEntity entity }
+            do! State.put context
+            
+            if target |> isDoged context.Night then
+                let sender = sending |> getSenderName context.Game
+                let recv = target |> getPlayerName context.Game
+                let msg = if forceBall then $"{sender}想给{recv}丢咸松球，被Doge挡了"
+                          else $"{sender}想找{recv}要mfa，被Doge挡了"
+                let night = context.Night.AddMessage msg
+                do! State.put { context with Night = night }
+                this
+            else
+            
+            let mfa =
+                if forceBall then false
+                elif this.ForceMfa.IsSome && this.ForceMfa.Value then true
+                else
+                    let msg = { Type = ToPlayer tEntity.Player; Content = "你被要mfa了，给吗？（1：给；0：不给）" }
+                    requestInputWithMessage msg parseBool
+            if mfa then
+                let entity = entity |> updateRoleWithHandler
+                                     (fun (x: XianSongRole) -> { x with MfaList = target :: x.MfaList })
+                                     handler
+                let context = { context with Game = context.Game.UpdateEntity entity }
+                
+                let th = tEntity |> Entity.getQueriedHandler context.Main.Rng
+                
+                // 烟雾
+                if th.IsNone then
+                    sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                    this
+                else
+                
+                // 实物
+                let th = th.Value
+                let tEntity = tEntity |> exposeIfShiWu th
+                let context = { context with Game = context.Game.UpdateEntity entity }
+                do! State.put context
+                
+                let name = tEntity |> Entity.getQueriedName th
+                sendMessage { Type = ToPlayer entity.Player; Content = $"你要到mfa了，对面的身份是{name}" }
+                this
+            else
+                if forceBall |> not then
+                    sendMessage { Type = ToPlayer entity.Player; Content = "你没有要到mfa" }
+                let tEntity = { tEntity with State = tEntity.State |> EntityState.addXianSong }
+                let context = { context with Game = context.Game.UpdateEntity tEntity }
+                this
+        }
 
 // 解析贤松输入，格式: "玩家ID" 或 "玩家ID m" 或 "玩家ID x"
 // m = 强制要mfa，x = 强制丢球

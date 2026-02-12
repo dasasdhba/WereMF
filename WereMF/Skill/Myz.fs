@@ -2,7 +2,9 @@ module WereMF.Skill.Myz
 
 open System
 open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
 open WereMF.State
@@ -14,6 +16,64 @@ type MyzSkill =
         IsNight : bool
     }
     interface ISkill
+    interface ISkillCost with
+        member this.Cost sending = monad {
+            if this.Threaten.Force |> not then this else
+            let! context = State.get
+            let source = sending |> getSource
+            let entity = source |> context.Game.GetEntity
+            let handler = sending |> getHandler
+            let entity = entity |> updateRoleWithHandler
+                             (fun (d: MyzRole) -> { d with Revealed = true})
+                             handler
+            let context = { context with Game = entity |> context.Game.UpdateEntity }
+            let sender = sending |> getSenderName context.Game
+            sendMessage { Type = Public; Content = $"{sender}自爆了身份！" }
+            sendMessage { Type = Public; Content = $"{entity.Player.Name}是{sender}" }
+            sendMessage { Type = Public; Content = $"{sender}今晚的威胁将强制生效！" }
+            do! State.put context
+            this
+        }
+    interface ISkillExecute with
+        member this.Execute sending = monad {
+            let! context = State.get
+            let target = sending |> getRealTarget
+            if target |> isDoged context.Night then
+                let sender = sending |> getSenderName context.Game
+                let recv = target |> getPlayerName context.Game
+                let night = context.Night.AddMessage $"{sender}想威胁{recv}，被Doge挡了"
+                do! State.put { context with Night = night }
+                this
+            else
+            
+            let source = sending |> getSource
+            let entity = source |> context.Game.GetEntity
+            if this.IsNight then
+                let pending = context.Night.PendingSkills
+                let idx = pending |> List.indexed |> List.filter (fun (i, p) -> p.Source = target)
+                let context =
+                    if idx.IsEmpty then
+                        sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                        context
+                    else
+                    let i, ps = idx |> List.randomChoiceWith context.Main.Rng
+                    let ps = { ps with Threaten = Some this.Threaten }
+                    let pending = pending |> List.updateAt i ps
+                    let night = { context.Night with PendingSkills = pending }
+                    { context with Night = night }
+                do! State.put context
+                this
+            else
+                let tEntity = target |> context.Game.GetEntity
+                let threaten = {
+                    Type = DayVote (this.Threaten.Target, this.Threaten.Force)
+                    Source = this.Threaten.Source
+                }
+                let tEntity = { tEntity with State.Threaten = Some threaten }
+                let context = { context with Game = tEntity |> context.Game.UpdateEntity }
+                do! State.put context
+                this
+    }
 
 // 解析myz输入，格式: "玩家ID 威胁目标ID n/d [f]"
 // n=晚上威胁，d=白天威胁，f=强制

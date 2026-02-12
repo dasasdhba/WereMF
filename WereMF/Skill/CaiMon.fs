@@ -43,7 +43,8 @@ type CaiMonSkill =
             let tEntity = target |> context.Game.GetEntity
             let cost = if tEntity.State |> EntityState.isDead then 2 else 1
             let entity = entity |> updateRoleWithHandler
-                             (fun (f: CaiMonRole) -> { f with CaiCount = f.CaiCount - cost })
+                             (fun (f: CaiMonRole) -> { f with CaiCount = f.CaiCount - cost
+                                                              RebornList = target :: f.RebornList })
                              handler
             let context = { context with Game = context.Game.UpdateEntity entity }
             do! State.put context
@@ -124,16 +125,17 @@ let parseCaiMonInput (input: string) : Result<PlayerId * bool, string> =
 // 彩怪技能发送
 let caiMonSendSkill ps (game: GameContext) =
     let entity = game.GetEntity ps.Source
-    let caiCount =
+    let caiCount, rebornList =
         match ps.Handler.GetFromEntity entity with
-        | :? CaiMonRole as caiMon -> caiMon.CaiCount
-        | _ -> 0
+        | :? CaiMonRole as caiMon -> caiMon.CaiCount, caiMon.RebornList
+        | _ -> 0, []
     
     let title = $"输入要复活的死亡玩家编号，在结尾输入 d 表示使用两根彩条（剩余 {caiCount} 根彩条），输入 0 放弃"
     
     let filter = filterNonExists game
                 >> filterAlive game
-                >> filterExceptIndex ps.Source "不能给自己彩条"
+                >> filterExceptIndex ps.Source "你不能给自己彩条"
+                >> filterExceptIndexList rebornList "你已经复活过这个玩家了"
                 >> filterSelectable game
                 >> filterKidnapped ps
                 >> (if caiCount <= 0 then filterDisabled "你没有彩条了" else id)

@@ -108,7 +108,7 @@ type HeChongSkill =
                        (fun k -> k.CopiedRole.Value)
                        (fun v k -> { k with CopiedRole = Some v })
             let hs = role |> getPendingHandlers entity.Player
-            let handlers = hs |> List.map (fun h -> (sub |> CommonHandler).Bind h)
+            let handlers = hs |> List.map (fun h -> handler.Bind ( (sub |> CommonHandler).Bind h) )
             let ps = handlers |> List.map (fun h -> createPendingSkill h entity)
             let context = { context with Night.PendingSkills = ps @ context.Night.PendingSkills }
             
