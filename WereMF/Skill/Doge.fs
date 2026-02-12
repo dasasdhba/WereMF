@@ -87,7 +87,10 @@ let dogeSendSkill ps (game: GameContext) =
                     >> filterKidnapped ps
                     >> filterExceptIndexList lastNightList "不能连续保护同一个玩家"
     let filter = giveUpOrFilterWith filter
-    let def () = { IsSuicide = false } :> ISkill
+    let def () =
+        let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择是否自爆（1：是；0：否）" }
+        let yes = requestInputWithMessage msg parseBool
+        { IsSuicide = yes } :> ISkill
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! target, isSuicide = parseDogeInput input
         let! target = Ok target |> filter

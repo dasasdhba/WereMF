@@ -9,6 +9,7 @@ open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
 open WereMF.Role.Rabi
+open WereMF.State
 
 type MilkType =
     | Fresh  // 鲜奶
@@ -120,7 +121,9 @@ let parseRabbitInput (input: string) : Result<PlayerId * MilkType, string> =
         | _, Error e -> Error e
     | _ -> Error "请输入格式: 玩家编号 奶类型(x/d)"
 
-let rabbitSendSkill ps game =
+let rabbitSendSkill ps (game: GameContext) =
+    let entity = game.GetEntity ps.Source
+    
     let title = "输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃"
     let filter = filterNonExists game
                 >> filterDead game
@@ -128,7 +131,10 @@ let rabbitSendSkill ps game =
                 >> filterSelectable game
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
-    let def () = { MilkType = Fresh } :> ISkill
+    let def () =
+        let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择给鲜奶还是毒奶（1：鲜奶；0：毒奶）" }
+        let yes = requestInputWithMessage msg parseBool
+        { MilkType = if yes then Fresh else Dry } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! playerId, milkType = parseRabbitInput input

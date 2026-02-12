@@ -54,7 +54,17 @@ let xianSongSendSkill ps (game: GameContext) =
                 >> filterKidnapped ps
                 >> (if disabled then filterDisabled "你被丟虫了，技能失效一晚" else id)
     let filter = giveUpOrFilterWith filter
-    let def () = { ForceMfa = None } :> ISkill
+    let def () =
+        if isRebornChoice |> not then { ForceMfa = None } :> ISkill else
+        let msg = { Type = ToPlayer entity.Player ; Content = "你可以输入 m 或者 x 表示强制要 mfa 或丢咸松球，输入 0 放弃" }
+        let parser (input: string) =
+            match input.Trim().ToLower() with
+            | "m" -> Some true |> Ok
+            | "x" -> Some false |> Ok
+            | "0" -> Ok None
+            | _ -> Error "未知格式"
+        let yes = requestInputWithMessage msg parser
+        { ForceMfa = yes } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! targetId, forceMfa = parseXianSongInput input

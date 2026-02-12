@@ -44,6 +44,7 @@ let fenXiaSendSkill ps (game: GameContext) =
                 >> filterSelectable game
                 >> filterKidnapped ps
                 >> filterFenXia game fenCount
+                >> (if fenCount <= 0 then filterDisabled "你没有粉条了" else id)
     let filter = giveUpOrFilterWith filter
     let def () = FenXiaSkill :> ISkill
     

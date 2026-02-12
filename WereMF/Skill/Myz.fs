@@ -33,6 +33,22 @@ let parseMyzInput (input: string) : Result<PlayerId * PlayerId * bool * bool, st
         let isForce = parts.Length >= 4 && parts[3].ToLower() = "f"
         return (playerId, targetId, isNight, isForce)
     }
+    
+let parseMyzPartInput (input: string) : Result<PlayerId * bool * bool, string> =
+    let parts = input.Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
+    if parts.Length < 2 then
+        Error "请至少输入目标编号，威胁类型（n：晚上；d：白天）"
+    else        
+    monad {
+        let! targetId = parsePlayerId parts[0]
+        let! isNight =
+            match parts[1].ToLower() with
+            | "n" -> Ok true
+            | "d" -> Ok false
+            | _ -> Error "请输入 n（晚上威胁）或 d（白天威胁）"
+        let isForce = parts.Length >= 3 && parts[2].ToLower() = "f"
+        return (targetId, isNight, isForce)
+    }
 
 // myz技能发送
 let myzSendSkill ps (game: GameContext) =
@@ -40,7 +56,8 @@ let myzSendSkill ps (game: GameContext) =
     let reveal =
         match ps.Handler.GetFromEntity entity with
         | :? MyzRole as myz -> myz.Revealed
-        | _ -> false
+        | _ -> true
+    let reveal = reveal |> not
     
     let title = "输入要威胁的玩家编号，威胁目标的编号，威胁类型（n：晚上；d：白天），输入 0 放弃"
     let title = if reveal then title else title + "；在结尾输入 f 以自爆身份，并使威胁强制生效"
@@ -52,7 +69,21 @@ let myzSendSkill ps (game: GameContext) =
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
     let targetFilter = giveUpOrFilterWith (filterNonExists game)
-    let def () = { Threaten = { Source = ps.Source; Target = PlayerId 0; Force = false }; IsNight = true } :> ISkill
+    let def () =
+        let title = "输入威胁目标的编号，威胁类型（n：晚上；d：白天）"
+        let title = if reveal then title else title + "；在结尾输入 f 以自爆身份，并使威胁强制生效"
+        let parser input = monad {
+            let! targetId, isNight, isForce = parseMyzPartInput input
+            if isForce && reveal then
+                return! Error "你已经自爆过了"
+            else
+                
+            let! targetId = Ok targetId |> targetFilter
+            targetId, isNight, isForce
+        }
+        let msg = { Type = ToPlayer entity.Player ; Content = title }
+        let targetId, isNight, isForce = requestInputWithMessage msg parser
+        { Threaten = { Source = ps.Source; Target = targetId; Force = isForce }; IsNight = isNight } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> =
         let trimmed = input.Trim()

@@ -70,7 +70,9 @@ let private getThreatenResult filter (creator: unit -> ISkill)
         if threaten.Force then
             sendMessage { Type = ToPlayer entity.Player
                           Content = $"你被强制威胁{msg}" }
-            Some (Ok (Skill.New ps target (creator())))
+            Some (Ok (if target > PlayerId 0 then
+                          Skill.New ps target (creator()) |> Some
+                      else None))
         else
             sendMessage { Type = ToPlayer entity.Player
                           Content = $"你被威胁{msg}" }
@@ -100,8 +102,8 @@ let sendSkillWith title filter
     
     match threaten with
     | Some (Ok v) ->
-        if v.Sending.Target <= PlayerId 0 then () else
-            let night = { night with Skills = v :: night.Skills }
+        if v.IsNone then () else
+            let night = { night with Skills = v.Value :: night.Skills }
             do! State.put (game, night)
         ()
     | _ ->

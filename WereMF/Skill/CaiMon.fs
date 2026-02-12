@@ -42,8 +42,13 @@ let caiMonSendSkill ps (game: GameContext) =
                 >> filterExceptIndex ps.Source "不能给自己彩条"
                 >> filterSelectable game
                 >> filterKidnapped ps
+                >> (if caiCount <= 0 then filterDisabled "你没有彩条了" else id)
     let filter = giveUpOrFilterWith filter
-    let def () = { Double = false } :> ISkill
+    let def () =
+        if caiCount <= 1 then { Double = false } :> ISkill else
+        let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择用一根还是两根彩条（1：两根；0：一根）" }
+        let yes = requestInputWithMessage msg parseBool
+        { Double = yes } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! target, double = parseCaiMonInput input

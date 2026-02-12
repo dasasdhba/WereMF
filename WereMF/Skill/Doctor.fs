@@ -96,7 +96,7 @@ let doctorSendSkill ps (game: GameContext) =
                 >> filterDead game
                 >> filterSelectable game
                 >> filterKidnapped ps
-                >> (if capsuleCount = 0 then filterDisabled "你没有药丸了" else id)
+                >> (if capsuleCount <= 0 then filterDisabled "你没有药丸了" else id)
     let filter = giveUpOrFilterWith filter
     let def () = DoctorSkill.New () :> ISkill
     let createSkill id = Skill.New ps id (DoctorSkill.New ())
