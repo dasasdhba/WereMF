@@ -18,12 +18,15 @@ open WereMF.Module
 
 let private updateBugWith (context: SkillContext) (skill : SendingSkill) =
     let update (updater : NightContext -> Entity -> NightContext * Entity) (c: SkillContext) (id: PlayerId) =
-        let e = c.Game.GetEntity id
-        let n, e = updater c.Night e
-        { c with Game = c.Game.UpdateEntity e ; Night = n }
+        let (m, g), n = c
+        let e = g.GetEntity id
+        let n, e = updater n e
+        let g = g.UpdateEntity e
+        ((m, g), n) |> SkillContext
     let source = skill.Pending.Source
     let target = skill.Target
-    let entity = context.Game.GetEntity source
+    let (main, game), night = context
+    let entity = game.GetEntity source
     match skill.Spring with
     | None ->
         let context = update updateBugOnNight context source
@@ -41,8 +44,9 @@ let private updateBugWith (context: SkillContext) (skill : SendingSkill) =
 
 let private executeSkill (context: SkillContext) (skill : Skill) =
     let source = skill.Sending.Pending.Source
-    let sEntity = context.Game.GetEntity source
-    let blocked = (context.Night.GetPlayerState source).Blocked
+    let (main, game), night = context
+    let sEntity = game.GetEntity source
+    let blocked = (night.GetPlayerState source).Blocked
     if blocked || sEntity |> Entity.getState |> EntityState.isDead then
         sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
         context, skill, false
@@ -54,7 +58,7 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
     else
     
     // spring
-    let skill = { skill with Sending = skill.Sending |> setSpring context }
+    let skill = { skill with Sending = skill.Sending |> setSpring night }
     
     // cost
     let context, skill =
@@ -68,16 +72,18 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
     // kirby
     let target = skill.Sending |> getRealTarget
     let context, success =
-        if context.Game.HasEntity target |> not then context, false else
+        let (main, game), night = context
+        if game.HasEntity target |> not then context, false else
         
-        let state = context.Night.GetPlayerState target
+        let state = night.GetPlayerState target
         if state.Kirby.IsNone then context, false else
         
         let kirby, handler = state.Kirby.Value
         let state = { state with Kirby = None }
-        let context = { context with Night = context.Night.SetPlayerState state }
+        let night = night.SetPlayerState state
+        let context = (main, game), night
         
-        let kEntity = context.Game.GetEntity kirby
+        let kEntity = game.GetEntity kirby
         let chara = skill.Sending.Pending.Type
         if chara = Kirby then
             sendMessage { Type = ToPlayer kEntity.Player ; Content = "失败" }
@@ -89,9 +95,10 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
             let role = handler.GetFromEntity kEntity
             match role with
             | :? KirbyRole as k ->
-                let k = { k with CopiedRole = Some (createRole context.Main.Roll chara) }
+                let k = { k with CopiedRole = Some (createRole main.Roll chara) }
                 let kEntity = kEntity |> handler.SetToEntity k
-                let context = { context with Game = context.Game.UpdateEntity kEntity }
+                let game = game.UpdateEntity kEntity
+                let context = (main, game), night
                 context, true
             | _ ->
                 context, true
@@ -133,18 +140,14 @@ let nightStart () = monad {
     let! (main: MainContext, game : GameContext) = State.get
     sendMessage { Type = Public ; Content = "晚上开始\n" + (printNightSummary game.Entities) }
     
-    let rec updateNightDead idx (entities: Entity list) c =
-        if idx >= entities.Length then c, entities else
-        let (e: Entity) = entities[idx]
-        let c, e = e |> Entity.updateOnNightStartRequestDead c
-        let entities = entities |> List.updateAt idx e
-        updateNightDead (idx + 1) entities c
+    let main, game =
+        [0..(game.Entities.Length - 1)] |> List.fold (fun (m, g) i ->
+            let e = g.Entities[i]
+            let e, (m, g) = updateOnNightStartRequestDead (e, (m, g))
+            m, g
+        ) (main, game)
     
-    let context = RoleContext.Create main game
-    let entities = game.Entities
-    let context, entities = updateNightDead 0 entities context
-    let main, game = context.Get ()
-    let entities = entities |> List.map (Entity.updateOnNightStart main)
+    let entities = game.Entities |> List.map (Entity.updateOnNightStart main)
     let game = { game with Entities = entities }
     do! State.put (main, game)
 }
@@ -165,19 +168,23 @@ let rec private sendPendingSkills (game: GameContext) (night: NightContext) (psL
     sendPendingSkills game night psList.Tail
 
 let rec private executeSkills (context: SkillContext) =
-    if context.Night.Skills.Length = 0 then context else
-    let skill = context.Night.Skills.Head
+    let (main, game), night = context
+    if night.Skills.Length = 0 then context else
+    let skill = night.Skills.Head
     let context, skill, success = executeSkill context skill
-    let context = { context with Night.Skills = context.Night.Skills.Tail }
-    let context =
-        if success |> not then context else
-        { context with Night.QueuedSkills = context.Night.QueuedSkills @ [skill] }
-    executeSkills context
+    let (main, game), night = context
+    let night = { night with Skills = night.Skills.Tail }
+    let night =
+        if success |> not then night else
+        { night with QueuedSkills = night.QueuedSkills @ [skill] }
+    executeSkills ((main, game), night)
     
 let rec private executeQueuedSkills (context: SkillContext) =
-    if context.Night.QueuedSkills.Length = 0 then context else
-    let skill = context.Night.QueuedSkills.Head
-    let context = { context with Night.QueuedSkills = context.Night.QueuedSkills.Tail }
+    let (main, game), night = context
+    if night.QueuedSkills.Length = 0 then context else
+    let skill = night.QueuedSkills.Head
+    let night = { night with QueuedSkills = night.QueuedSkills.Tail }
+    let context = (main, game), night
     let skill, context =
         match skill.Actor with
         | :? ISkillExecuteQueued as exe ->
@@ -185,16 +192,18 @@ let rec private executeQueuedSkills (context: SkillContext) =
                 State.run (exe.Execute skill.Sending) context
             { skill with Actor = actor }, context
         | _ -> skill, context
-    let context = { context with Night.SummarySkills = context.Night.SummarySkills @ [skill] }
-    executeQueuedSkills context
+    let (main, game), night = context
+    let night = { night with Skills = night.SummarySkills @ [skill] }
+    executeQueuedSkills ((main, game), night)
 
 let rec private pendingSkills (context: SkillContext) =
-    if context.Night.PendingSkills.Length = 0 then context else
-    let next, remain = getNextPendingSkills context.Night.PendingSkills
-    let next = next |> List.randomShuffleWith context.Main.Rng
-    let g, n = sendPendingSkills context.Game context.Night next
-    let n = { n with PendingSkills = remain }
-    let context = { context with Game = g ; Night = n }
+    let (main, game), night = context
+    if night.PendingSkills.Length = 0 then context else
+    let next, remain = getNextPendingSkills night.PendingSkills
+    let next = next |> List.randomShuffleWith main.Rng
+    let game, night = sendPendingSkills game night next
+    let night = { night with PendingSkills = remain }
+    let context = (main, game), night
     let context = executeSkills context
     let context = executeQueuedSkills context
     pendingSkills context
@@ -204,9 +213,9 @@ let nightAction night = monad {
     let psList = createPendingSkills (game.Entities |> List.filter (
         fun e -> e |> Entity.getState |> EntityState.isDead |> not)) main.Rng
     let night = { night with PendingSkills = psList }
-    let context = SkillContext.Create main game night
+    let context = (main, game), night
     let context = pendingSkills context
-    let main, game, night = context.Get ()
+    let (main, game), night = context
     do! State.put (main, game)
     night
 }
@@ -236,14 +245,18 @@ let private tryHeal (list: Skill list) (request: DeadRequest) (target: Entity) =
         let list = list |> List.updateAt idx h
         list, true
 
-let private involveIfDogeSummary (target: Entity) (night: NightContext) (role: RoleContext) (list: Skill list) =
-    if target.State |> EntityState.isDead |> not then role, list else
+let rec private involveIfDogeSummary (target: Entity) (context: SkillContext) (list: Skill list) =
+    let (main, game), night = context
+    if target.State |> EntityState.isDead |> not then context, list else
     let prots = night.PlayerStates |> List.filter (fun ps ->
-        ps.Id |> role.Game.GetEntity |> getState |> EntityState.isDead |> not
+        ps.Id |> game.GetEntity |> getState |> EntityState.isDead |> not
         && ps.Doge |> List.contains target.Player.Id)
-    let mutable r, l = role, list
+    let mutable c, l = context, list
     for ps in prots do
-        let entity = role.Game.GetEntity ps.Id
+        let (main, game), night = c
+        let ps = { ps with Doge = ps.Doge |> List.filter (fun id -> id <> target.Player.Id) }
+        let night = night.SetPlayerState ps
+        let entity = game.GetEntity ps.Id
         let name = entity.Player.Name
         let msg = $"{target.Player.Name}保护了{name}"
         sendMessage { Type = Public ; Content = msg }
@@ -252,9 +265,12 @@ let private involveIfDogeSummary (target: Entity) (night: NightContext) (role: R
         if heal then
             l <- sk
         else
-            let c, _ = entity |> requestDead request r
-            r <- c
-    r, l
+            let dead = entity, (main, game)
+            let entity, (main, game) = requestDead request dead
+            let rc, rl = involveIfDogeSummary entity ((main, game), night) l
+            c <- rc
+            l <- rl
+    c, l
 
 let nightSummary (night: NightContext) = monad {
     sendMessage { Type = Public; Content = "今晚" }
@@ -263,53 +279,55 @@ let nightSummary (night: NightContext) = monad {
     
     let! (main: MainContext, game : GameContext) = State.get
     
-    let updateContext (c : RoleContext) (e :Entity) =
-        { c with Game = c.Game.UpdateEntity e }
-    
     // 虫子
     
     let mutable skills = night.SummarySkills
-    let mutable roleContext = RoleContext.Create main game
-    let bugs = roleContext.Game.Entities |> List.filter (fun e -> e.State.BugCount >= 3)
+    let mutable context = (main, game), night
+    let bugs = game.Entities |> List.filter (fun e -> e.State.BugCount >= 3)
     for bug in bugs do
+        let (main, game), night = context
         sendMessage { Type = Public ; Content = $"{bug.Player.Name}的虫子数量过多！" }
         let bug = { bug with State.Bug = None }
-        roleContext <- bug |> updateContext roleContext
+        let game = game.UpdateEntity bug
+        context <- (main, game), night
         let request = DeadRequest.New Sudden
         let sk, heal = tryHeal skills request bug
         if heal then
             skills <- sk
         else
-            let c, bug = bug |> requestDead request roleContext
-            roleContext <- c
-            let r, l = involveIfDogeSummary bug night roleContext skills
-            roleContext <- r
+            let dead = bug, (main, game)
+            let bug, (main, game) = requestDead request dead
+            let r, l = involveIfDogeSummary bug ((main, game), night) skills
+            context <- r
             skills <- l
      
     // 闲松球
     
-    let xian = roleContext.Game.Entities
+    let (main, game), night = context
+    let xian = game.Entities
                |> List.filter (fun e -> e.State.XianSongCount >= 2
                                         || e.State.XianSong
                                         |> List.exists (fun x -> x <= 0))
     for x in xian do
+        let (main, game), night = context
         sendMessage { Type = Public ; Content = $"{x.Player.Name}身上的咸松球爆炸了！" }
         let x = { x with State.XianSong = [] }
-        roleContext <- x |> updateContext roleContext
+        let game = game.UpdateEntity x
+        context <- (main, game), night
         let request = DeadRequest.New Sudden
         let sk, heal = tryHeal skills request x
         if heal then
             skills <- sk
         else
-            let c, x = x |> requestDead request roleContext
-            roleContext <- c
-            let r, l = involveIfDogeSummary x night roleContext skills
-            roleContext <- r
+            let dead = x, (main, game)
+            let x, (main, game) = requestDead request dead
+            let r, l = involveIfDogeSummary x ((main, game), night) skills
+            context <- r
             skills <- l
     
     // 其他技能
     
-    let main, game = roleContext.Get ()
+    let (main, game), night = context
     
     let list = skills |> List.sortByDescending (fun s ->
             match s.Actor with
@@ -323,9 +341,10 @@ let nightSummary (night: NightContext) = monad {
         let sList = sList.Tail
         match s.Actor with
         | :? ISkillSummary as summary ->
+            let (m, g), n = context
             let t = summary.GetRealTarget s.Sending
-            if t |> context.Game.HasEntity
-               && t |> context.Game.GetEntity |> getState |> EntityState.isDead then
+            if t |> g.HasEntity
+               && t |> g.GetEntity |> getState |> EntityState.isDead then
                 updateSkills context sList
             else
                 
@@ -338,18 +357,18 @@ let nightSummary (night: NightContext) = monad {
             if success then updateSkills context sList else
             
             // dead request
-            let role = RoleContext.Create context.Main context.Game
-            let role, target = r.Target |> requestDead r.Request role
-            let role, sList = involveIfDogeSummary target night role sList
-            let main, game = role.Get ()
-            let context = { context with Main = main ; Game = game }
+            let (m, g), n = context
+            let dead = r.Target, (m, g)
+            let target, (m, g) = requestDead r.Request dead
+            let context, sList = involveIfDogeSummary target ((m, g), n) sList
             updateSkills context sList
         | _ -> updateSkills context sList
         
-    let context = SkillContext.Create main game night
+    let context = (main, game), night
     let context = updateSkills context list
     
-    do! State.put (context.Main, context.Game)
+    let (main, game), _ = context
+    do! State.put (main, game)
     ()
 }
 

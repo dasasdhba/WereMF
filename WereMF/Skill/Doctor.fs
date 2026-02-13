@@ -19,31 +19,30 @@ type DoctorSkill =
     interface ISkill
     interface ISkillCost with
         member this.Cost sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let entity = entity |> updateRoleWithHandler
                              (fun (d: DoctorRole) -> { d with Capsule = d.Capsule - 1 })
                              handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             
             let target = sending |> getRealTarget
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}扎针，被Doge挡了"
-                do! State.put { context with Night = night }
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想给{recv}扎针，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
-                do! State.put context
                 { this with Success = true }
         }
     interface ISkillSummary with
@@ -53,16 +52,16 @@ type DoctorSkill =
         member this.Summarize sending = monad {
             if this.Healed || this.Success |> not then None else
             
-            let! context = State.get
+            let! (main, game), night = State.get
             
             let target = sending |> getRealTarget
-            let entity = context.Game.GetEntity target
-            let recv = target |> getPlayerName context.Game
+            let entity = game.GetEntity target
+            let recv = target |> getPlayerName game
             sendMessage { Type = Public ; Content = $"{recv}被扎了一针" }
             
             let entity = { entity with State = entity.State |> EntityState.addCapsule }
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
             
             if entity.State.CapsuleCount < 2 then None else
             

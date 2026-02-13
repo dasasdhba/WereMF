@@ -2,6 +2,7 @@ module WereMF.Role.Leaf
 
 open System
 open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 
@@ -34,33 +35,31 @@ type LeafRole =
             this.Fury
         member this.SetFury () =
             { this with Fury = true }
+    member this.GetSubHandler idx =
+        let sub = createSubFunctor
+                           (fun k -> k.Roles[idx])
+                           (fun v k ->
+                 { k with Roles = k.Roles |> List.updateAt idx v })
+        sub |> CommonHandler
     interface IRoleQueriedHandler with
         member this.Get (random : Random) =
             let idx = if this.Fury then random.Next this.Roles.Length else 0
             let role = this.Roles[idx]
-            let sub = createSubFunctor
-                       (fun k -> k.Roles[idx])
-                       (fun v k -> { k with Roles = k.Roles |> List.updateAt idx v })
-            (sub |> CommonHandler).Bind (role |> getQueriedHandler random)
+            let sub = this.GetSubHandler idx
+            sub.Bind (role |> getQueriedHandler random)
     member private this.GetHandlersWith func =
         if this.Fury |> not then
             let role = this.Roles[0]
             let hs = role |> func
-            let sub = createSubFunctor
-                           (fun k -> k.Roles[0])
-                           (fun v k ->
-                 { k with Roles = k.Roles |> List.updateAt 0 v })
-            hs |> List.map (fun h -> (sub |> CommonHandler).Bind h)
+            let sub = this.GetSubHandler 0
+            hs |> List.map (fun h -> sub.Bind h)
         else
             let mutable result = []
             for i = 1 to this.Roles.Length - 1 do
                 let role = this.Roles[i]
                 let hs = role |> func
-                let sub = createSubFunctor
-                               (fun k -> k.Roles[i])
-                               (fun v k ->
-                      { k with Roles = k.Roles |> List.updateAt i v })
-                result <- result @ (hs |> List.map (fun h -> (sub |> CommonHandler).Bind h))
+                let sub = this.GetSubHandler i
+                result <- result @ (hs |> List.map (fun h -> sub.Bind h))
             result
     member this.GetQueriedHandlers (random : Random) =
         this.GetHandlersWith (fun h -> [getQueriedHandler random h])
@@ -79,36 +78,32 @@ type LeafRole =
     interface IRoleUpdateOnDead with
         member this.Update dead =
             this.UpdateRolesWith (updateOnDead dead)
+    member private this.GetDeadRequestWith func =
+        if this.Fury |> not then
+                let role = this.Roles[0]
+                role |> func
+            else
+                this.Roles[1..] |> List.map (fun role ->
+                    role |> func) |> List.concat
     interface IRoleGetNightStartDeadRequest with
         member this.Get () =
-            if this.Fury |> not then
-                let role = this.Roles[0]
-                role |> getNightStartDeadRequest
-            else
-                this.Roles[1..] |> List.map (fun role ->
-                    role |> getNightStartDeadRequest) |> List.concat
+            this.GetDeadRequestWith getNightStartDeadRequest
     interface IRoleGetDayStartDeadRequest with
         member this.Get () =
-            if this.Fury |> not then
-                let role = this.Roles[0]
-                role |> getDayStartDeadRequest
-            else
-                this.Roles[1..] |> List.map (fun role ->
-                    role |> getDayStartDeadRequest) |> List.concat
+            this.GetDeadRequestWith getDayStartDeadRequest
     interface IRolePreventDead with
-        member this.Prevent context dead entity =
-            let rec loop idx =
-                if idx >= this.Roles.Length then None else
-                let role = this.Roles[idx]
-                let result = role |> tryPreventDead context dead entity
-                match result with
-                | Some r -> Some (r, idx)
-                | None -> loop (idx + 1)
-            let r = if this.Fury then loop 1 else
-                        this.Roles[0] |> tryPreventDead context dead entity
-                                      |> Option.map (fun r -> r, 0)
-            monad {
-                let! r, idx = r
-                let role = { this with Roles = this.Roles |> List.updateAt idx r.NewRole }
-                { r with NewRole = role }
-            }
+        member this.Prevent dead handler = monad {
+            let! context = State.get
+            let min = if this.Fury then 1 else 0
+            let max = if this.Fury then this.Roles.Length - 1 else 0
+            let context, result =
+                [min..max] |> List.fold (fun (c, r) i ->
+                    if r then (c, r) else
+                    let role = this.Roles[i]
+                    let sub = this.GetSubHandler i
+                    let subHandler = handler.Bind sub
+                    tryPreventDead dead subHandler c role
+                ) (context, false)
+            do! State.put context
+            result
+        }

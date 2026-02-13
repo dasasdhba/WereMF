@@ -9,6 +9,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Role
 open WereMF.Role.HeChong
 open WereMF.Role.Leaf
 open WereMF.Role.ShiWu
@@ -42,77 +43,73 @@ type HeChongSkill =
     interface ISkill
     interface ISkillCost with
         member this.Cost sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let target = sending |> getRealTarget
             let entity = entity |> updateRoleWithHandler
                              (fun (d: HeChongRole) -> { d with LastSelected = d.LastSelected.Add target })
                              handler
-            let context = { context with Game = entity |> context.Game.UpdateEntity }
-            do! State.put context
+            let game = entity |> game.UpdateEntity
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let target = sending |> getRealTarget
-            let tEntity = context.Game.GetEntity target
-            let th = tEntity |> Entity.getQueriedHandler context.Main.Rng
+            let tEntity = target |> game.GetEntity
+            let th = tEntity |> Entity.getQueriedHandler main.Rng
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
-            
-            // 烟雾
+            let entity = source |> game.GetEntity
+
             if th.IsNone then
                 sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
                 this
             else
-                
-            // 叶子
+
             let th =
                 if tEntity |> getCamp <> Yezi then th else
                 match tEntity.Role with
                 | :? LeafRole as leaf when leaf.Fury ->
                     let msg = { Type = ToPlayer entity.Player; Content = "选择一个身份复制" }
-                    requestHandlerFromLeaf context.Main.Rng msg leaf tEntity
+                    requestHandlerFromLeaf main.Rng msg leaf tEntity
                 | _ -> th
-                
+
             if th.IsNone then
                 sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
                 this
             else
-            
+
             let th = th.Value
             let chara = getHandlerCharaType th tEntity
             if chara = Leaf || chara = HeChong then
                 sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
                 this
             else
-            
-            // 实物
+
             let tEntity = tEntity |> exposeIfShiWu th
-            let context = { context with Game = context.Game.UpdateEntity tEntity }
-            
-            // 复制
+            let game = game.UpdateEntity tEntity
+
             let chara = getHandlerCharaType th tEntity
             sendMessage { Type = ToPlayer entity.Player; Content = $"{chara.ToString()}" }
-            
+
             let role = th.GetFromEntity tEntity
             let handler = sending |> getHandler
             let entity = entity |> updateRoleWithHandler
                              (fun (f: HeChongRole) -> { f with CopiedRole = Some role })
                              handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            let sub = createSubFunctor
-                       (fun k -> k.CopiedRole.Value)
-                       (fun v k -> { k with CopiedRole = Some v })
+            let game = game.UpdateEntity entity
+            let sub = entity |> getFromRoleWithHandler
+                            (fun (f: HeChongRole) -> f.GetSubHandler ())
+                            handler
             let hs = role |> getPendingHandlers entity.Player
-            let handlers = hs |> List.map (fun h -> handler.Bind ( (sub |> CommonHandler).Bind h) )
+            let handlers = hs |> List.map (fun h -> handler.Bind ( sub.Bind h) )
             let ps = handlers |> List.map (fun h -> createPendingSkill h entity)
-            let context = { context with Night.PendingSkills = ps @ context.Night.PendingSkills }
-            
-            do! State.put context
+            let night = { night with PendingSkills = ps @ night.PendingSkills }
+
+            do! State.put ((main, game), night)
             this
         }
 

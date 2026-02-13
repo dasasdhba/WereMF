@@ -122,21 +122,6 @@ let sendSkillWith title filter
 
 // ------------------------------------------------------------------
 // execution
-
-type SkillContext =
-    {
-        Main : MainContext
-        Game : GameContext
-        Night : NightContext
-    }
-    static member Create main game night =
-        {
-            Main = main
-            Game = game
-            Night = night
-        }
-    member this.Get () =
-        this.Main, this.Game, this.Night
         
 type ISkillCanExecute =
     abstract member CanExecute : SkillContext -> SendingSkill -> bool
@@ -181,10 +166,10 @@ let getRealTarget (skill: SendingSkill) =
     | Some Normal -> skill.Pending.Source
     | Some Recursed -> PlayerId 0
 
-let canExecuteIfAlive (context: SkillContext) (skill: SendingSkill) =
+let canExecuteIfAlive (game: GameContext) (skill: SendingSkill) =
     let target = skill.Target
-    if context.Game.HasEntity target |> not then false else
-    let entity = context.Game.GetEntity target
+    if game.HasEntity target |> not then false else
+    let entity = game.GetEntity target
     entity.State |> EntityState.isDead |> not
 
 let canExecute context (skill: Skill) =
@@ -192,14 +177,15 @@ let canExecute context (skill: Skill) =
     | :? ISkillCanExecute as actor -> skill.Sending |> actor.CanExecute context
     | _ ->
         // by default, we check recursed and if target alive
+        let (main, game), night = context
         let target = skill.Sending |> getRealTarget
-        if context.Game.HasEntity target |> not then false else
-        let entity = context.Game.GetEntity target
+        if game.HasEntity target |> not then false else
+        let entity = game.GetEntity target
         entity.State |> EntityState.isDead |> not
 
-let setSpring context (skill: SendingSkill) =
-    if (context.Night.GetPlayerState skill.Target).Spring then
-        if (context.Night.GetPlayerState skill.Pending.Source).Spring then
+let setSpring (night: NightContext) (skill: SendingSkill) =
+    if (night.GetPlayerState skill.Target).Spring then
+        if (night.GetPlayerState skill.Pending.Source).Spring then
             { skill with Spring = Some Recursed }
         else
             { skill with Spring = Some Normal }

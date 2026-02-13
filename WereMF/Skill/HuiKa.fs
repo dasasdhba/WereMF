@@ -19,13 +19,13 @@ type HuiKaSkill =
     interface ISkill
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let target = sending |> getRealTarget
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}丢烟雾弹，被Doge挡了"
-                do! State.put { context with Night = night }
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想给{recv}丢烟雾弹，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
                 { this with Success = Some target }
@@ -33,28 +33,27 @@ type HuiKaSkill =
     interface ISkillExecuteQueued with
         member this.Execute sending = monad {
             if this.Success.IsNone then this else
-            
-            let! context = State.get
+
+            let! (main, game), night = State.get
             let target = this.Success.Value
-            let recv = target |> getPlayerName context.Game
-            let tEntity = target |> context.Game.GetEntity
+            let recv = target |> getPlayerName game
+            let tEntity = target |> game.GetEntity
             sendMessage { Type = Public ; Content = $"{recv}被烟雾弥漫！" }
             let tEntity = { tEntity with State = tEntity.State |> EntityState.addSmog }
-            let context = { context with Game = context.Game.UpdateEntity tEntity }
-            let context =
-                if tEntity.State.SmogCount < 2 then context else
+            let game = game.UpdateEntity tEntity
+            let main, game, night =
+                if tEntity.State.SmogCount < 2 then main, game, night else
                 sendMessage { Type = Public ; Content = $"{recv}窒息了！" }
-                let r = RoleContext.Create context.Main context.Game
+                let dead = tEntity, (main, game)
                 let request = DeadRequest.New Kill
-                let r, tEntity = tEntity |> Entity.requestDead request r
-                let main, game = r.Get ()
-                let context = { context with Main = main ; Game = game }
-                let context = involveIfDoge tEntity context
-                let night = blockIfLeaf tEntity context.Night
-                { context with Night = night }
-            
-            do! State.put context
-            sendMessage { Type = Public ; Content = $"\n{printNightSummary context.Game.Entities}" }
+                let dead = dead |> Entity.requestDead request
+                let tEntity, (main, game) = dead
+                let (main, game), night = involveIfDoge tEntity ((main, game), night)
+                let night = blockIfLeaf tEntity night
+                main, game, night
+
+            do! State.put ((main, game), night)
+            sendMessage { Type = Public ; Content = $"\n{printNightSummary game.Entities}" }
             this
         }
 

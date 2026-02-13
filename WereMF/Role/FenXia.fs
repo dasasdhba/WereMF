@@ -1,5 +1,7 @@
 module WereMF.Role.FenXia
 
+open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
@@ -25,16 +27,19 @@ type FenXiaRole =
             Priority = 100
             SummaryName = this.SummaryName
         }
+    member this.GetSubHandler idx =
+        let sub = createSubFunctor
+                           (fun k -> k.CopiedRoles[idx])
+                           (fun v k ->
+                 { k with CopiedRoles = k.CopiedRoles |> List.updateAt idx v })
+        sub |> CommonHandler
     member private this.GetHandlersWith func =
         let mutable result = [IdHandler]
         for i in 0..(this.CopiedRoles.Length - 1) do
             let role = this.CopiedRoles[i]
             let hs = role |> func
-            let sub = createSubFunctor
-                           (fun k -> k.CopiedRoles[i])
-                           (fun v k ->
-                 { k with CopiedRoles = k.CopiedRoles |> List.updateAt i v })
-            result <- result @ (hs |> List.map (fun h -> (sub |> CommonHandler).Bind h))
+            let sub = this.GetSubHandler i
+            result <- result @ (hs |> List.map (fun h -> sub.Bind h))
         result
     interface IRolePendingHandlers with
         member this.Get player =
@@ -70,26 +75,30 @@ type FenXiaRole =
                     role |> getNightStartDeadRequest) |> List.concat
             if this.FenCount <= 0 then DeadRequest.New Force :: skills else skills
     interface IRolePreventDead with
-        member this.Prevent context dead entity =
-            let rec loop idx =
-                if idx >= this.CopiedRoles.Length then None else
-                let role = this.CopiedRoles[idx]
-                let result = role |> tryPreventDead context dead entity
-                match result with
-                | Some r -> Some (r, idx)
-                | None -> loop (idx + 1)
-            let r = loop 0
-            match r with
-            | Some (r, idx) ->
-                let role = { this with CopiedRoles = this.CopiedRoles |> List.updateAt idx r.NewRole }
-                Some { r with NewRole = role }
-            | None ->
-                if dead = Force || this.RebornRound.IsSome then None else
-                let msg = { Type = ToPlayer entity.Player ; Content = "用一根粉条复活吗？（1：是；0：否）" }
-                let yes = requestInputWithMessage msg parseBool
-                if yes |> not then None else
-                Some {
-                    NewContext = context
-                    NewEntity = entity
-                    NewRole = { this with RebornRound = Some 2 ; FenCount = this.FenCount - 1 }
-                }
+        member this.Prevent dead handler = monad {
+            let! context = State.get
+            let context, result =
+                [0..(this.CopiedRoles.Length-1)] |> List.fold (fun (c, r) i ->
+                    if r then (c, r) else
+                    let role = this.CopiedRoles[i]
+                    let sub = this.GetSubHandler i
+                    let subHandler = handler.Bind sub
+                    tryPreventDead dead subHandler c role
+                ) (context, false)
+            do! State.put context
+            if result then true else
+            if dead = Force || this.RebornRound.IsSome || this.FenCount <= 1 then false else
+            let entity, bind = context
+            let msg = { Type = ToPlayer entity.Player ; Content = "用一根粉条复活吗？（1：是；0：否）" }
+            let yes = requestInputWithMessage msg parseBool
+            if yes |> not then false else
+            
+            let r = { this with RebornRound = Some 2 ; FenCount = this.FenCount - 1 }
+            let entity = entity |> handler.SetToEntity r
+            let main, game = bind
+            let game = game.UpdateEntity entity
+            let bind = main, game
+            do! State.put (entity, bind)
+            
+            true
+        }

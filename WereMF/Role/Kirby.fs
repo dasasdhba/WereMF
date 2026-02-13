@@ -1,10 +1,10 @@
 module WereMF.Role.Kirby
 
 open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
-open WereMF.State
 
 type KirbyRole =
     {
@@ -21,14 +21,17 @@ type KirbyRole =
             Priority = 9
             SummaryName = Kirby.ToString ()
         }
+    member this.GetSubHandler () =
+        let sub = createSubFunctor
+                   (fun k -> k.CopiedRole.Value)
+                   (fun v k -> { k with CopiedRole = Some v })
+        sub |> KirbyHandler
     interface IRoleQueriedHandler with
         member this.Get random =
             match this.CopiedRole with
             | Some role ->
-               let sub = createSubFunctor
-                           (fun k -> k.CopiedRole.Value)
-                           (fun v k -> { k with CopiedRole = Some v })
-               (sub |> KirbyHandler).Bind (role |> getQueriedHandler random)
+               let sub = this.GetSubHandler ()
+               sub.Bind (role |> getQueriedHandler random)
             | None -> IdHandler
     interface IRolePendingHandlers with
         member this.Get player =
@@ -43,21 +46,15 @@ type KirbyRole =
                 let yes = requestInputWithMessage msg parseBool
                 if yes |> not then [IdHandler] else
 
-                let sub = createSubFunctor
-                           (fun k -> k.CopiedRole.Value)
-                           (fun v k -> { k with CopiedRole = Some v })
-                role |> getPendingHandlers player |> List.map (
-                    fun h -> (sub |> KirbyHandler).Bind h)
+                let sub = this.GetSubHandler ()
+                role |> getPendingHandlers player |> List.map (fun h -> sub.Bind h)
             | None -> [IdHandler]
     interface IRoleValidHandlers with
         member this.Get () =
             match this.CopiedRole with
                 | Some role ->
-                    let sub = createSubFunctor
-                               (fun k -> k.CopiedRole.Value)
-                               (fun v k -> { k with CopiedRole = Some v })
-                    let subList = role |> getValidHandlers |> List.map (
-                        fun h -> (sub |> KirbyHandler).Bind h)
+                    let sub = this.GetSubHandler ()
+                    let subList = role |> getValidHandlers |> List.map (fun h -> sub.Bind h)
                     IdHandler :: subList
                 | None -> [IdHandler]
     interface IRoleUpdateOnNightStart with
@@ -80,12 +77,12 @@ type KirbyRole =
             let role = this.CopiedRole.Value
             getDayStartDeadRequest role
     interface IRolePreventDead with
-        member this.Prevent context dead entity =
-            if this.CopiedRole.IsNone then None else
+        member this.Prevent dead handler = monad {
+            if this.CopiedRole.IsNone then false else
             let role = this.CopiedRole.Value
-            let result = role |> tryPreventDead context dead entity
-            monad {
-                let! r = result
-                let role = { this with CopiedRole = Some r.NewRole }
-                { r with NewRole = role }
-            }
+            let sub = this.GetSubHandler ()
+            let! context = State.get
+            let context, result = tryPreventDead dead (handler.Bind sub) context role
+            do! State.put context
+            result
+        }

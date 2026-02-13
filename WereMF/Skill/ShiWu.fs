@@ -20,9 +20,9 @@ type ShiWuSkill =
     interface ISkill
     interface ISkillCost with
         member this.Cost sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let target = sending |> getRealTarget
             let entity = entity |> updateRoleWithHandler
@@ -30,57 +30,54 @@ type ShiWuSkill =
                                                           LastSelected = d.LastSelected.Add target
                                                           Broadcasted = if this.Broadcast then true else d.Broadcasted })
                              handler
-            let context = { context with Game = entity |> context.Game.UpdateEntity }
-            do! State.put context
+            let game = entity |> game.UpdateEntity
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let target = sending |> getRealTarget
-            let sender = sending |> getSenderName context.Game
-            let recv = target |> getPlayerName context.Game
-            if target |> isDoged context.Night then
-                let night = context.Night.AddMessage $"{sender}想绑架{recv}，被Doge挡了"
-                do! State.put { context with Night = night }
+            let sender = sending |> getSenderName game
+            let recv = target |> getPlayerName game
+            if target |> isDoged night then
+                let night = night.AddMessage $"{sender}想绑架{recv}，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
-            
+
             let source = sending |> getSource
-            let tEntity = target |> context.Game.GetEntity
+            let tEntity = target |> game.GetEntity
             sendMessage { Type = Public ; Content = $"{recv}被{sender}绑架了！" }
-            let context = 
-                if this.Broadcast |> not then context else
-                let h = tEntity |> Entity.getQueriedHandler context.Main.Rng
-                
-                // 烟雾
+            let game =
+                if this.Broadcast |> not then game else
+                let h = tEntity |> Entity.getQueriedHandler main.Rng
+
                 if h.IsNone then
-                    let entity = source |> context.Game.GetEntity
+                    let entity = source |> game.GetEntity
                     sendMessage { Type = ToPlayer entity.Player; Content = "播报失败" }
-                    context
+                    game
                 else
-                
-                // 实物
-                let h = h.Value
-                let tEntity = tEntity |> exposeIfShiWu h
-                let context = { context with Game = context.Game.UpdateEntity tEntity }
-                let name = tEntity |> Entity.getQueriedName h
-                sendMessage { Type = Public; Content = $"{sender}公开了{recv}的身份！" }
-                sendMessage { Type = Public; Content = $"{recv}是{name}" }
-                context
-            
+                    let h = h.Value
+                    let tEntity = tEntity |> exposeIfShiWu h
+                    let game = game.UpdateEntity tEntity
+                    let name = tEntity |> Entity.getQueriedName h
+                    sendMessage { Type = Public; Content = $"{sender}公开了{recv}的身份！" }
+                    sendMessage { Type = Public; Content = $"{recv}是{name}" }
+                    game
+
             let tEntity = { tEntity with State.Kidnapped = source :: tEntity.State.Kidnapped }
-            let context = { context with Game = tEntity |> context.Game.UpdateEntity }
-            let pending = context.Night.PendingSkills
+            let game = tEntity |> game.UpdateEntity
+            let pending = night.PendingSkills
             let idx = pending |> List.indexed |> List.filter (fun (i, p) -> p.Source = target)
-            let context =
-                if idx.IsEmpty then context else
-                let i, ps = idx |> List.randomChoiceWith context.Main.Rng
+            let night =
+                if idx.IsEmpty then night else
+                let i, ps = idx |> List.randomChoiceWith main.Rng
                 let ps = { ps with Kidnapped = true }
                 let pending = pending |> List.updateAt i ps
-                let night = { context.Night with PendingSkills = pending }
-                { context with Night = night }
-            do! State.put context
+                let night = { night with PendingSkills = pending }
+                night
+            do! State.put ((main, game), night)
             { this with Success = true }
         }
     interface ISkillSummary with
@@ -89,22 +86,21 @@ type ShiWuSkill =
             sending |> getRealTarget
         member this.Summarize sending = monad {
             if this.Success |> not then None else
-            
-            let! context = State.get
+
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
-            
+
             let exposed = entity |> getFromRoleWithHandler
                             (fun m -> m.Exposed)
                             handler
-            let exposed = defaultArg exposed false
             if exposed |> not then None else
-            
-            let sender = sending |> getSenderName context.Game
+
+            let sender = sending |> getSenderName game
             sendMessage { Type = Public ; Content = $"{sender}被查出了身份，{sender}撕票了！" }
             let target = sending |> getRealTarget
-            let tEntity = target |> context.Game.GetEntity
+            let tEntity = target |> game.GetEntity
             Some {
                 Target = tEntity
                 Request = DeadRequest.New Kill

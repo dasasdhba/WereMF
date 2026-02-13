@@ -14,24 +14,26 @@ let blockIfLeaf (target: Entity) (night: NightContext) =
     night.SetPlayerState state
 
 let involveIfDoge (target: Entity) (context: SkillContext)=
+    let (main, game), night = context
     if target.State |> EntityState.isDead |> not then context else
-    let prots = context.Night.PlayerStates |> List.filter (fun ps ->
-        ps.Id |> context.Game.GetEntity |> getState |> EntityState.isDead |> not
+    let prots = night.PlayerStates |> List.filter (fun ps ->
+        ps.Id |> game.GetEntity |> getState |> EntityState.isDead |> not
         && ps.Doge |> List.contains target.Player.Id)
-    let mutable r = context
+    let mutable c = context
     for ps in prots do
+        let (main, game), night = c
         let ps = { ps with Doge = ps.Doge |> List.filter (fun id -> id <> target.Player.Id) }
-        let n = r.Night.SetPlayerState ps
-        let entity = r.Game.GetEntity ps.Id
+        let night = night.SetPlayerState ps
+        let entity = game.GetEntity ps.Id
         let name = entity.Player.Name
         let msg = $"{target.Player.Name}保护了{name}"
         sendMessage { Type = Public ; Content = msg }
         let request = DeadRequest.New Kill
-        let role = RoleContext.Create r.Main r.Game
-        let role, entity = entity |> requestDead request role
-        let n = blockIfLeaf entity n
-        r <- { Main = role.Main ; Game = role.Game ; Night = n }
-    r
+        let dead = entity, (main, game)
+        let entity, (main, game) = requestDead request dead
+        let night = blockIfLeaf entity night
+        c <- ((main, game), night)
+    c
 
 let printSummaryWith printer entities=
     entities |> List.map (fun e -> e |> printer) |> String.concat "\n"

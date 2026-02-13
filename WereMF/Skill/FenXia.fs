@@ -21,91 +21,88 @@ type FenXiaSkill =
     interface ISkill
     interface ISkillCanExecute with
         member this.CanExecute context sending =
-            sending |> getRealTarget |> context.Game.HasEntity
+            let (main, game), night = context
+            sending |> getRealTarget |> game.HasEntity
     interface ISkillCost with
         member this.Cost sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
-            // 双弹簧默认 -1
             let target = if sending.Spring.IsSome then source else sending.Target
-            let tEntity = target |> context.Game.GetEntity
+            let tEntity = target |> game.GetEntity
             let cost = if tEntity.State |> EntityState.isDead then 2 else 1
             let entity = entity |> updateRoleWithHandler
                              (fun (f: FenXiaRole) -> { f with FenCount = f.FenCount - cost })
                              handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let target = sending |> getRealTarget
-            let tEntity = target |> context.Game.GetEntity
+            let tEntity = target |> game.GetEntity
             let remain = entity |> getFromRoleWithHandler
                             (fun f -> f.FenCount)
                             handler
-            let remain = defaultArg remain 0
-            let skill, context =
-                if remain > 0 then this, context else
+            let skill, night =
+                if remain > 0 then this, night else
                 sendMessage { Type = ToPlayer entity.Player ; Content = "你的粉条用完了" }
-                let state = context.Night.GetPlayerState source
+                let state = night.GetPlayerState source
                 let state = { state with Blocked = true }
-                let context = { context with Night = context.Night.SetPlayerState state }
-                { this with Dead = true }, context
-            do! State.put context
-            if target |> isDoged context.Night then
+                let night = night.SetPlayerState state
+                { this with Dead = true }, night
+            do! State.put ((main, game), night)
+            if target |> isDoged night then
                 sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}发粉条，被Doge挡了"
-                do! State.put { context with Night = night }
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想给{recv}发粉条，被Doge挡了"
+                do! State.put ((main, game), night)
                 skill
             else
                 if tEntity.State |> EntityState.isDead && tEntity.State.Dead.Name = "???" then
                     sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
                     skill
                 else
-                
-                let h = tEntity |> Entity.getQueriedHandler context.Main.Rng
-                
+
+                let h = tEntity |> Entity.getQueriedHandler main.Rng
+
                 if h.IsNone then
                     sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
                     skill
                 else
-                
-                // 实物
+
                 let h = h.Value
                 let tEntity = tEntity |> exposeIfShiWu h
-                let context = { context with Game = context.Game.UpdateEntity tEntity }
-                do! State.put context
+                let game = game.UpdateEntity tEntity
+                do! State.put ((main, game), night)
 
                 let chara = getHandlerCharaType h tEntity
                 if chara = FenXia || chara = Leaf then
                     sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
                     skill
                 else
-                
+
                 sendMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () }
-                let role = createRole context.Main.Roll chara
+                let role = createRole main.Roll chara
                 let entity = entity |> updateRoleWithHandler
                                  (fun (f: FenXiaRole) -> { f with CopiedRoles = role :: f.CopiedRoles })
                                  handler
-                let context = { context with Game = context.Game.UpdateEntity entity }
-                let sub = createSubFunctor
-                           (fun k -> k.CopiedRoles[0])
-                           (fun v k ->
-                     { k with CopiedRoles = k.CopiedRoles |> List.updateAt 0 v })
+                let game = game.UpdateEntity entity
+                let sub = entity |> getFromRoleWithHandler
+                            (fun (f: FenXiaRole) -> f.GetSubHandler 0)
+                            handler
                 let hs = role |> getPendingHandlers entity.Player
-                let handlers = hs |> List.map (fun h -> handler.Bind ( (sub |> CommonHandler).Bind h))
+                let handlers = hs |> List.map (fun h -> handler.Bind (sub.Bind h))
                 let ps = handlers |> List.map (fun h -> createPendingSkill h entity)
-                let context = { context with Night.PendingSkills = ps @ context.Night.PendingSkills }
-                do! State.put context
+                let night = { night with PendingSkills = ps @ night.PendingSkills }
+                do! State.put ((main, game), night)
                 skill
         }
     interface ISkillSummary with
@@ -114,10 +111,10 @@ type FenXiaSkill =
             sending |> getSource
         member this.Summarize sending = monad {
             if this.Dead |> not then None else
-            
-            let! context = State.get
+
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             Some {
                 Target = entity
                 Request = DeadRequest.New Force

@@ -19,27 +19,27 @@ type DogeSkill =
     interface ISkill
     interface ISkillCost with
         member this.Cost sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let target = sending |> getRealTarget
             let entity = entity |> updateRoleWithHandler
                              (fun (d: DogeRole) -> { d with LastSelected = d.LastSelected.Add target })
                              handler
-            let context = { context with Game = entity |> context.Game.UpdateEntity }
-            do! State.put context
+            let game = entity |> game.UpdateEntity
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let target = sending |> getRealTarget
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想保护{recv}，被Doge挡了"
-                do! State.put { context with Night = night }
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想保护{recv}，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
                 { this with Success = Some target }
@@ -47,13 +47,13 @@ type DogeSkill =
     interface ISkillExecuteQueued with
         member this.Execute sending = monad {
             if this.Success.IsNone then this else
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
             let target = this.Success.Value
-            let state = context.Night.GetPlayerState target
+            let state = night.GetPlayerState target
             let state = { state with Doge = source :: state.Doge }
-            let night = context.Night.SetPlayerState state
-            do! State.put { context with Night = night }
+            let night = night.SetPlayerState state
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillSummary with
@@ -62,9 +62,9 @@ type DogeSkill =
             sending |> getSource
         member this.Summarize sending = monad {
             if this.IsSuicide |> not then None else
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             sendMessage { Type = Public ; Content = $"{entity.Player.Name}自爆了！" }
             Some {
                 Target = entity

@@ -72,59 +72,55 @@ type CTFSkill =
     interface ISkill
     interface ISkillCanExecute with
         member this.CanExecute context sending =
-            canExecuteIfAlive context sending
+            let (main, game), night = context 
+            canExecuteIfAlive game sending
     interface ISkillCost with
         member this.Cost sending = monad {
-            let! context = State.get
-            
+            let! (main, game), night = State.get
+
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let entity = entity |> updateRoleWithHandler
                              (fun (c: CTFRole) -> { c with BugCount = c.BugCount - 1 })
                              handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
-            
+            let! (main, game), night = State.get
+
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             if sending.Spring.IsSome && sending.Spring.Value = Recursed then
                 let target = sending.Target
-                let tEntity = target |> context.Game.GetEntity
-                
-                let night = context.Night
+                let tEntity = target |> game.GetEntity
+
                 let entity = addBugSilent entity
                 let tEntity = addBugSilent tEntity
                 let night, entity = updateSpringBugOnNight night entity
                 let night, tEntity = updateSpringBugOnNight night tEntity
-                
-                let game = context.Game
+
                 let game = game.UpdateEntity entity
                 let game = game.UpdateEntity tEntity
-                let context = { context with Game = game ; Night = night }
-                do! State.put context
+                do! State.put ((main, game), night)
                 this
             else
-            
+
             let target = sending |> getRealTarget
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}丢虫子，被Doge挡了"
-                do! State.put { context with Night = night }
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想给{recv}丢虫子，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
-                let tEntity = target |> context.Game.GetEntity
-                let night = context.Night
+                let tEntity = target |> game.GetEntity
                 let night, tEntity = addBugWithMsg night tEntity
-                let game = context.Game.UpdateEntity tEntity
-                let context = { context with Game = game ; Night = night }
-                do! State.put context
+                let game = game.UpdateEntity tEntity
+                do! State.put ((main, game), night)
                 this
         }
 

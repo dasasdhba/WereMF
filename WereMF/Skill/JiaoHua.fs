@@ -13,11 +13,11 @@ type JiaoHuaSkill =
     interface ISkill
     interface ISkillExecute with
         member this.Execute (sending: SendingSkill) = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let target = sending |> getRealTarget
-            let entity = context.Game.GetEntity target
-            let handler = entity |> getQueriedHandler context.Main.Rng
-            let player = (sending |> getSource |> context.Game.GetEntity).Player
+            let entity = game.GetEntity target
+            let handler = entity |> getQueriedHandler main.Rng
+            let player = (sending |> getSource |> game.GetEntity).Player
             
             // 烟雾
             if handler.IsNone then
@@ -28,8 +28,8 @@ type JiaoHuaSkill =
             // 实物
             let handler = handler.Value
             let entity = entity |> exposeIfShiWu handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
             
             let name = entity |> getQueriedName handler
             sendMessage { Type = ToPlayer player; Content = name }

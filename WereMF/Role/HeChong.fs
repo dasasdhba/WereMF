@@ -1,5 +1,7 @@
 module WereMF.Role.HeChong
 
+open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 
@@ -19,14 +21,17 @@ type HeChongRole =
             Priority = 9
             SummaryName = HeChong.ToString ()
         }
+    member this.GetSubHandler () =
+        let sub = createSubFunctor
+                   (fun k -> k.CopiedRole.Value)
+                   (fun v k -> { k with CopiedRole = Some v })
+        sub |> CommonHandler
     interface IRoleQueriedHandler with
         member this.Get random =
             match this.CopiedRole with
             | Some role ->
-               let sub = createSubFunctor
-                           (fun k -> k.CopiedRole.Value)
-                           (fun v k -> { k with CopiedRole = Some v })
-               (sub |> CommonHandler).Bind (role |> getQueriedHandler random)
+               let sub = this.GetSubHandler ()
+               sub.Bind (role |> getQueriedHandler random)
             | None -> IdHandler
     interface IRoleGetDayStartDeadRequest with
         member this.Get () =
@@ -43,4 +48,14 @@ type HeChongRole =
     interface IRoleUpdateOnDead with
         member this.Update dead =
             this.UpdateCopiedRoleWith (updateOnDead dead)
+    interface IRolePreventDead with
+        member this.Prevent dead handler = monad {
+            if this.CopiedRole.IsNone then false else
+            let role = this.CopiedRole.Value
+            let sub = this.GetSubHandler ()
+            let! context = State.get
+            let context, result = tryPreventDead dead (handler.Bind sub) context role
+            do! State.put context
+            result
+        }
                 

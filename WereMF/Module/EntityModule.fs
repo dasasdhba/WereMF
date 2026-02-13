@@ -12,8 +12,6 @@ module EntityState =
     
     let isBarLeader state =
         state.BarLeader.IsSome
-    let setBarLeader state =
-        { state with BarLeader = Some true }
     let hasBarVote state =
         state.BarLeader = Some true
     let clearBarVote state =
@@ -22,10 +20,6 @@ module EntityState =
     
     let isDead state =
         state.Dead.Dead
-    let setDeadFlag value (state : EntityState) =
-        { state with Dead.Dead = value }
-    let setDeadName value (state : EntityState) =
-        { state with Dead.Name = value }
 
     let addSmogRound round state =
         { state with Smog = round :: state.Smog }
@@ -196,7 +190,8 @@ module Entity =
                 Role = entity.Role |> Role.updateOnDead dead
         }
     
-    let requestDead (request: DeadRequest) (context: RoleContext) entity =
+    let requestDead (request: DeadRequest) (context: DeadContext) =
+        let entity, bind = context
         let header = request.GetName entity
         let reason = match request.DeadType with
                      | Kill -> "死了"
@@ -204,43 +199,52 @@ module Entity =
                      | Force -> "暴毙了"
                      | Vote -> "出局"
         sendMessage { Type = Public ; Content = $"{header}{reason}" }
-        let result = entity.Role |> tryPreventDead context request.DeadType entity
-        match result with
-        | Some result ->
+        let context, result = entity.Role |> tryPreventDead request.DeadType IdHandler context
+        if result then
             sendMessage { Type = Public ; Content = $"但是{header}复活了" }
-            let entity = { result.NewEntity with Role = result.NewRole }
-            let context = result.NewContext
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            context, entity
-        | None ->
+            context
+        else
             let revealNormal () =
-                let h = entity |> getQueriedHandler context.Main.Rng
+                let entity, (main, game) = context
+                let h = entity |> getQueriedHandler main.Rng
                 let name = entity |> getDeadName h
                 let reveal = entity |> request.GetReveal name
                 sendMessage { Type = Public ; Content = reveal }
                 let entity = { entity with State.Dead = { Dead = true ; Name = name } } |> updateOnDead request.DeadType
-                let context = { context with Game = context.Game.UpdateEntity entity }
-                context, entity
+                let game = game.UpdateEntity entity
+                entity, (main, game)
             match entity.Role with
             | :? IRoleLeaf as leaf when leaf.Fury |> not ->
-                let context, entity = revealNormal ()
+                let context = revealNormal ()
+                let entity, (main, game) = context
                 sendMessage { Type = Public ; Content = $"{entity.Player.Name}是叶子" }
                 let entity = { entity with
                                    State.Dead.Dead = false
                                    State.LeafProtected = Some true
                                    Role = leaf.SetFury () }
-                let context = { context with Game = context.Game.UpdateEntity entity }
-                context, entity
+                let game = game.UpdateEntity entity
+                entity, (main, game)
             | :? IRoleLeaf ->
                 sendMessage { Type = Public ; Content = "叶子是叶子" }
+                let entity, (main, game) = context
                 let entity = { entity with State.Dead = { Dead = true ; Name = "叶子" } } |> updateOnDead request.DeadType
-                let context = { context with Game = context.Game.UpdateEntity entity }
-                context, entity
+                let game = game.UpdateEntity entity
+                entity, (main, game)
             | _ ->
                 revealNormal ()
-        
-    let updateOnNightStartRequestDead (context: RoleContext) (entity: Entity) =
-        // 彩怪复活与暴毙
+    
+    let isDead (context: DeadContext) =
+        let entity, _ = context
+        entity.State |> EntityState.isDead
+    
+    let rec requestDeadList (list: DeadRequest list) (c: DeadContext) =
+        if list.IsEmpty then c else
+        let request = list.Head
+        let c = requestDead request c
+        if c |> isDead then c
+        else requestDeadList list.Tail c
+    
+    let private updateOnNightStartReborn (context: DeadContext) =
         let updateRebornState (reborn : RebornState option) =
             let updateReborn r =
                 if r.ReadyRound > 0 then { r with ReadyRound = r.ReadyRound - 1 }
@@ -248,6 +252,8 @@ module Entity =
                 else r
             if reborn.IsNone then reborn
             else reborn |> Option.map updateReborn
+        
+        let entity, (main, game) = context
         let state = { entity.State with Reborn = updateRebornState entity.State.Reborn }
         let state =
             if state |> EntityState.isDead && state.Reborn.IsSome && state.Reborn.Value.Reborn then
@@ -257,67 +263,60 @@ module Entity =
                 state
         
         let entity = { entity with State = state }
-        let context, entity =
+        let entity, (main, game) =
             if state |> EntityState.isDead |> not
                && state.Reborn.IsSome && state.Reborn.Value.Reborn |> not then
                 let request = DeadRequest.New Force
-                requestDead request context entity
+                requestDead request (entity, (main, game))
             else
-                context, entity
+                entity, (main, game)
         
-        if entity.State |> EntityState.isDead then context, entity else
+        entity, (main, game)
+    
+    let private updateOnNightStartCreeper (context : DeadContext) =
+        let rec bombKill count (c: DeadContext) =
+            if count <= 0 then c else
+            let e, _ = c
+            sendMessage { Type = Public ; Content = $"{e.Player.Name}身上的炸药爆炸了！" }
+            let c = requestDead (DeadRequest.New Kill) c
+            let e, _ = c
+            if e.State |> EntityState.isDead then c else
+            bombKill (count - 1) c
         
-        // 爬行者炸弹
-        let rec bombKill count (c: RoleContext) (e: Entity) =
-            if count <= 0 then c, e else
-            sendMessage { Type = Public ; Content = $"{entity.Player.Name}身上的炸药爆炸了！" }
-            let c, e = requestDead (DeadRequest.New Kill) c e
-            if e.State |> EntityState.isDead then c, e else
-            bombKill (count - 1) c e
-        let context, entity = bombKill entity.State.Bomb context entity
-        if entity.State |> EntityState.isDead then context, entity else
+        let entity, _ = context
+        bombKill entity.State.Bomb context
+    
+    let private updateOnNightStartMyz (context : DeadContext) =
+        let entity, _ = context
+        if entity.State.Threaten.IsNone || entity.State |> EntityState.isThreatenDead |> not then
+            context
+        else
+
+        sendMessage { Type = Public ; Content = $"{entity.Player.Name}无视了威胁！" }
+        requestDead (DeadRequest.New Kill) context
+    
+    let updateOnNightStartRequestDead (context: DeadContext) =
+        let context = updateOnNightStartReborn context
+        if context |> isDead then context else
         
-        // myz 威胁
-        let context, entity =
-            if entity.State.Threaten.IsNone || entity.State |> EntityState.isThreatenDead |> not then
-                context, entity
-            else
-            let myz = entity.State.Threaten.Value
-            let source = myz.Source
-            if context.Game.GetEntity source |> getState |> EntityState.isDead then
-                context, entity
-            else
-                
-            sendMessage { Type = Public ; Content = $"{entity.Player.Name}无视了威胁！" }
-            requestDead (DeadRequest.New Kill) context entity
-        if entity.State |> EntityState.isDead then context, entity else
+        let context = updateOnNightStartCreeper context
+        if context |> isDead then context else
+        
+        let context = updateOnNightStartMyz context
+        if context |> isDead then context else
          
          // 身份各自处理（粉侠，彩怪复活后会暴毙的角色等）
+        let entity, _ = context
         let list = entity.Role |> Role.getNightStartDeadRequest
-        let rec loop (list: DeadRequest list) (context: RoleContext) (entity: Entity) =
-            let request = list.Head
-            let context, entity = requestDead request context entity
-            if entity.State |> EntityState.isDead || list.Length <= 1 then
-                context, entity
-            else
-                loop list.Tail context entity
-        if list.Length = 0 then context, entity
-        else loop list context entity
+        requestDeadList list context
        
-    let updateOnDayStartRequestDead (context: RoleContext) (entity: Entity) =
-        if entity.State |> EntityState.isDead then context, entity else
+    let updateOnDayStartRequestDead (context: DeadContext) =
+        if context |> isDead then context else
          
          // 身份各自处理（彩怪失去所有彩条等）
+        let entity, _ = context
         let list = entity.Role |> Role.getDayStartDeadRequest
-        let rec loop (list: DeadRequest list) (context: RoleContext) (entity: Entity) =
-            let request = list.Head
-            let context, entity = requestDead request context entity
-            if entity.State |> EntityState.isDead || list.Length <= 1 then
-                context, entity
-            else
-                loop list.Tail context entity
-        if list.Length = 0 then context, entity
-        else loop list context entity
+        requestDeadList list context
     
     // in game update
     
@@ -359,7 +358,63 @@ module Entity =
                 State = entity.State |> EntityState.updateOnDayStart
                 Role = entity.Role |> Role.updateOnDayStart
         }
+    
+    // vote update
+    
+    let voteSourceFilter (game: GameContext) = function
+        | Ok id when game.HasEntity id |> not ->
+            Error "该玩家不存在"
+        | Ok id ->
+            let e = game.GetEntity id
+            if e.State |> EntityState.isDead then Error "该玩家已死亡"
+            elif e.State |> EntityState.canVote |> not then Error "该玩家不能投票"
+            else Ok id
+        | value -> value
+
+    let voteTargetFilter (game: GameContext) = function
+        | Ok id when id <= PlayerId 0 -> Ok (PlayerId 0)
+        | Ok id when game.HasEntity id |> not ->
+            Error "目标不存在"
+        | Ok id ->
+            let e = game.GetEntity id
+            if e.State |> EntityState.isDead then Error "目标已死亡"
+            elif e.State |> EntityState.canBeVoted |> not then Error "目标不可选中"
+            else Ok id
+        | value -> value
         
+    let private updateThreatenOnVoteStart (game: GameContext) (day: DayContext) (entity: Entity) =
+        if entity.State.Threaten.IsNone then day, entity else
+        if Ok entity.Player.Id |> voteSourceFilter game |> Result.isError then
+            day, { entity with State.Threaten = None }
+        else
+        
+        let src = entity.State.Threaten.Value.Source
+        let sEntity = game.GetEntity src
+        if sEntity.State |> EntityState.isDead then day, { entity with State.Threaten = None } else
+        
+        let threaten = entity.State.Threaten.Value
+        match threaten.Type with
+        | QueuedDeath -> day, entity
+        | DayVote (target, force) ->
+            if Ok target |> voteTargetFilter game |> Result.isOk then
+                if force |> not then day, entity else
+                let msg = if target <= PlayerId 0 then $"{entity.Player.Name}被强制弃票"
+                          else $"{entity.Player.Name}被强制把票投给{target}"
+                sendMessage { Type = Public ; Content = msg }
+                let vote = day.GetPlayerVote entity.Player.Id
+                let vote = { vote with Target = Some target ; Confirmed = true }
+                let day = day.SetPlayerVote vote
+                day, { entity with State.Threaten = None }
+            else
+                sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+                day, { entity with State.Threaten = None }
+    let updateOnVoteStart (game : GameContext) (day: DayContext) (entity : Entity) =
+        // 脚滑人禁票
+        
+        let day, entity = updateThreatenOnVoteStart game day entity
+        let game = game.UpdateEntity entity
+        game, day, entity
+    
     // utils
 
     let createPendingSkill (handler: RoleHandler) (entity: Entity) =

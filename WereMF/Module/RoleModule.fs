@@ -1,6 +1,7 @@
 module WereMF.Module.Role
 
 open System
+open FSharpPlus.Data
 open WereMF.Common
 open WereMF.State
 
@@ -34,35 +35,18 @@ let getValidHandlers (role: IRole) =
     match role with
     | :? IRoleValidHandlers as handler -> handler.Get ()
     | _ -> [IdHandler]
-    
-// context for complex update
 
-type RoleContext =
-    {
-        Main : MainContext
-        Game : GameContext
-    }
-    member this.Get() =
-        this.Main, this.Game
-    static member Create (main: MainContext) (game: GameContext) =
-        {
-            Main = main
-            Game = game
-        }
-
-type RoleResult = {
-    NewContext : RoleContext
-    NewEntity : Entity
-    NewRole : IRole
-}
+type DeadContext = Entity * BindContext
 
 type IRolePreventDead =
-    abstract member Prevent : RoleContext -> DeadType -> Entity -> RoleResult option
+    abstract member Prevent : DeadType -> RoleHandler -> State<DeadContext, bool>
 
-let tryPreventDead (context : RoleContext) (deadType: DeadType) (entity: Entity) (role: IRole) =
+let tryPreventDead (deadType: DeadType) (handler: RoleHandler) (context : DeadContext) (role: IRole) =
     match role with
-    | :? IRolePreventDead as h -> h.Prevent context deadType entity
-    | _ -> None
+    | :? IRolePreventDead as h ->
+        let r, context = State.run (h.Prevent deadType handler) context
+        context, r
+    | _ -> context, false
     
 // in game update
 
@@ -105,7 +89,15 @@ let updateOnDead dead (role :IRole) =
     match role with
     | :? IRoleUpdateOnDead as h -> h.Update dead
     | _ -> role
-    
+
+// vote update
+
+type IRoleUpdateOnVoteStart =
+    abstract member Update : Entity -> State<GameContext, IRole>
+
+type IRoleUpdateOnVoteEnd =
+    abstract member Update : Entity -> State<DayContext, IRole>
+
 // leaf specific
 
 type IRoleLeaf =
@@ -157,12 +149,12 @@ let updateRoleWithHandler<'T when 'T :> IRole> (updater: 'T -> 'T) (handler: Rol
         match role with
         | :? 'T as k ->
             k |> updater :> IRole
-        | _ -> role
+        | _ -> failwith $"Error：Unexpected role set with {handler.GetFromEntity entity |> getCharaType}"
     handler.SetToEntity role entity
     
 let getFromRoleWithHandler<'S,'T when 'T :> IRole> (getter: 'T -> 'S) (handler: RoleHandler) entity =
     let role = handler.GetFromEntity entity
     match role with
     | :? 'T as k ->
-        k |> getter |> Some
-    | _ -> None
+        k |> getter
+    | _ -> failwith $"Error：Unexpected role get with {handler.GetFromEntity entity |> getCharaType}"

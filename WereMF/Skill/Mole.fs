@@ -20,58 +20,57 @@ type MoleSkill =
     interface ISkill
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let player = entity.Player
             
             let red = entity |> getFromRoleWithHandler
                         (fun m -> m.RedGround)
                         handler
-            let red = defaultArg red false
             
-            let r = roll |> List.randomChoiceWith context.Main.Rng
-            let context, skill, success =
+            let r = roll |> List.randomChoiceWith main.Rng
+            let game, night, skill, success =
                 match r with
                 | 1 ->
                     sendMessage { Type = ToPlayer player; Content = "成功" }
-                    context, this, true
+                    game, night, this, true
                 | 2 when red |> not ->
                     let entity = entity |> updateRoleWithHandler
                                     (fun m -> { m with RedGround = true })
                                     handler
-                    let context = { context with Game = context.Game.UpdateEntity entity }
+                    let game = game.UpdateEntity entity
                     let msg = { Type = ToPlayer player; Content = "红土地，要再突击一次吗？（1：突击；0：放弃）" }
                     let yes = requestInputWithMessage msg parseBool
                     if yes then
                         let ps = createPendingSkill handler entity
-                        let context = { context with Night.PendingSkills = ps :: context.Night.PendingSkills }
-                        context, this, true
+                        let night = { night with PendingSkills = ps :: night.PendingSkills }
+                        game, night, this, true
                     else
-                        context, this, true
+                        game, night, this, true
                 | 2 when red ->
                     sendMessage { Type = ToPlayer player; Content = "红土地，你死了" }
-                    context, { this with Dead = true }, false
+                    game, night, { this with Dead = true }, false
                 | _ ->
                     sendMessage { Type = ToPlayer player; Content = "失败" }
-                    context, this, false
+                    game, night, this, false
             
             if success |> not then
-                do! State.put context
+                do! State.put ((main, game), night)
                 skill
             else
             
             let target = sending |> getRealTarget
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想突击{recv}，被Doge挡了"
-                do! State.put { context with Night = night }
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想突击{recv}，被Doge挡了"
+                do! State.put ((main, game), night)
                 skill
             else
-                do! State.put context
+                do! State.put ((main, game), night)
                 { skill with Success = true }
         }
     interface ISkillSummary with
@@ -80,11 +79,11 @@ type MoleSkill =
             if this.Dead then sending |> getSource
             else sending |> getRealTarget
         member this.Summarize sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
-            let sender = sending |> getSenderName context.Game
+            let entity = source |> game.GetEntity
+            let sender = sending |> getSenderName game
             
             if this.Dead then
                 sendMessage { Type = Public ; Content = $"{sender}两次冲到了红土地上！" }
@@ -96,9 +95,9 @@ type MoleSkill =
             
             if this.Success |> not then None else
             
-            let recv = sending.Target |> getPlayerName context.Game
+            let recv = sending.Target |> getPlayerName game
             let target = sending |> getRealTarget
-            let tEntity = target |> context.Game.GetEntity
+            let tEntity = target |> game.GetEntity
             if sending.Spring.IsNone then
                 sendMessage { Type = Public; Content = $"{recv}被{sender}突击了！" }
                 Some {

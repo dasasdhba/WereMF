@@ -25,3 +25,6 @@ type MainState =
             Status = InputPlayers
             Context = { Rng = Random(seed) ; Players = []; Roll = RollResult.New() }
         }
+
+type BindContext = MainContext * GameContext
+type SkillContext = BindContext * NightContext

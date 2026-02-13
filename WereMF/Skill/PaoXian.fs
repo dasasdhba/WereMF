@@ -14,14 +14,14 @@ type PaoXianSkill =
     interface ISkill
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
-           
+            let! (main, game), night = State.get
+
             let target = sending |> getRealTarget
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想杀{recv}，被Doge挡了"
-                do! State.put { context with Night = night }
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想杀{recv}，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
                 { this with Success = true }
@@ -32,12 +32,12 @@ type PaoXianSkill =
             sending |> getRealTarget
         member this.Summarize sending = monad {
             if this.Success |> not then None else
-            let! context = State.get
-            
-            let sender = sending |> getSenderName context.Game
-            let recv = sending.Target |> getPlayerName context.Game
+            let! (main, game), night = State.get
+
+            let sender = sending |> getSenderName game
+            let recv = sending.Target |> getPlayerName game
             let target = sending |> getRealTarget
-            let tEntity = target |> context.Game.GetEntity
+            let tEntity = target |> game.GetEntity
             if sending.Spring.IsNone then
                 sendMessage { Type = Public; Content = $"{recv}被{sender}杀了" }
                 Some {

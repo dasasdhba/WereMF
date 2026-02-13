@@ -23,28 +23,27 @@ type RabiSkill =
     interface ISkill
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let target = sending |> getRealTarget
-            let sender = sending |> getSenderName context.Game
-            let recv = target |> getPlayerName context.Game
-            if target |> isDoged context.Night then
-                let night = context.Night.AddMessage $"{sender}想给{recv}喂奶，被Doge挡了"
-                do! State.put { context with Night = night }
+            let sender = sending |> getSenderName game
+            let recv = target |> getPlayerName game
+            if target |> isDoged night then
+                let night = night.AddMessage $"{sender}想给{recv}喂奶，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
-            
+
             let source = sending |> getSource
             let handler = sending |> getHandler
-            let entity = context.Game.GetEntity source
+            let entity = source |> game.GetEntity
             let round = entity |> getFromRoleWithHandler
                                 (fun (r: RabiRole) -> r.Round)
                                 handler
-            let round = defaultArg round 0
-            
+
             let target = sending |> getRealTarget
-            let tEntity = context.Game.GetEntity target
+            let tEntity = target |> game.GetEntity
             let lastMilk = tEntity.State.Milk.HasLastMilk
-            
+
             let force = round >= 2 || lastMilk
             let milkName = match this.MilkType with
                             | Fresh -> "鲜奶"
@@ -54,42 +53,40 @@ type RabiSkill =
                     sendMessage { Type = ToPlayer tEntity.Player ; Content = $"你被喂{milkName}" }
                     true
                 else
-                let msg = { Type = ToPlayer tEntity.Player
-                            Content = "你被喂奶，要喝吗？（1：喝；0：不喝）" }
-                let yes = requestInputWithMessage msg parseBool
-                if yes then sendMessage { Type = ToPlayer tEntity.Player; Content = milkName }
-                yes
-                
+                    let msg = { Type = ToPlayer tEntity.Player
+                                Content = "你被喂奶，要喝吗？（1：喝；0：不喝）" }
+                    let yes = requestInputWithMessage msg parseBool
+                    if yes then sendMessage { Type = ToPlayer tEntity.Player; Content = milkName }
+                    yes
+
             if drink then
                 let tEntity = { tEntity with State.Milk = tEntity.State.Milk.Set () }
-                let context = { context with Game = context.Game.UpdateEntity tEntity }
-                do! State.put context
+                let game = game.UpdateEntity tEntity
+                do! State.put ((main, game), night)
                 if this.MilkType = Fresh then
                     let handlers = getValidHandlers tEntity.Role
-                    let handler = handlers |> List.randomChoiceWith context.Main.Rng
+                    let handler = handlers |> List.randomChoiceWith main.Rng
                     let chara = getHandlerCharaType handler tEntity
                     if chara = Rabi then this else
                     let ps = createPendingSkill handler tEntity
-                    let context = { context with Night.PendingSkills = ps :: context.Night.PendingSkills }
-                    do! State.put context
+                    let night = { night with PendingSkills = ps :: night.PendingSkills }
+                    do! State.put ((main, game), night)
                     this
                 else
-                    let state = context.Night.GetPlayerState target
+                    let state = night.GetPlayerState target
                     let state = { state with Blocked = true }
                     { this with Success = Some state }
             else
-            
+
             this
     }
     interface ISkillExecuteQueued with
         member this.Execute sending = monad {
             if this.Success.IsNone then this else
             let state = this.Success.Value
-            let! context = State.get
-            let night = context.Night
+            let! (main, game), night = State.get
             let night = night.SetPlayerState state
-            let context = { context with Night = night }
-            do! State.put context
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillSummary with
@@ -99,11 +96,11 @@ type RabiSkill =
          member this.Summarize sending = monad {
             if this.Success.IsNone then None else
 
-            let! context = State.get
+            let! (main, game), night = State.get
 
-            let recv = sending.Target |> getPlayerName context.Game
+            let recv = sending.Target |> getPlayerName game
             let target = sending |> getRealTarget
-            let tEntity = target |> context.Game.GetEntity
+            let tEntity = target |> game.GetEntity
             sendMessage { Type = Public; Content = $"{recv}被喂了毒奶！" }
             Some {
                 Target = tEntity

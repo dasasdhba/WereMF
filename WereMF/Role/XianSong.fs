@@ -1,5 +1,7 @@
 module WereMF.Role.XianSong
 
+open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 
@@ -28,10 +30,11 @@ type XianSongRole =
         member this.Update _ =
             { this with Disabled = None }
     interface IRolePreventDead with
-        member this.Prevent context dead entity =
-            if dead = Force || this.Reborn.IsSome || this.MfaList.Length = 0 then None else
-            Some {
-                NewContext = context
-                NewEntity = entity
-                NewRole = { this with Reborn = Some true }
-            } 
+        member this.Prevent dead handler = monad {
+            if dead = Force || this.Reborn.IsSome || this.MfaList.Length = 0 then false else
+            let! entity, bind = State.get
+            let role = { this with Reborn = Some true }
+            let entity = entity |> handler.SetToEntity role
+            do! State.put (entity, bind)
+            true
+        }

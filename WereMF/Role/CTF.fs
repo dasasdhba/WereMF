@@ -1,5 +1,7 @@
 module WereMF.Role.CTF
 
+open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
@@ -17,33 +19,36 @@ type CTFRole =
             SummaryName = CTF.ToString ()
         }
     interface IRolePreventDead with
-        member this.Prevent context dead entity =
-            if dead = Force then None else
+        member this.Prevent dead handler = monad {
+            if dead = Force then false else
+            
+            let! entity, bind = State.get
+            let main, game = bind
             
             let myBug = entity.State.BugCount
-            if myBug >= 2 then None else
-             
-            let totalBug = context.Game.Entities |> List.map (fun e -> e.State.BugCount) |> List.sum
+            if myBug >= 2 then false else
+            
+            let totalBug = game.Entities |> List.map (fun e -> e.State.BugCount) |> List.sum
             let totalBug = totalBug - myBug
-            if totalBug <= 0 then None else
+            if totalBug <= 0 then false else
             
             let msg = { Type = ToPlayer entity.Player ; Content = "移动一只 bug 到自己身上并复活吗？（1：是；0：否）" }
             let yes = requestInputWithMessage msg parseBool
-            if yes |> not then None else
+            if yes |> not then false else
                 
-            let bugPlayer = context.Game.Entities |> List.filter (
+            let bugPlayer = game.Entities |> List.filter (
                     fun e -> e.Player.Id <> entity.Player.Id && e.State.BugCount > 0
-                                ) |> List.randomChoiceWith context.Main.Rng
+                                ) |> List.randomChoiceWith main.Rng
             let bugPlayer = { bugPlayer with State.Bug =
                                              match bugPlayer.State.Bug with
                                              | Some 1 -> None
                                              | Some v -> Some (v - 1)
                                              | _ -> None }
+            let game = game.UpdateEntity bugPlayer
             let entity = { entity with State.Bug = Some (myBug + 1) }
-            let context = { context with Game = context.Game.UpdateEntity bugPlayer }
+            let game = game.UpdateEntity entity
+            let bind = main, game
+            do! State.put (entity, bind)
             
-            Some {
-                NewContext = context
-                NewEntity = entity
-                NewRole = this
-            }
+            true
+        }

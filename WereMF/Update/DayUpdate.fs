@@ -14,27 +14,6 @@ open WereMF.Role.JiaoHua
 open WereMF.State
 open WereMF.Update.Night
 
-let private voteSourceFilter (game: GameContext) = function
-    | Ok id when game.HasEntity id |> not ->
-        Error "该玩家不存在"
-    | Ok id ->
-        let e = game.GetEntity id
-        if e.State |> EntityState.isDead then Error "该玩家已死亡"
-        elif e.State |> EntityState.canVote |> not then Error "该玩家不能投票"
-        else Ok id
-    | value -> value
-    
-let private voteTargetFilter (game: GameContext) = function
-    | Ok id when id <= PlayerId 0 -> Ok (PlayerId 0)
-    | Ok id when game.HasEntity id |> not ->
-        Error "目标不存在"
-    | Ok id ->
-        let e = game.GetEntity id
-        if e.State |> EntityState.isDead then Error "目标已死亡"
-        elif e.State |> EntityState.canBeVoted |> not then Error "目标不可选中"
-        else Ok id
-    | value -> value
-
 let private voteJiaoHuaFilter (game: GameContext) = function
     | Ok id when id <= PlayerId 0 -> Ok (PlayerId 0)
     | Ok id when game.HasEntity id |> not ->
@@ -134,18 +113,14 @@ let dayStart (day: DayContext) = monad {
     let! (main: MainContext, game : GameContext) = State.get
     sendMessage { Type = Public ; Content = "白天开始\n" + (printNightSummary game.Entities) }
     
-    let rec updateDayDead idx (entities: Entity list) c =
-        if idx >= entities.Length then c, entities else
-        let (e: Entity) = entities[idx]
-        let c, e = e |> Entity.updateOnDayStartRequestDead c
-        let entities = entities |> List.updateAt idx e
-        updateDayDead (idx + 1) entities c
+    let main, game =
+        [0..(game.Entities.Length - 1)] |> List.fold (fun (m, g) i ->
+            let e = g.Entities[i]
+            let e, (m, g) = updateOnDayStartRequestDead (e, (m, g))
+            m, g
+        ) (main, game)
     
-    let context = RoleContext.Create main game
-    let entities = game.Entities
-    let context, entities = updateDayDead 0 entities context
-    let main, game = context.Get ()
-    let entities = entities |> List.map Entity.updateOnDayStart
+    let entities = game.Entities |> List.map Entity.updateOnDayStart
     let game = { game with Entities = entities }
                    |> updateJiaoHuaBlocked
                    |> updateThreaten
@@ -255,47 +230,50 @@ let private updateIfJiaoHuaOut (entity : Entity) (game: GameContext) =
         let tEntity = { tEntity with State.JiaoHuaProtected = true }
         game.UpdateEntity tEntity
         
-let private updateIfShiWuOut (entity : Entity) (role: RoleContext) =
-    if entity.State |> EntityState.isDead |> not then role else
+let private updateIfShiWuOut (entity : Entity) (bind: BindContext) =
+    if entity.State |> EntityState.isDead |> not then bind else
     
-    let rec update (kids: PlayerId list) (r: RoleContext) =
+    let rec update (kids: PlayerId list) (r: BindContext) =
         if kids.Length = 0 then r else
-        let k = r.Game.GetEntity kids.Head
+        let m, g = r
+        let k = g.GetEntity kids.Head
         sendMessage { Type = Public
                       Content = $"由于{entity.Player.Name}绑架了{k.Player.Name}" }
         let request = DeadRequest.New Kill
-        let r, k = requestDead request r k
-        let g = updateIfJiaoHuaOut k r.Game
-        let r = { r with Game = g }
+        let k, (m, g) = requestDead request (k, r)
+        let g = updateIfJiaoHuaOut k g
+        let r = m, g
         update kids.Tail r
-    let kidnapped = role.Game.Entities |> List.filter (fun e ->
+    let main, game = bind
+    let kidnapped = game.Entities |> List.filter (fun e ->
         e.State.Kidnapped |> List.contains entity.Player.Id) |> List.map (fun e -> e.Player.Id)
-    update kidnapped role
+    update kidnapped bind
 
-let private updateIfVoteOut (entity : Entity) (role: RoleContext) =
-    let g = updateIfJiaoHuaOut entity role.Game
-    let role = { role with Game = g }
-    updateIfShiWuOut entity role
+let private updateIfVoteOut (entity : Entity) (bind: BindContext) =
+    let main, game = bind
+    let game = updateIfJiaoHuaOut entity game
+    updateIfShiWuOut entity (main, game)
     
-let requestVoteOut (entity : Entity) (role: RoleContext) =
+let requestVoteOut (entity : Entity) (bind: BindContext) =
     let request = DeadRequest.New Vote
-    let role, entity = requestDead request role entity
-    updateIfVoteOut entity role
+    let entity, bind = requestDead request (entity, bind)
+    updateIfVoteOut entity bind
     
-let VoteOutIfTooManyGiveUp (day: DayContext) (role: RoleContext) =
-    let alive = role.Game.Entities |> List.filter (fun e ->
+let VoteOutIfTooManyGiveUp (day: DayContext) (bind: BindContext) =
+    let main, game = bind
+    let alive = game.Entities |> List.filter (fun e ->
         e.State |> EntityState.isDead |> not)
     let half = (float alive.Length) / 2.0 |> Math.Ceiling |> int
     let giveUp = day.Votes |> List.filter (fun v ->
         alive |> List.exists (fun q -> q.Player.Id = v.Id )
         && v.GetTarget () = PlayerId 0)
-    if giveUp.Length < half then role else
+    if giveUp.Length < half then bind else
     
      sendMessage { Type = Public; Content = "超过半数的玩家弃票了！度娘要抽贴了！" }
-     let r = giveUp |> List.randomChoiceWith role.Main.Rng
-     let rEntity = role.Game.GetEntity r.Id
+     let r = giveUp |> List.randomChoiceWith main.Rng
+     let rEntity = game.GetEntity r.Id
      sendMessage { Type = Public; Content = $"{rEntity.Player.Name}被抽贴了！" }
-     requestVoteOut rEntity role
+     requestVoteOut rEntity bind
 
 let private getVoteOutPlayerWith (adder: PlayerVote -> int) (day : DayContext)=
     let votes = day.Votes |> List.map (fun v ->
@@ -317,15 +295,15 @@ let private getVoteOutPlayerNormal (day : DayContext)=
 let private getVoteOutPlayerWithBarLeader (day : DayContext) (game: GameContext) =
     let adder v =
         let e = game.GetEntity v.Id
-        if e.State.BarLeader.IsSome && e.State.BarLeader.Value then 2 else 1
+        if e.State |> EntityState.hasBarVote then 2 else 1
     getVoteOutPlayerWith adder day
     
 let getVoteOutPlayer (day : DayContext) (game: GameContext) =
     let p1 = getVoteOutPlayerNormal day
     let p2 = getVoteOutPlayerWithBarLeader day game
     if p1 = p2 then p1, game else
-    let bar = game.Entities |> List.find (fun e -> e.State.BarLeader.IsSome)
-    let bar = { bar with State.BarLeader = Some false }
+    let bar = game.Entities |> List.find (fun e -> e.State |> EntityState.hasBarVote)
+    let bar = { bar with State = bar.State |> EntityState.clearBarVote }
     let game = game.UpdateEntity bar
     p2, game
 
@@ -428,27 +406,22 @@ let dayVote (day : DayContext) = monad {
     | Suicide x ->
         let xEntity = game.GetEntity x
         sendMessage { Type = Public ; Content = $"{xEntity.Player.Name}自爆了" }
-        let role = RoleContext.Create main game
-        let role = requestVoteOut xEntity role
-        let main, game = role.Get ()
+        let main, game = requestVoteOut xEntity (main, game)
         do! State.put (main, game)
     | _ ->
         sendMessage { Type = Public ; Content = $"\n{printVoteSummary game day}" }
-        let role = RoleContext.Create main game
-        let role = VoteOutIfTooManyGiveUp day role
-        let main, game = role.Get ()
+        let main, game= VoteOutIfTooManyGiveUp day (main, game)
         let day, game = setJiangXianVote day game
         let game = updateThreatenVote day game
         let game = updateBombVote day game
+        sendMessage { Type = Public ; Content = "投票结果是" }
         let out, game = getVoteOutPlayer day game
         if out <= PlayerId 0 then
             sendMessage { Type = Public ; Content = "平票" }
             do! State.put (main, game)
         else
             let o = game.GetEntity out
-            let role = RoleContext.Create main game
-            let role = requestVoteOut o role
-            let main, game = role.Get ()
+            let main, game = requestVoteOut o (main, game)
             do! State.put (main, game)
     ()
 }

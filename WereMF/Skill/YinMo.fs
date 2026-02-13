@@ -18,17 +18,16 @@ type YinMoSkill =
     interface ISkill
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
-           
+            let! (main, game), night = State.get
+
             let target = sending |> getRealTarget
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想暴毙{recv}，被Doge挡了"
-                do! State.put { context with Night = night }
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想暴毙{recv}，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
-                let night = context.Night
                 let state = night.GetPlayerState target
                 let state = { state with Blocked = true }
                 { this with Success = Some state }
@@ -37,11 +36,9 @@ type YinMoSkill =
         member this.Execute sending = monad {
             if this.Success.IsNone then this else
             let state = this.Success.Value
-            let! context = State.get
-            let night = context.Night
+            let! (main, game), night = State.get
             let night = night.SetPlayerState state
-            let context = { context with Night = night }
-            do! State.put context
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillSummary with
@@ -50,24 +47,24 @@ type YinMoSkill =
             sending |> getRealTarget
         member this.Summarize sending = monad {
             if this.Success.IsNone then None else
-            let! context = State.get
-            
-            let sender = sending |> getSenderName context.Game
-            let recv = sending.Target |> getPlayerName context.Game
+            let! (main, game), night = State.get
+
+            let sender = sending |> getSenderName game
+            let recv = sending.Target |> getPlayerName game
             let target = sending |> getRealTarget
-            let tEntity = target |> context.Game.GetEntity
+            let tEntity = target |> game.GetEntity
             let camp = tEntity |> Entity.getCamp
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let entity =
                 if camp = Boom then entity else
                 let handler = sending |> getHandler
                 entity |> updateRoleWithHandler
                          (fun (y: YinMoRole) -> { y with Disabled = Some true })
                          handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
-            
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
+
             if sending.Spring.IsNone then
                 sendMessage { Type = Public; Content = $"{sender}给{recv}发了唱片！" }
                 Some {

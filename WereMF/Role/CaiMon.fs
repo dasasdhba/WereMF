@@ -1,5 +1,7 @@
 module WereMF.Role.CaiMon
 
+open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
@@ -34,13 +36,20 @@ type CaiMonRole =
         member this.Get () =
             if this.CaiCount <= 0 then [ DeadRequest.New Force ] else []
     interface IRolePreventDead with
-        member this.Prevent context dead entity =
-            if dead = Force || this.RebornRound.IsSome || this.CaiCount <= 1 then None else
+        member this.Prevent dead handler = monad {
+            if dead = Force || this.RebornRound.IsSome || this.CaiCount <= 1 then false else
+            
+            let! entity, bind = State.get
             let msg = { Type = ToPlayer entity.Player ; Content = "用一根彩条复活吗？（1：是；0：否）" }
             let yes = requestInputWithMessage msg parseBool
-            if yes |> not then None else
-            Some {
-                NewContext = context
-                NewEntity = entity
-                NewRole = { this with RebornRound = Some 2 ; CaiCount = this.CaiCount - 1 }
-            }
+            if yes |> not then false else
+            
+            let r = { this with RebornRound = Some 2 ; CaiCount = this.CaiCount - 1 }
+            let entity = entity |> handler.SetToEntity r
+            let main, game = bind
+            let game = game.UpdateEntity entity
+            let bind = main, game
+            do! State.put (entity, bind)
+            
+            true
+        }

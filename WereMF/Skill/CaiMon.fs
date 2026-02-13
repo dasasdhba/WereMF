@@ -30,68 +30,66 @@ type CaiMonSkill =
     interface ISkillCanExecute with
         member this.CanExecute context sending =
             let target = sending |> getRealTarget
-            target |> context.Game.HasEntity
-            && target |> context.Game.GetEntity |> Entity.getState |> EntityState.isDead
+            let (main, game), night = context
+            target |> game.HasEntity
+            && target |> game.GetEntity |> Entity.getState |> EntityState.isDead
     interface ISkillCost with
         member this.Cost sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
-            // 双弹簧默认 -1
             let target = if sending.Spring.IsSome then source else sending.Target
-            let tEntity = target |> context.Game.GetEntity
+            let tEntity = target |> game.GetEntity
             let cost = if tEntity.State |> EntityState.isDead then 2 else 1
             let entity = entity |> updateRoleWithHandler
                              (fun (f: CaiMonRole) -> { f with CaiCount = f.CaiCount - cost
                                                               RebornList = target :: f.RebornList })
                              handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let target = sending |> getRealTarget
             let remain = entity |> getFromRoleWithHandler
                             (fun f -> f.CaiCount)
                             handler
-            let remain = defaultArg remain 0
-            let skill, context =
-                if remain > 0 then this, context else
+            let skill, night =
+                if remain > 0 then this, night else
                 sendMessage { Type = ToPlayer entity.Player ; Content = "你的彩条用完了" }
-                let state = context.Night.GetPlayerState source
+                let state = night.GetPlayerState source
                 let state = { state with Blocked = true }
-                let context = { context with Night = context.Night.SetPlayerState state }
-                { this with Dead = true }, context
-            do! State.put context
-            if target |> isDoged context.Night then
+                let night = night.SetPlayerState state
+                { this with Dead = true }, night
+            do! State.put ((main, game), night)
+            if target |> isDoged night then
                 sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}发彩条，被Doge挡了"
-                do! State.put { context with Night = night }
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想给{recv}发彩条，被Doge挡了"
+                do! State.put ((main, game), night)
                 skill
             else
-                let tEntity = target |> context.Game.GetEntity
+                let tEntity = target |> game.GetEntity
                 let tEntity = { tEntity with State = updateReborn this.Double tEntity.State }
-                let context = { context with Game = context.Game.UpdateEntity tEntity }
-                let context =
+                let game = game.UpdateEntity tEntity
+                let game, night =
                     if tEntity.State.Reborn.IsNone
-                       || tEntity.State.Reborn.Value.Reborn |> not then context else
-                    // 当晚复活
+                       || tEntity.State.Reborn.Value.Reborn |> not then game, night else
                     let tEntity = { tEntity with State.Dead.Dead = false }
-                    let context = { context with Game = context.Game.UpdateEntity tEntity }
+                    let game = game.UpdateEntity tEntity
                     let handlers = getPendingHandlers tEntity.Player tEntity.Role
                     let ps = handlers |> List.map (fun h -> createPendingSkill h tEntity)
-                    let night = { context.Night with PendingSkills = ps @ context.Night.PendingSkills }
+                    let night = { night with PendingSkills = ps @ night.PendingSkills }
                     sendMessage { Type = ToPlayer tEntity.Player ; Content = "你复活了" }
-                    { context with Night = night }
-                do! State.put context
+                    game, night
+                do! State.put ((main, game), night)
                 skill
         }
     interface ISkillSummary with
@@ -100,10 +98,10 @@ type CaiMonSkill =
             sending |> getSource
         member this.Summarize sending = monad {
             if this.Dead |> not then None else
-            
-            let! context = State.get
+
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             Some {
                 Target = entity
                 Request = DeadRequest.New Force

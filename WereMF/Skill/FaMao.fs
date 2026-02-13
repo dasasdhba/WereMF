@@ -19,14 +19,14 @@ type FaMaoSkill =
     interface ISkill
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
-            
+            let! (main, game), night = State.get
+
             let target = sending |> getRealTarget
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想给{recv}丢药水，被Doge挡了"
-                do! State.put { context with Night = night }
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想给{recv}丢药水，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
                 { this with Success = true }
@@ -37,21 +37,21 @@ type FaMaoSkill =
             sending |> getRealTarget
         member this.Summarize sending = monad {
             if this.Success |> not then None else
-            
-            let! context = State.get
-            
+
+            let! (main, game), night = State.get
+
             let target = sending |> getRealTarget
-            let entity = context.Game.GetEntity target
+            let entity = game.GetEntity target
             let reversed = entity.State.PotionCount >= 1
             let entity = { entity with State = entity.State |> EntityState.clearMarks }
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
-            
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
+
             if this.Healed then None else
-            
-            let recv = target |> getPlayerName context.Game
+
+            let recv = target |> getPlayerName game
             sendMessage { Type = Public ; Content = $"{recv}被丢了药水" }
-            
+
             if reversed then
                 if entity.Role |> getCharaType = Leaf then
                     Some {
@@ -61,14 +61,14 @@ type FaMaoSkill =
                 else
                     sendMessage { Type = Public ; Content = $"{recv}的阵营反转了！" }
                     let entity = { entity with State.Reversed = entity.State.Reversed |> not }
-                    let context = { context with Game = context.Game.UpdateEntity entity }
-                    do! State.put context
+                    let game = game.UpdateEntity entity
+                    do! State.put ((main, game), night)
                     None
             else
 
             let entity = { entity with State = entity.State |> EntityState.addPotion }
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
             None
         }
     interface ISkillHealDeadSudden with

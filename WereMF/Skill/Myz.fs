@@ -19,64 +19,64 @@ type MyzSkill =
     interface ISkillCost with
         member this.Cost sending = monad {
             if this.Threaten.Force |> not then this else
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let entity = entity |> updateRoleWithHandler
                              (fun (d: MyzRole) -> { d with Revealed = true})
                              handler
-            let context = { context with Game = entity |> context.Game.UpdateEntity }
-            let sender = sending |> getSenderName context.Game
+            let game = entity |> game.UpdateEntity
+            let sender = sending |> getSenderName game
             sendMessage { Type = Public; Content = $"{sender}自爆了身份！" }
             sendMessage { Type = Public; Content = $"{entity.Player.Name}是{sender}" }
             sendMessage { Type = Public; Content = $"{sender}今晚的威胁将强制生效！" }
-            do! State.put context
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let target = sending |> getRealTarget
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
-                let night = context.Night.AddMessage $"{sender}想威胁{recv}，被Doge挡了"
-                do! State.put { context with Night = night }
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{sender}想威胁{recv}，被Doge挡了"
+                do! State.put ((main, game), night)
                 this
             else
-            
+
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             if this.IsNight then
-                let pending = context.Night.PendingSkills
+                let pending = night.PendingSkills
                 let idx = pending |> List.indexed |> List.filter (fun (i, p) -> p.Source = target && p.Threaten = None)
-                let context =
+                let night =
                     if idx.IsEmpty then
                         sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
-                        context
+                        night
                     else
-                    let i, ps = idx |> List.randomChoiceWith context.Main.Rng
-                    let ps = { ps with Threaten = Some this.Threaten }
-                    let pending = pending |> List.updateAt i ps
-                    let night = { context.Night with PendingSkills = pending }
-                    { context with Night = night }
-                do! State.put context
+                        let i, ps = idx |> List.randomChoiceWith main.Rng
+                        let ps = { ps with Threaten = Some this.Threaten }
+                        let pending = pending |> List.updateAt i ps
+                        let night = { night with PendingSkills = pending }
+                        night
+                do! State.put ((main, game), night)
                 this
             else
-                let tEntity = target |> context.Game.GetEntity
+                let tEntity = target |> game.GetEntity
                 if tEntity.State.Threaten.IsSome then
                     sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
                     this
                 else
-                
+
                 let threaten = {
                     Type = DayVote (this.Threaten.Target, this.Threaten.Force)
                     Source = this.Threaten.Source
                 }
                 let tEntity = { tEntity with State.Threaten = Some threaten }
-                let context = { context with Game = tEntity |> context.Game.UpdateEntity }
-                do! State.put context
+                let game = tEntity |> game.UpdateEntity
+                do! State.put ((main, game), night)
                 this
     }
 

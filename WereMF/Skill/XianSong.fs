@@ -20,53 +20,51 @@ type XianSongSkill =
     interface ISkillCost with
         member this.Cost sending = monad {
             if this.ForceMfa.IsNone then this else
-            
-            let! context = State.get
+
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let entity = entity |> updateRoleWithHandler
                              (fun (x: XianSongRole) -> { x with Reborn = Some false })
                              handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
             this
         }
     interface ISkillExecute with
         member this.Execute sending = monad {
-            let! context = State.get
+            let! (main, game), night = State.get
             let source = sending |> getSource
-            let entity = source |> context.Game.GetEntity
+            let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let mfas = entity |> getFromRoleWithHandler
                                 (fun (x: XianSongRole) -> x.MfaList)
                                  handler
-            let mfas = defaultArg mfas []
             let target = sending |> getRealTarget
             let forceBall = mfas |> List.contains target
                             || (this.ForceMfa.IsSome && this.ForceMfa.Value = false)
             let target = sending |> getRealTarget
-            
-            // 虫子失效
-            let tEntity = target |> context.Game.GetEntity
+
+            let tEntity = target |> game.GetEntity
             let entity =
                 if tEntity.State.BugCount <= 0 then entity else
                 entity |> updateRoleWithHandler
                          (fun (x: XianSongRole) -> { x with Disabled = Some true })
                          handler
-            let context = { context with Game = context.Game.UpdateEntity entity }
-            do! State.put context
-            
-            if target |> isDoged context.Night then
-                let sender = sending |> getSenderName context.Game
-                let recv = target |> getPlayerName context.Game
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
+
+            if target |> isDoged night then
+                let sender = sending |> getSenderName game
+                let recv = target |> getPlayerName game
                 let msg = if forceBall then $"{sender}想给{recv}丢咸松球，被Doge挡了"
                           else $"{sender}想找{recv}要mfa，被Doge挡了"
-                let night = context.Night.AddMessage msg
-                do! State.put { context with Night = night }
+                let night = night.AddMessage msg
+                do! State.put ((main, game), night)
                 this
             else
-            
+
             let mfa =
                 if forceBall then false
                 elif this.ForceMfa.IsSome && this.ForceMfa.Value then true
@@ -75,24 +73,22 @@ type XianSongSkill =
                     requestInputWithMessage msg parseBool
             if mfa then
                 let entity = entity |> updateRoleWithHandler
-                                     (fun (x: XianSongRole) -> { x with MfaList = target :: x.MfaList })
-                                     handler
-                let context = { context with Game = context.Game.UpdateEntity entity }
-                
-                let th = tEntity |> Entity.getQueriedHandler context.Main.Rng
-                
-                // 烟雾
+                                      (fun (x: XianSongRole) -> { x with MfaList = target :: x.MfaList })
+                                      handler
+                let game = game.UpdateEntity entity
+
+                let th = tEntity |> Entity.getQueriedHandler main.Rng
+
                 if th.IsNone then
                     sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
                     this
                 else
-                
-                // 实物
+
                 let th = th.Value
                 let tEntity = tEntity |> exposeIfShiWu th
-                let context = { context with Game = context.Game.UpdateEntity entity }
-                do! State.put context
-                
+                let game = game.UpdateEntity tEntity
+                do! State.put ((main, game), night)
+
                 let name = tEntity |> Entity.getQueriedName th
                 sendMessage { Type = ToPlayer entity.Player; Content = $"你要到mfa了，对面的身份是{name}" }
                 this
@@ -100,7 +96,8 @@ type XianSongSkill =
                 if forceBall |> not then
                     sendMessage { Type = ToPlayer entity.Player; Content = "你没有要到mfa" }
                 let tEntity = { tEntity with State = tEntity.State |> EntityState.addXianSong }
-                let context = { context with Game = context.Game.UpdateEntity tEntity }
+                let game = game.UpdateEntity tEntity
+                do! State.put ((main, game), night)
                 this
         }
 
