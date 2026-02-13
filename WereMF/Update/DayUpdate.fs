@@ -244,13 +244,18 @@ let dayVote (day : DayContext) = monad {
         sendMessage { Type = Public ; Content = $"{xEntity.Player.Name}自爆了" }
         let main, game = requestVoteOut xEntity (main, game)
         let entities = game.Entities |> List.map (fun e ->
-            { e with State.Threaten = None ; State.Bomb = e.State.QueuedBomb } )
+                let e = { e with State.Bomb = e.State.QueuedBomb }
+                if e.State.Threaten.IsNone then e else
+                match e.State.Threaten.Value.Type with
+                | DayVote _ -> { e with State.Threaten = None }
+                | _ -> e
+             )
         let game = { game with Entities = entities }
         do! State.put (main, game)
     | _ ->
         sendMessage { Type = Public ; Content = $"\n{printVoteSummary game day}" }
-        let main, game = VoteOutIfTooManyGiveUp day (main, game)
         let game, day = updateContextOnVoteEnd game day
+        let main, game = VoteOutIfTooManyGiveUp day (main, game)
         sendMessage { Type = Public ; Content = "投票结果是" }
         let out, game = getVoteOutPlayer day game
         if out <= PlayerId 0 then
