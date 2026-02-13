@@ -43,7 +43,7 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
     let source = skill.Sending.Pending.Source
     let sEntity = context.Game.GetEntity source
     let blocked = (context.Night.GetPlayerState source).Blocked
-    if blocked then
+    if blocked || sEntity |> Entity.getState |> EntityState.isDead then
         sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
         context, skill, false
     else
@@ -355,23 +355,26 @@ let nightSummary (night: NightContext) = monad {
 
 let gameWin (game: GameContext) : bool =
     let alive = game.Entities |> List.filter (fun e -> e.State |> EntityState.isDead |> not)
-    if alive.Length = 0 then
-        sendMessage { Type = Public ; Content = "游戏结束，无人生还" }
-        true
-    else
+    let result =
+        if alive.Length = 0 then
+            sendMessage { Type = Public ; Content = "游戏结束，无人生还" }
+            true
+        elif alive |> List.forall (fun e -> e |> getCamp = Bar) then
+            sendMessage { Type = Public ; Content = "游戏结束，吧方获胜" }
+            true
+        elif alive |> List.forall (fun e -> e |> getCamp = Boom) then
+            sendMessage { Type = Public ; Content = "游戏结束，爆方获胜" }
+            true
+        elif alive |> List.forall (fun e -> e |> getCamp = Yezi) then
+            sendMessage { Type = Public ; Content = "游戏结束，叶子获胜" }
+            true
+        else
+            false
     
-    if alive |> List.forall (fun e -> e |> getCamp = Bar) then
-        sendMessage { Type = Public ; Content = "游戏结束，吧方获胜" }
-        true
-    elif alive |> List.forall (fun e -> e |> getCamp = Boom) then
-        sendMessage { Type = Public ; Content = "游戏结束，爆方获胜" }
-        true
-    elif alive |> List.forall (fun e -> e |> getCamp = Yezi) then
-        sendMessage { Type = Public ; Content = "游戏结束，叶子获胜" }
-        true
-    else
-        false
-
+    if result then
+        sendMessage { Type = Public ; Content = $"/n{printSummary game.Entities}" }
+    result
+    
 let nightUpdate (night : NightContext) = monad {
     let! (main :MainContext, game : GameContext) = State.get
     let _, (main, game) = State.run (nightStart ()) (main, game)
