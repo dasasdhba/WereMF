@@ -193,7 +193,7 @@ let rec private executeQueuedSkills (context: SkillContext) =
             { skill with Actor = actor }, context
         | _ -> skill, context
     let (main, game), night = context
-    let night = { night with Skills = night.SummarySkills @ [skill] }
+    let night = { night with SummarySkills = night.SummarySkills @ [skill] }
     executeQueuedSkills ((main, game), night)
 
 let rec private pendingSkills (context: SkillContext) =
