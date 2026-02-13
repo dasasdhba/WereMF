@@ -60,7 +60,7 @@ type FaMaoSkill =
                     }
                 else
                     sendMessage { Type = Public ; Content = $"{recv}的阵营反转了！" }
-                    let entity = { entity with State.Reversed = true }
+                    let entity = { entity with State.Reversed = entity.State.Reversed |> not }
                     let context = { context with Game = context.Game.UpdateEntity entity }
                     do! State.put context
                     None
