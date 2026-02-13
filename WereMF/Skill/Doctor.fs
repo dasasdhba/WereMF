@@ -65,6 +65,10 @@ type DoctorSkill =
             
             if entity.State.CapsuleCount < 2 then None else
             
+            let entity = { entity with State.Capsule = [] }
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
+            
             Some {
                 Target = entity
                 Request = DeadRequest.New Sudden
