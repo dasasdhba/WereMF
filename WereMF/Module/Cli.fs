@@ -37,6 +37,10 @@ type CommandType =
     | Redo
     | Restart
     | Reboot
+    | NightSummary
+    | DaySummary
+    | VoteSummary
+    | Summary
 
 exception CommandEx of CommandType
 
@@ -61,11 +65,15 @@ let parseCommand (input : string) =
         else
             Ok Reboot
     | "\\restart" ->
-        if cliUndo.Length < 1 then
+        if cliUndo |> List.isEmpty  then
             sendMessage { Type = Internal ; Content = "请先输入玩家" }
             Error true
         else
             Ok Restart
+    | "\\night" -> Ok NightSummary
+    | "\\day" -> Ok DaySummary
+    | "\\summary" -> Ok Summary
+    | "\\vote" -> Ok VoteSummary
     | _ -> Error false
 
 let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =

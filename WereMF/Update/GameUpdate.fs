@@ -63,7 +63,6 @@ let gameUpdate (game: GameState) = monad {
            let context = gameInit main game.Context
            let game = { game with Context = context }
            main.Players |> List.map (fun p -> p.Id) |> NightContext.New |> Night, (main, game.Context)
-           //main.Players |> List.map (fun p -> p.Id) |> DayContext.New |> Day, (main, game.Context)
         | Night night -> State.run (nightUpdate night) (main, game.Context)
         | Day day -> State.run (dayUpdate day) (main, game.Context)
         | _ -> raise (Reboot |> CommandEx)

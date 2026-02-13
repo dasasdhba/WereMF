@@ -391,7 +391,7 @@ let gameWin (game: GameContext) : bool =
             false
     
     if result then
-        sendMessage { Type = Public ; Content = $"/n{printSummary game.Entities}" }
+        sendMessage { Type = Public ; Content = $"\n{printSummary game.Entities}" }
     result
     
 let nightUpdate (night : NightContext) = monad {

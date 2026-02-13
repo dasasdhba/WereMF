@@ -2,12 +2,30 @@
 open System.Text
 open FSharpPlus.Data
 open WereMF.State
+open WereMF.Module
 open WereMF.Module.Cli
+open WereMF.Update
 open WereMF.Update.Game
 open WereMF.Update.Init
 open WereMF.Update.Roll
 
 let mutable seed = DateTime.UtcNow.Ticks.GetHashCode()
+
+let private tryPrintWith (main: MainState) printer =
+    match main.Status with
+    | Game game ->
+        let context = game.Context
+        sendMessage { Type = Public ; Content = $"\n{Game.printSummaryWith printer context.Entities}" }
+    | _ -> ()
+
+let rec private tryPrintVote (main: MainState) =
+    match main.Status with
+    | Game game ->
+        match game.Status with
+        | Day day ->
+            sendMessage { Type = Public ; Content = $"\n{Day.printVoteSummary game.Context day}" }
+        | _ -> ()
+    | _ -> ()
 
 let rec updateMain main : MainState =
     try 
@@ -48,6 +66,26 @@ let rec updateMain main : MainState =
             cliReplay <- cliUndo
             cliSilent <- false
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
+            updateMain (MainState.New seed)
+        | NightSummary ->
+            tryPrintWith main Entity.getNightSummary
+            cliReplay <- cliUndo
+            cliSilent <- true
+            updateMain (MainState.New seed)
+        | DaySummary ->
+            tryPrintWith main Entity.getDaySummary
+            cliReplay <- cliUndo
+            cliSilent <- true
+            updateMain (MainState.New seed)
+        | VoteSummary ->
+            tryPrintVote main
+            cliReplay <- cliUndo
+            cliSilent <- true
+            updateMain (MainState.New seed)
+        | Summary ->
+            tryPrintWith main Entity.getSummary
+            cliReplay <- cliUndo
+            cliSilent <- true
             updateMain (MainState.New seed)
     | ex ->
         printfn "%s" ex.Message
