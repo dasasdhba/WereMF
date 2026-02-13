@@ -77,12 +77,27 @@ type KirbyRole =
             let role = this.CopiedRole.Value
             getDayStartDeadRequest role
     interface IRolePreventDead with
-        member this.Prevent dead handler = monad {
-            if this.CopiedRole.IsNone then false else
+        member this.Prevent dead= monad {
+            if this.CopiedRole.IsNone then None else
             let role = this.CopiedRole.Value
-            let sub = this.GetSubHandler ()
             let! context = State.get
-            let context, result = tryPreventDead dead (handler.Bind sub) context role
+            let context, result = tryPreventDead dead context role
+            if result.IsNone then None else
+            let r = { this with CopiedRole = Some result.Value }
             do! State.put context
-            result
+            r :> IRole |> Some
         }
+    member private this.UpdateCopiedRoleAndContextWith func = monad {
+        if this.CopiedRole.IsNone then this :> IRole else
+        let role = this.CopiedRole.Value
+        let! context = State.get
+        let context, role = role |> func context
+        do! State.put context
+        { this with CopiedRole = Some role } :> IRole
+    }
+    interface IRoleUpdateOnVoteStart with
+        member this.Update player =
+            this.UpdateCopiedRoleAndContextWith (updateOnVoteStart player)
+    interface IRoleUpdateOnVoteEnd with
+        member this.Update entity game =
+            this.UpdateCopiedRoleAndContextWith (updateOnVoteEnd entity game)

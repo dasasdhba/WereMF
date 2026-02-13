@@ -42,7 +42,7 @@ type CreeperSkill =
                 this
             else
                 let tEntity = target |> game.GetEntity
-                let tEntity = { tEntity with State.Bomb = tEntity.State.Bomb + 1 }
+                let tEntity = { tEntity with State.QueuedBomb = tEntity.State.QueuedBomb + 1 }
                 let game = game.UpdateEntity tEntity
                 do! State.put ((main, game), night)
                 this

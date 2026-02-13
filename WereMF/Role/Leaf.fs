@@ -92,18 +92,39 @@ type LeafRole =
         member this.Get () =
             this.GetDeadRequestWith getDayStartDeadRequest
     interface IRolePreventDead with
-        member this.Prevent dead handler = monad {
-            let! context = State.get
+        member this.Prevent dead = monad {
             let min = if this.Fury then 1 else 0
             let max = if this.Fury then this.Roles.Length - 1 else 0
-            let context, result =
-                [min..max] |> List.fold (fun (c, r) i ->
-                    if r then (c, r) else
-                    let role = this.Roles[i]
-                    let sub = this.GetSubHandler i
-                    let subHandler = handler.Bind sub
-                    tryPreventDead dead subHandler c role
-                ) (context, false)
+            let! context = State.get
+            let context, role, result =
+                [min..max] |> List.fold (fun (c, root, result) i ->
+                    if result then c, root, result else
+                    let sub = this.Roles[i]
+                    let c, r = tryPreventDead dead c sub
+                    if r.IsNone then c, root, result else
+                    let root = { root with Roles = root.Roles |> List.updateAt i r.Value }
+                    c, root, true
+                ) (context, this, false)
             do! State.put context
-            result
+            if result then role :> IRole |> Some else None
         }
+    member private this.UpdateCopiedRolesAndContextWith func = monad {
+        let! context = State.get
+        let min = if this.Fury then 1 else 0
+        let max = if this.Fury then this.Roles.Length - 1 else 0
+        let context, role =
+            [min..max] |> List.fold (fun (c, root) i ->
+                let sub = this.Roles[i]
+                let c, r = func c sub
+                let root = { root with Roles = root.Roles |> List.updateAt i r }
+                c, root
+            ) (context, this)
+        do! State.put context
+        role :> IRole
+    }
+    interface IRoleUpdateOnVoteStart with
+        member this.Update player =
+            this.UpdateCopiedRolesAndContextWith (updateOnVoteStart player)
+    interface IRoleUpdateOnVoteEnd with
+        member this.Update entity game =
+            this.UpdateCopiedRolesAndContextWith (updateOnVoteEnd entity game)

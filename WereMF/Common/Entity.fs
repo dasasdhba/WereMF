@@ -79,7 +79,8 @@ type EntityState =
         XianSong : int list // 闲松球
         Kidnapped : PlayerId list // 实物
         Threaten : ThreatenState option // myz
-        Bomb : int // creeper
+        QueuedBomb : int // creeper
+        Bomb: int
         Milk : MilkState
         
         JiaoHuaVoteBlocked : bool // 脚滑人禁票
@@ -107,6 +108,7 @@ type EntityState =
             XianSong = []
             Kidnapped = []
             Threaten = None
+            QueuedBomb = 0
             Bomb = 0
             Milk = MilkState.New ()
             JiaoHuaVoteBlocked = false

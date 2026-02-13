@@ -19,22 +19,22 @@ type CTFRole =
             SummaryName = CTF.ToString ()
         }
     interface IRolePreventDead with
-        member this.Prevent dead handler = monad {
-            if dead = Force then false else
+        member this.Prevent dead = monad {
+            if dead = Force then None else
             
             let! entity, bind = State.get
             let main, game = bind
             
             let myBug = entity.State.BugCount
-            if myBug >= 2 then false else
+            if myBug >= 2 then None else
             
             let totalBug = game.Entities |> List.map (fun e -> e.State.BugCount) |> List.sum
             let totalBug = totalBug - myBug
-            if totalBug <= 0 then false else
+            if totalBug <= 0 then None else
             
             let msg = { Type = ToPlayer entity.Player ; Content = "移动一只 bug 到自己身上并复活吗？（1：是；0：否）" }
             let yes = requestInputWithMessage msg parseBool
-            if yes |> not then false else
+            if yes |> not then None else
                 
             let bugPlayer = game.Entities |> List.filter (
                     fun e -> e.Player.Id <> entity.Player.Id && e.State.BugCount > 0
@@ -50,5 +50,5 @@ type CTFRole =
             let bind = main, game
             do! State.put (entity, bind)
             
-            true
+            this :> IRole |> Some
         }

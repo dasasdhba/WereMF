@@ -1,7 +1,24 @@
 module WereMF.Role.JiaoHua
 
+open FSharpPlus
+open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module
+open WereMF.Module.Cli
 open WereMF.Module.Role
+open WereMF.State
+
+let private voteJiaoHuaFilter (game: GameContext) = function
+    | Ok id when id <= PlayerId 0 -> Ok (PlayerId 0)
+    | Ok id when game.HasEntity id |> not ->
+        Error "目标不存在"
+    | Ok id ->
+        let e = game.GetEntity id
+        if e.State |> EntityState.isDead then Error "目标已死亡"
+        elif e.State.LeafProtected.IsSome then Error "目标不可选中"
+        elif e.State.JiaoHuaVoteBlocked then Error "目标已被禁票"
+        else Ok id
+    | value -> value
 
 type JiaoHuaRole =
     {
@@ -20,3 +37,23 @@ type JiaoHuaRole =
     interface IRoleUpdateOnDead with
         member this.Update dead =
             if dead <> Kill then this else { this with VoteBlock = true }
+    interface IRoleUpdateOnVoteStart with
+        member this.Update player = monad {
+            if this.VoteBlock |> not then this else
+            let! game = State.get
+            let game =
+                if game.Entities |> List.exists (fun p ->
+                    Ok p.Player.Id |> voteJiaoHuaFilter game |> Result.isOk ) |> not then game else
+                
+                let parser input =
+                    input |> parsePlayerId |> voteJiaoHuaFilter game
+                sendMessage { Type = Public ; Content = $"{player.Name}可以禁票一人" }
+                let msg = { Type = ToPlayer player ; Content = "输入要禁票的玩家编号，输入 0 放弃" }
+                let r = requestInputWithMessage msg parser
+                if r <= PlayerId 0 then game else
+                let e = game.GetEntity r
+                let e = { e with State.JiaoHuaVoteBlocked = true }
+                game.UpdateEntity e
+            do! State.put game
+            { this with VoteBlock = false }
+        }

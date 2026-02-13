@@ -30,11 +30,7 @@ type XianSongRole =
         member this.Update _ =
             { this with Disabled = None }
     interface IRolePreventDead with
-        member this.Prevent dead handler = monad {
-            if dead = Force || this.Reborn.IsSome || this.MfaList.Length = 0 then false else
-            let! entity, bind = State.get
-            let role = { this with Reborn = Some true }
-            let entity = entity |> handler.SetToEntity role
-            do! State.put (entity, bind)
-            true
+        member this.Prevent dead = monad {
+            if dead = Force || this.Reborn.IsSome || this.MfaList.Length = 0 then None else
+            { this with Reborn = Some true } :> IRole |> Some
         }

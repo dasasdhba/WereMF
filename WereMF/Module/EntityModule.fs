@@ -95,6 +95,7 @@ module EntityState =
                 Threaten = None
                 XianSong = entity.XianSong |> List.map (fun i -> i - 1)
                 Bomb = 0
+                QueuedBomb = 0
                 JiaoHuaVoteBlocked = false
         }
         
@@ -199,10 +200,14 @@ module Entity =
                      | Force -> "暴毙了"
                      | Vote -> "出局"
         sendMessage { Type = Public ; Content = $"{header}{reason}" }
-        let context, result = entity.Role |> tryPreventDead request.DeadType IdHandler context
-        if result then
+        let context, result = entity.Role |> tryPreventDead request.DeadType context
+        if result.IsSome then
+            let role = result.Value
+            let entity, (main, game) = context
+            let entity = { entity with Role = role }
+            let game = game.UpdateEntity entity
             sendMessage { Type = Public ; Content = $"但是{header}复活了" }
-            context
+            entity, (main, game)
         else
             let revealNormal () =
                 let entity, (main, game) = context
@@ -408,12 +413,59 @@ module Entity =
             else
                 sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
                 day, { entity with State.Threaten = None }
-    let updateOnVoteStart (game : GameContext) (day: DayContext) (entity : Entity) =
-        // 脚滑人禁票
+    
+    let private updateThreatenOnVoteEnd (game : GameContext) (day: DayContext) (entity : Entity) =
+        let t = entity.State.Threaten
+        if t.IsNone then entity else
+        let t = t.Value
+        let src = t.Source
+        let sEntity = game.GetEntity src
+        if sEntity.State |> EntityState.isDead then
+            { entity with State.Threaten = None }
+        else
         
+        match t.Type with
+        | QueuedDeath -> entity
+        | DayVote (target, _) ->
+            let real = (day.GetPlayerVote entity.Player.Id).GetTarget()
+            if real = target then { entity with State.Threaten = None }
+            else { entity with State.Threaten = Some { t with Type = QueuedDeath } }
+    
+    let private updateBombOnVoteEnd (entity : Entity) (day: DayContext) (game : GameContext)  =
+        let t = (day.GetPlayerVote entity.Player.Id).GetTarget()
+        let b = entity.State.QueuedBomb
+        if t <= PlayerId 0 then
+            let entity = { entity with State.QueuedBomb = 0 ; State.Bomb = entity.State.Bomb + b }
+            game.UpdateEntity entity
+        else
+
+        let entity = { entity with State.QueuedBomb = 0 }
+        let te = game.GetEntity t
+        let te = { te with State.Bomb = te.State.Bomb + b }
+        let game = game.UpdateEntity te
+        game.UpdateEntity entity
+    
+    let updateOnVoteStart (entity : Entity) (game : GameContext) (day: DayContext) =
+        // 脚滑人禁票等
+        let game, role = entity.Role |> updateOnVoteStart entity.Player game
+        let entity = { entity with Role = role }
+        let game = game.UpdateEntity entity
+        
+        if entity.State |> EntityState.isDead then game, day else
         let day, entity = updateThreatenOnVoteStart game day entity
         let game = game.UpdateEntity entity
-        game, day, entity
+        game, day
+    
+    let updateOnVoteEnd (entity : Entity) (game : GameContext) (day: DayContext)=
+        let entity = updateThreatenOnVoteEnd game day entity
+        
+        // 江仙投票等
+        let day, role = entity.Role |> updateOnVoteEnd entity game day
+        let entity = { entity with Role = role }
+        let game = game.UpdateEntity entity
+        
+        let game = updateBombOnVoteEnd entity day game
+        game, day
     
     // utils
 

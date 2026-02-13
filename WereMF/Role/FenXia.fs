@@ -75,30 +75,43 @@ type FenXiaRole =
                     role |> getNightStartDeadRequest) |> List.concat
             if this.FenCount <= 0 then DeadRequest.New Force :: skills else skills
     interface IRolePreventDead with
-        member this.Prevent dead handler = monad {
+        member this.Prevent dead = monad {
             let! context = State.get
-            let context, result =
-                [0..(this.CopiedRoles.Length-1)] |> List.fold (fun (c, r) i ->
-                    if r then (c, r) else
-                    let role = this.CopiedRoles[i]
-                    let sub = this.GetSubHandler i
-                    let subHandler = handler.Bind sub
-                    tryPreventDead dead subHandler c role
-                ) (context, false)
+            let context, role, result =
+                [0..(this.CopiedRoles.Length-1)] |> List.fold (fun (c, root, result) i ->
+                    if result then c, root, result else
+                    let sub = this.CopiedRoles[i]
+                    let c, r = tryPreventDead dead c sub
+                    if r.IsNone then c, root, result else
+                    let root = { root with CopiedRoles = root.CopiedRoles |> List.updateAt i r.Value }
+                    c, root, true
+                ) (context, this, false)
             do! State.put context
-            if result then true else
-            if dead = Force || this.RebornRound.IsSome || this.FenCount <= 1 then false else
+            if result then role :> IRole |> Some else
+            
+            if dead = Force || this.RebornRound.IsSome || this.FenCount <= 1 then None else
             let entity, bind = context
             let msg = { Type = ToPlayer entity.Player ; Content = "用一根粉条复活吗？（1：是；0：否）" }
             let yes = requestInputWithMessage msg parseBool
-            if yes |> not then false else
+            if yes |> not then None else
             
-            let r = { this with RebornRound = Some 2 ; FenCount = this.FenCount - 1 }
-            let entity = entity |> handler.SetToEntity r
-            let main, game = bind
-            let game = game.UpdateEntity entity
-            let bind = main, game
-            do! State.put (entity, bind)
-            
-            true
+            { this with RebornRound = Some 2 ; FenCount = this.FenCount - 1 } :> IRole |> Some
         }
+    member private this.UpdateCopiedRolesAndContextWith func = monad {
+        let! context = State.get
+        let context, role =
+            [0..(this.CopiedRoles.Length-1)] |> List.fold (fun (c, root) i ->
+                let sub = this.CopiedRoles[i]
+                let c, r = func c sub
+                let root = { root with CopiedRoles = root.CopiedRoles |> List.updateAt i r }
+                c, root
+            ) (context, this)
+        do! State.put context
+        role :> IRole
+    }
+    interface IRoleUpdateOnVoteStart with
+        member this.Update player =
+            this.UpdateCopiedRolesAndContextWith (updateOnVoteStart player)
+    interface IRoleUpdateOnVoteEnd with
+        member this.Update entity game =
+            this.UpdateCopiedRolesAndContextWith (updateOnVoteEnd entity game)

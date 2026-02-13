@@ -39,14 +39,14 @@ let getValidHandlers (role: IRole) =
 type DeadContext = Entity * BindContext
 
 type IRolePreventDead =
-    abstract member Prevent : DeadType -> RoleHandler -> State<DeadContext, bool>
+    abstract member Prevent : DeadType -> State<DeadContext, IRole option>
 
-let tryPreventDead (deadType: DeadType) (handler: RoleHandler) (context : DeadContext) (role: IRole) =
+let tryPreventDead (deadType: DeadType) (context : DeadContext) (role: IRole) =
     match role with
     | :? IRolePreventDead as h ->
-        let r, context = State.run (h.Prevent deadType handler) context
+        let r, context = State.run (h.Prevent deadType) context
         context, r
-    | _ -> context, false
+    | _ -> context, None
     
 // in game update
 
@@ -92,11 +92,27 @@ let updateOnDead dead (role :IRole) =
 
 // vote update
 
+/// This is currently only used for jiao hua vote block
 type IRoleUpdateOnVoteStart =
-    abstract member Update : Entity -> State<GameContext, IRole>
+    abstract member Update : Player -> State<GameContext, IRole>
 
+/// this is currently only used for jiang xian vote
 type IRoleUpdateOnVoteEnd =
-    abstract member Update : Entity -> State<DayContext, IRole>
+    abstract member Update : Entity -> GameContext -> State<DayContext, IRole>
+
+let updateOnVoteStart (player: Player) (game: GameContext) (role: IRole) =
+    match role with
+    | :? IRoleUpdateOnVoteStart as h ->
+        let r, g = State.run (h.Update player) game
+        g, r
+    | _ -> game, role
+
+let updateOnVoteEnd (entity: Entity) (game: GameContext) (day: DayContext) (role: IRole) =
+    match role with
+    | :? IRoleUpdateOnVoteEnd as h ->
+        let r, d = State.run (h.Update entity game) day
+        d, r
+    | _ -> day, role
 
 // leaf specific
 

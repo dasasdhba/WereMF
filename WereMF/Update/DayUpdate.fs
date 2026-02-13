@@ -8,106 +8,8 @@ open WereMF.Module
 open WereMF.Module.Cli
 open WereMF.Module.Entity
 open WereMF.Module.Game
-open WereMF.Module.Role
-open WereMF.Role.JiangXian
-open WereMF.Role.JiaoHua
 open WereMF.State
 open WereMF.Update.Night
-
-let private voteJiaoHuaFilter (game: GameContext) = function
-    | Ok id when id <= PlayerId 0 -> Ok (PlayerId 0)
-    | Ok id when game.HasEntity id |> not ->
-        Error "目标不存在"
-    | Ok id ->
-        let e = game.GetEntity id
-        if e.State |> EntityState.isDead then Error "目标已死亡"
-        elif e.State.LeafProtected.IsSome then Error "目标不可选中"
-        elif e.State.JiaoHuaVoteBlocked then Error "目标已被禁票"
-        else Ok id
-    | value -> value
-
-let private updateJiaoHuaBlocked (gameContext: GameContext)=
-    let rec update (i: int) (game: GameContext) =
-        let rec updateHandlers (j: int) (g: GameContext) (e: Entity) (hs : RoleHandler list) =
-            if j >= hs.Length then g else
-            let h = hs[j]
-            let role = h.GetFromEntity e
-            match role with
-            | :? JiaoHuaRole as jiaoHua when jiaoHua.VoteBlock ->
-                let jiaoHua = { jiaoHua with VoteBlock = false }
-                let e = h.SetToEntity jiaoHua e
-                let g = g.UpdateEntity e
-                if g.Entities |> List.exists (fun p -> Ok p.Player.Id |> voteJiaoHuaFilter g |> Result.isOk ) then
-                    let parser input =
-                        input |> parsePlayerId |> voteJiaoHuaFilter g
-                    let msg = { Type = Public ; Content = $"{e.Player.Name}可以禁票一人（输入要禁票的玩家编号，输入 0 放弃）" }
-                    let r = requestInputWithMessage msg parser
-                    if r <= PlayerId 0 then updateHandlers (j + 1) g e hs else
-                    let e = g.GetEntity r
-                    let e = { e with State.JiaoHuaVoteBlocked = true }
-                    let g = g.UpdateEntity e
-                    updateHandlers (j + 1) g e hs
-                else
-                    updateHandlers (j + 1) g e hs
-            | _ -> updateHandlers (j + 1) g e hs
-        if i >= game.Entities.Length then game else
-        let e = game.Entities[i]
-        let handlers = e.Role |> getValidHandlers
-        let game = updateHandlers 0 game e handlers
-        update (i + 1) game
-    update 0 gameContext
-
-let private updateThreaten (game: GameContext) =
-    let rec update (i: int) (g: GameContext) =
-        if i >= g.Entities.Length then g else
-        let e = g.Entities[i]
-        let t = e.State.Threaten
-        if t.IsNone then update (i + 1) g else
-        let src = t.Value.Source
-        let se = g.GetEntity src
-        if se.State |> EntityState.isDead then
-            let e = { e with State.Threaten = None }
-            let g = g.UpdateEntity e
-            update (i + 1) g
-        else
-            update (i + 1) g
-    update 0 game
-
-let private updateForceThreaten (game: GameContext) (day: DayContext)=
-    let rec update (i: int) (g: GameContext) (votes: (Entity * PlayerId) list) (d: DayContext) =
-        if i >= g.Entities.Length then g, d else
-        let e = g.Entities[i]
-        let t = votes |> tryFind (fun (e, _) -> e.Player.Id = e.Player.Id)
-        if t.IsNone then update (i + 1) g votes d else
-        let _, target = t.Value
-        
-        if Ok target |> voteTargetFilter g |> Result.isOk then
-            let msg = if target <= PlayerId 0 then $"{e.Player.Name}被强制弃票"
-                      else $"{e.Player.Name}被强制把票投给{target}"
-            sendMessage { Type = Public ; Content = msg }
-            let vote = d.GetPlayerVote e.Player.Id
-            let vote = { vote with Target = Some target ; Confirmed = true }
-            let d = d.SetPlayerVote vote
-            update (i + 1) g votes d
-        else
-            let src = e.State.Threaten.Value.Source
-            let se = g.GetEntity src
-            let msg = { Type = ToPlayer se.Player ; Content = "失败" }
-            sendMessage msg
-            let e = { e with State.Threaten = None }
-            let g = g.UpdateEntity e
-            update (i + 1) g votes d
-        
-    let threaten = game.Entities |> List.map (fun e ->
-        match e.State.Threaten with
-        | Some t ->
-            match t.Type with
-            | DayVote (target, force) when force -> Some (e, target)
-            | _ -> None
-        | None -> None
-        )
-    let threaten = threaten |> List.choose id
-    update 0 game threaten day
 
 let dayStart (day: DayContext) = monad {
     let! (main: MainContext, game : GameContext) = State.get
@@ -122,10 +24,7 @@ let dayStart (day: DayContext) = monad {
     
     let entities = game.Entities |> List.map Entity.updateOnDayStart
     let game = { game with Entities = entities }
-                   |> updateJiaoHuaBlocked
-                   |> updateThreaten
     
-    let game, day = updateForceThreaten game day
     do! State.put (main, game)
     day
 }
@@ -307,85 +206,22 @@ let getVoteOutPlayer (day : DayContext) (game: GameContext) =
     let game = game.UpdateEntity bar
     p2, game
 
-let private setVoteIfJiangXian (entity : Entity) (day: DayContext) (game: GameContext) =
-    if Ok entity.Player.Id |> voteSourceFilter game |> Result.isError then day, entity else
-    
-    let handlers = entity.Role |> getValidHandlers |> List.filter (fun h ->
-        getHandlerCharaType h entity = JiangXian)
-    if handlers.Length = 0 then day, entity else
-    
-    if entity.State |> EntityState.isDead |> not then
-        let msg = { Type = ToPlayer entity.Player; Content = "输入你真正想投的票" }
-        let parser = parsePlayerId >> (voteTargetFilter game)
-        let result = requestInputWithMessage msg parser
-        let state = day.GetPlayerVote entity.Player.Id
-        let state = { state with Target = Some result }
-        let day = day.SetPlayerVote state
-        day, entity
-    else
-    
-    let rs = handlers |> List.map (fun h ->
-        let r = h.GetFromEntity entity
-        match r with
-        | :? JiangXianRole as j when j.DeadVoted |> not -> Some (h, j)
-        | _ -> None
-    )
-    let rs = rs |> List.choose id
-    if rs.Length = 0 then day, entity else
-    let h, j = rs.Head
-    let msg = { Type = ToPlayer entity.Player; Content = "输入你想投票的玩家，输入 0 放弃" }
-    let parser = parsePlayerId >> (voteTargetFilter game)
-    let result = requestInputWithMessage msg parser
-    if result <= PlayerId 0 then day, entity else
-    let state = day.GetPlayerVote entity.Player.Id
-    let state = { state with Target = Some result }
-    let day = day.SetPlayerVote state
-    let j = { j with DeadVoted = true }
-    let entity = h.SetToEntity j entity
-    day, entity
-        
-let setJiangXianVote (day: DayContext) (game: GameContext) =
-    let mutable d, g = day, game
-    for e in game.Entities do
-        let nd, ne = setVoteIfJiangXian e d g
-        d <- nd
-        g <- g.UpdateEntity ne
-    d, g
-    
-let private updateThreatenVote (day: DayContext) (game: GameContext) =
-    let rec update (i: int) (g: GameContext) =
-        if i >= g.Entities.Length then g else
-        let e = g.Entities[i]
-        let t = e.State.Threaten
-        if t.IsNone then update (i + 1) g else
-        match t.Value.Type with
-        | QueuedDeath -> update (i + 1) g
-        | DayVote (target, _) ->
-            let real = (day.GetPlayerVote e.Player.Id).GetTarget()
-            let e =
-                if real = target then e
-                else { e with State.Threaten = Some { t.Value with Type = QueuedDeath } }
-            let g = g.UpdateEntity e
-            update (i + 1) g
-    update 0 game
+let private updateContextWith func game day =
+    [0..(game.Entities.Length - 1)] |> List.fold (fun (g, d) i ->
+            let e = game.Entities[i]
+            func e g d
+        ) (game, day)
 
-let private updateBombVote (day: DayContext) (game: GameContext) =
-    let rec update (i: int) (g: GameContext) =
-        if i >= g.Entities.Length then g else
-        let e = g.Entities[i]
-        let t = (day.GetPlayerVote e.Player.Id).GetTarget()
-        if t <= PlayerId 0 then update (i + 1) g else
-        let b = e.State.Bomb
-        let e = { e with State.Bomb = e.State.Bomb - b }
-        let te = g.GetEntity t
-        let te = { te with State.Bomb = te.State.Bomb + b }
-        let g = g.UpdateEntity e
-        let g = g.UpdateEntity te
-        update (i + 1) g
-    update 0 game
-    
+let private updateContextOnVoteStart game day =
+    updateContextWith updateOnVoteStart game day
+
+let private updateContextOnVoteEnd game day =
+    updateContextWith updateOnVoteEnd game day
+
 let dayVote (day : DayContext) = monad {
     let! (main :MainContext, game : GameContext) = State.get
+    
+    let game, day = updateContextOnVoteStart game day
     
     let rec voteRec d =
         let msg = { Type = Internal ; Content = "输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节" }
@@ -407,13 +243,14 @@ let dayVote (day : DayContext) = monad {
         let xEntity = game.GetEntity x
         sendMessage { Type = Public ; Content = $"{xEntity.Player.Name}自爆了" }
         let main, game = requestVoteOut xEntity (main, game)
+        let entities = game.Entities |> List.map (fun e ->
+            { e with State.Threaten = None ; State.Bomb = e.State.QueuedBomb } )
+        let game = { game with Entities = entities }
         do! State.put (main, game)
     | _ ->
         sendMessage { Type = Public ; Content = $"\n{printVoteSummary game day}" }
-        let main, game= VoteOutIfTooManyGiveUp day (main, game)
-        let day, game = setJiangXianVote day game
-        let game = updateThreatenVote day game
-        let game = updateBombVote day game
+        let main, game = VoteOutIfTooManyGiveUp day (main, game)
+        let game, day = updateContextOnVoteEnd game day
         sendMessage { Type = Public ; Content = "投票结果是" }
         let out, game = getVoteOutPlayer day game
         if out <= PlayerId 0 then
