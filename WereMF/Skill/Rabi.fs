@@ -104,7 +104,7 @@ type RabiSkill =
             sendMessage { Type = Public; Content = $"{recv}被喂了毒奶！" }
             Some {
                 Target = tEntity
-                Request = DeadRequest.New Sudden
+                Request = DeadRequest.New Kill
             }
     }
 

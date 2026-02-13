@@ -95,7 +95,7 @@ type FenXiaRole =
             let yes = requestInputWithMessage msg parseBool
             if yes |> not then None else
             
-            { this with RebornRound = Some 2 ; FenCount = this.FenCount - 1 } :> IRole |> Some
+            { this with RebornRound = Some 1 ; FenCount = this.FenCount - 1 } :> IRole |> Some
         }
     member private this.UpdateCopiedRolesAndContextWith func = monad {
         let! context = State.get

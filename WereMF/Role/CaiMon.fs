@@ -44,5 +44,5 @@ type CaiMonRole =
             let yes = requestInputWithMessage msg parseBool
             if yes |> not then None else
             
-            { this with RebornRound = Some 2 ; CaiCount = this.CaiCount - 1 } :> IRole |> Some
+            { this with RebornRound = Some 1 ; CaiCount = this.CaiCount - 1 } :> IRole |> Some
         }

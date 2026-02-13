@@ -31,7 +31,7 @@ type FenXiaSkill =
             let handler = sending |> getHandler
             let target = if sending.Spring.IsSome then source else sending.Target
             let tEntity = target |> game.GetEntity
-            let cost = if tEntity.State |> EntityState.isDead then 2 else 1
+            let cost = if tEntity.State |> EntityState.isDead then 1 else 2
             let entity = entity |> updateRoleWithHandler
                              (fun (f: FenXiaRole) -> { f with FenCount = f.FenCount - cost })
                              handler
@@ -126,13 +126,13 @@ let filterFenXia (game: GameContext) (fenCount: int) = function
     | Ok playerId ->
         let entity = game.GetEntity playerId
         let isDead = entity.State |> EntityState.isDead
-        let cost = if isDead then 2 else 1
+        let cost = if isDead then 1 else 2
         
         if cost > fenCount then
             if isDead then
-                Error "你的粉条不足（需要 2 根）"
-            else
                 Error "你的粉条不足（需要 1 根）"
+            else
+                Error "你的粉条不足（需要 2 根）"
         else
             Ok playerId
     | value -> value
