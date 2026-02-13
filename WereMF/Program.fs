@@ -45,7 +45,7 @@ let rec updateMain main : MainState =
             cliUndo <- [cliUndo.Head]
             cliRedo <- []
             cliReplay <- cliUndo
-            cliSilent <- true
+            cliSilent <- false
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
             updateMain (MainState.New seed)
     | ex ->

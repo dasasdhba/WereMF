@@ -61,7 +61,7 @@ let parseCommand (input : string) =
         else
             Ok Reboot
     | "\\restart" ->
-        if cliUndo.Length <= 1 then
+        if cliUndo.Length < 1 then
             sendMessage { Type = Internal ; Content = "请先输入玩家" }
             Error true
         else
