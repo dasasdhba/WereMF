@@ -25,4 +25,4 @@ type Player =
     member this.ToCliString() =
         $"{this.Id.ToString()}: {this.Name}"
     member this.ToInGameString() =
-        $"{this.Id.ToCircleString()} {this.Name}"
+        $"{this.Id.ToCircleString()}{this.Name}"

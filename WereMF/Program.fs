@@ -1,4 +1,5 @@
 ﻿open System
+open System.Text
 open FSharpPlus.Data
 open WereMF.State
 open WereMF.Module.Cli
@@ -51,5 +52,8 @@ let rec updateMain main : MainState =
     | ex ->
         printfn "%s" ex.Message
         reraise()
+
+Console.OutputEncoding <- Encoding.UTF8
+Console.InputEncoding <- Encoding.UTF8
 
 updateMain (MainState.New seed) |> ignore

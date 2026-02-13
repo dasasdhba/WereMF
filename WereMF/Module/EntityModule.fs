@@ -55,10 +55,10 @@ module EntityState =
         entity
         
     let getTopMark entity =
-        let voteBlock = if entity.JiaoHuaVoteBlocked then "【封】" else "" //"\u2716" else ""
-        let protect = if entity.JiaoHuaProtected then "【护】" else "" // "\U0001F6E1" else ""
-        let roleBlock = if entity.JiaoHuaBlocked > 0 then "【封】" else "" // "\u274c" else ""
-        let leafBlock = if entity.LeafProtected.IsSome then "【叶】" else "" //"\u274e" else ""
+        let voteBlock = if entity.JiaoHuaVoteBlocked then "\u2716" else ""
+        let protect = if entity.JiaoHuaProtected then "\U0001F6E1" else ""
+        let roleBlock = if entity.JiaoHuaBlocked > 0 then "\u274c" else ""
+        let leafBlock = if entity.LeafProtected.IsSome then "\u274e" else ""
         voteBlock + protect + roleBlock + leafBlock
         
     let getBuffMark (entity : EntityState)=
@@ -66,11 +66,11 @@ module EntityState =
             if n <= 0 then ""
             elif n = 1 then s
             else [1..n] |> List.map (fun i -> s) |> String.concat ""
-        let smog = repeat entity.SmogCount "【烟】" //"\u2601"
-        let bug = repeat entity.BugCount "【虫】" //"\U0001F41E"
-        let xian = repeat entity.XianSongCount "【咸松】" //"\U0001F36A"
-        let cap = repeat entity.CapsuleCount "【胶囊】"//"\U0001F48A"
-        let drop = repeat entity.PotionCount "【药水】"//"\U0001F4A7"
+        let smog = repeat entity.SmogCount "\u2601"
+        let bug = repeat entity.BugCount "\U0001F41E"
+        let xian = repeat entity.XianSongCount "\U0001F36A"
+        let cap = repeat entity.CapsuleCount "\U0001F48A"
+        let drop = repeat entity.PotionCount "\U0001F4A7"
         smog + bug + xian + cap + drop
         
     // in game judge
@@ -169,14 +169,14 @@ module Entity =
         if entity.State |> EntityState.isDead then
             $"{entity.Player.Id.ToCircleString()}【{entity.State.Dead.Name}】"
         else
-            $"{entity.Player.Id.ToCircleString()} {getInGameName entity} " +
+            $"{entity.Player.Id.ToCircleString()}{getInGameName entity}" +
             $"{entity.State |> EntityState.getTopMark} {entity.State |> EntityState.getBuffMark}"
 
     let getDaySummary entity =
         if entity.State |> EntityState.isDead then
-            $"{entity.Player.Id.ToCircleString()} 【{entity.State.Dead.Name}】"
+            $"{entity.Player.Id.ToCircleString()}【{entity.State.Dead.Name}】"
         else
-            $"{entity.Player.Id.ToCircleString()} {getInGameName entity} " +
+            $"{entity.Player.Id.ToCircleString()}{getInGameName entity}" +
             $"{entity.State |> EntityState.getTopMark}"
         
     let getSummary (entity: Entity) =
