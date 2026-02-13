@@ -208,7 +208,7 @@ let getVoteOutPlayer (day : DayContext) (game: GameContext) =
 
 let private updateContextWith func game day =
     [0..(game.Entities.Length - 1)] |> List.fold (fun (g, d) i ->
-            let e = game.Entities[i]
+            let e = g.Entities[i]
             func e g d
         ) (game, day)
 

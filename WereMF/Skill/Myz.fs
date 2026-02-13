@@ -69,7 +69,14 @@ type MyzSkill =
                     sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
                     this
                 else
-
+                let tg = this.Threaten.Target
+                let tgPlayer = (tg |> game.GetEntity).Player
+                let force = this.Threaten.Force
+                let msf = if force then "你被强制威胁" else "你被威胁"
+                let msb = if tg <= PlayerId 0 then "弃票"
+                          else $"把票投给{tgPlayer.ToInGameString()}"
+                sendMessage { Type = ToPlayer tEntity.Player ; Content = msf + msb }
+                
                 let threaten = {
                     Type = DayVote (this.Threaten.Target, this.Threaten.Force)
                     Source = this.Threaten.Source
