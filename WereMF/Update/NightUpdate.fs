@@ -6,7 +6,6 @@ open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Cli
 open WereMF.Module.Entity
-open WereMF.Module.Game
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Role.Bind
@@ -138,7 +137,7 @@ let private createPendingSkills (entities: Entity list) (rng : Random) =
 
 let nightStart () = monad {
     let! (main: MainContext, game : GameContext) = State.get
-    sendMessage { Type = Public ; Content = "晚上开始\n" + (printNightSummary game.Entities) }
+    sendMessage { Type = Public ; Content = "晚上开始" }
     
     let main, game =
         [0..(game.Entities.Length - 1)] |> List.fold (fun (m, g) i ->
@@ -149,6 +148,7 @@ let nightStart () = monad {
     
     let entities = game.Entities |> List.map (Entity.updateOnNightStart main)
     let game = { game with Entities = entities }
+    sendMessage { Type = Public ; Content = "\n" + (printNightSummary game.Entities) }
     do! State.put (main, game)
 }
 

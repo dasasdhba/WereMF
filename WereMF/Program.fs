@@ -15,7 +15,7 @@ let private tryPrintWith (main: MainState) printer =
     match main.Status with
     | Game game ->
         let context = game.Context
-        sendMessage { Type = Public ; Content = $"\n{Game.printSummaryWith printer context.Entities}" }
+        sendMessage { Type = Public ; Content = $"\n{Entity.printSummaryWith printer context.Entities}" }
     | _ -> ()
 
 let rec private tryPrintVote (main: MainState) =

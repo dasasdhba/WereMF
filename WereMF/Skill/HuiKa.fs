@@ -4,8 +4,7 @@ open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module
-open WereMF.Module.Game
-open WereMF.Module.Role
+open WereMF.Module.Entity
 open WereMF.Module.Skill
 open WereMF.Module.Cli
 open WereMF.State

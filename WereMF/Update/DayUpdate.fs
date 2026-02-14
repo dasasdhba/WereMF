@@ -7,13 +7,12 @@ open WereMF.Common
 open WereMF.Module
 open WereMF.Module.Cli
 open WereMF.Module.Entity
-open WereMF.Module.Game
 open WereMF.State
 open WereMF.Update.Night
 
 let dayStart (day: DayContext) = monad {
     let! (main: MainContext, game : GameContext) = State.get
-    sendMessage { Type = Public ; Content = "白天开始\n" + (printNightSummary game.Entities) }
+    sendMessage { Type = Public ; Content = "白天开始" }
     
     let main, game =
         [0..(game.Entities.Length - 1)] |> List.fold (fun (m, g) i ->
@@ -24,6 +23,7 @@ let dayStart (day: DayContext) = monad {
     
     let entities = game.Entities |> List.map Entity.updateOnDayStart
     let game = { game with Entities = entities }
+    sendMessage { Type = Public ; Content = "\n" + (printNightSummary game.Entities) }
     
     do! State.put (main, game)
     day

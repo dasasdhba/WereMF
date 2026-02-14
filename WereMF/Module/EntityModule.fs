@@ -182,6 +182,18 @@ module Entity =
     let getSummary (entity: Entity) =
         entity.Player.ToInGameString () + ": " + getSummaryName entity
         
+    let printSummaryWith printer entities=
+        entities |> List.map (fun e -> e |> printer) |> String.concat "\n"
+
+    let printNightSummary entities =
+        entities |> printSummaryWith getNightSummary
+        
+    let printDaySummary entities =
+        entities |> printSummaryWith getDaySummary
+
+    let printSummary entities =
+        entities |> printSummaryWith getSummary
+    
     // dead check
     
     let updateOnDead dead entity =
@@ -238,9 +250,10 @@ module Entity =
             | _ ->
                 revealNormal ()
     
-    let isDead (context: DeadContext) =
-        let entity, _ = context
-        entity.State |> EntityState.isDead
+    let private isDead (context: DeadContext) =
+        match context with
+        | entity, _ when entity.State |> EntityState.isDead -> true
+        | _ -> false
     
     let rec requestDeadList (list: DeadRequest list) (c: DeadContext) =
         if list.IsEmpty then c else
@@ -272,7 +285,8 @@ module Entity =
             if state |> EntityState.isDead |> not
                && state.Reborn.IsSome && state.Reborn.Value.Reborn |> not then
                 let request = DeadRequest.New Force
-                requestDead request (entity, (main, game))
+                let context = requestDead request (entity, (main, game))
+                context
             else
                 entity, (main, game)
         

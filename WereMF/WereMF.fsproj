@@ -26,7 +26,6 @@
         <Compile Include="Module\RoleModule.fs" />
         <Compile Include="Module\EntityModule.fs" />
         <Compile Include="Module\SkillModule.fs" />
-        <Compile Include="Module\GameModule.fs" />
         <Compile Include="Role\JiaoHua.fs" />
         <Compile Include="Role\Doge.fs" />
         <Compile Include="Role\Doctor.fs" />
