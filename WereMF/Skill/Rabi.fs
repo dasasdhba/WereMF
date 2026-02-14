@@ -44,7 +44,7 @@ type RabiSkill =
             let tEntity = target |> game.GetEntity
             let lastMilk = tEntity.State.Milk.HasLastMilk
 
-            let force = round >= 2 || lastMilk
+            let force = round > 2 || lastMilk
             let milkName = match this.MilkType with
                             | Fresh -> "鲜奶"
                             | Dry -> "毒奶"
