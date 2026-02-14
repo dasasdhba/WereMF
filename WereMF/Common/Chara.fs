@@ -67,25 +67,25 @@ type CharaType =
         | Leaf -> "叶子"
     static member Create (name : string) =
         match name.ToLower() with
-        | "脚滑人" | "脚滑" | "jiaohua" | "wsw" -> Ok JiaoHua
-        | "doge" | "大爷" -> Ok Doge
-        | "庸医" | "doctor" -> Ok Doctor
-        | "地鼠" | "mole" -> Ok Mole
-        | "兔子" | "rabi" | "rabbit" -> Ok Rabi
-        | "铯郎" | "hjm" | "spring" -> Ok SheLang
-        | "法猫" | "famao" | "cat" -> Ok FaMao
-        | "卡比" | "kirby" | "kabi" -> Ok Kirby
-        | "粉侠" | "fenxia" | "sf" -> Ok FenXia
-        | "爬行者" | "爬行" | "creeper" | "tnt" -> Ok Creeper
-        | "炮仙" | "pao" | "paoxian" -> Ok PaoXian
-        | "实物" | "shiwu" | "250" -> Ok ShiWu
-        | "灰卡比" | "灰卡" | "huika" | "huikabi"  -> Ok HuiKa
-        | "音魔" | "yinmo" -> Ok YinMo
+        | "脚滑人" | "脚滑" | "滑" | "jiaohua" | "hua" | "wsw" -> Ok JiaoHua
+        | "doge" | "大爷" | "狗" -> Ok Doge
+        | "庸医" | "医生" | "医" | "doctor" -> Ok Doctor
+        | "地鼠" | "鼠" | "mole" -> Ok Mole
+        | "兔子" | "兔" | "rabi" | "rabbit" -> Ok Rabi
+        | "铯郎" | "弹簧" | "弹" | "hjm" | "spring" -> Ok SheLang
+        | "法猫" | "猫" | "famao" | "cat" -> Ok FaMao
+        | "卡比" | "卡" | "kirby" | "kabi" -> Ok Kirby
+        | "粉侠" | "粉" | "fenxia" | "sf" -> Ok FenXia
+        | "爬行者" | "爬行" | "爬" | "creeper" | "tnt" -> Ok Creeper
+        | "炮仙" | "炮" | "pao" | "paoxian" -> Ok PaoXian
+        | "实物" | "实" | "shiwu" | "250" -> Ok ShiWu
+        | "灰卡比" | "灰卡" | "灰" | "huika" | "huikabi"  -> Ok HuiKa
+        | "音魔" | "音" | "yinmo" -> Ok YinMo
         | "ctf" -> Ok CTF
-        | "合虫" | "虫合" | "hechong" | "chonghe" -> Ok HeChong
-        | "彩怪" | "彩条" | "cai" | "caiguai" | "caitiao" -> Ok CaiMon
-        | "贤松" | "闲松" | "xiansong" | "xian" -> Ok XianSong
-        | "江仙" | "临江" | "jiangxian" | "jiang" -> Ok JiangXian
+        | "合虫" | "虫合" | "合" | "hechong" | "chonghe" -> Ok HeChong
+        | "彩怪" | "彩" | "cai" | "caiguai" | "caitiao" -> Ok CaiMon
+        | "贤松" | "闲松" | "贤" | "松" | "xiansong" | "xian" -> Ok XianSong
+        | "江仙" | "临江" | "江" | "jiangxian" | "jiang" -> Ok JiangXian
         | "myz" -> Ok Myz
-        | "叶子" | "yezi" | "leaf" -> Ok Leaf
+        | "叶子" | "叶" | "yezi" | "leaf" -> Ok Leaf
         | _ -> Error $"无效的身份: {name}"
