@@ -164,7 +164,14 @@ let private getNextPendingSkills (psList : PendingSkill list) =
 let rec private sendPendingSkills (game: GameContext) (night: NightContext) (psList: PendingSkill list) =
     if psList.Length = 0 then game, night else
     let ps = psList.Head
-    let _, (game, night) = State.run (sendSkill game ps) (game, night)
+    let entity = ps.Source |> game.GetEntity
+    let game, night =
+        if (night.GetPlayerState ps.Source).Blocked
+           || entity |> getState |> EntityState.isDead then
+            game, night
+        else
+            let _, (g, n) = State.run (sendSkill game ps) (game, night)
+            g, n
     sendPendingSkills game night psList.Tail
 
 let rec private executeSkills (context: SkillContext) =
