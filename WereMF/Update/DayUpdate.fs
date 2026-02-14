@@ -23,7 +23,6 @@ let dayStart (day: DayContext) = monad {
     
     let entities = game.Entities |> List.map Entity.updateOnDayStart
     let game = { game with Entities = entities }
-    sendMessage { Type = Public ; Content = "\n" + (printNightSummary game.Entities) }
     
     do! State.put (main, game)
     day
@@ -222,6 +221,7 @@ let dayVote (day : DayContext) = monad {
     let! (main :MainContext, game : GameContext) = State.get
     
     let game, day = updateContextOnVoteStart game day
+    sendMessage { Type = Public ; Content = "\n" + (printNightSummary game.Entities) }
     
     let rec voteRec d =
         let msg = { Type = Internal ; Content = "输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节" }
