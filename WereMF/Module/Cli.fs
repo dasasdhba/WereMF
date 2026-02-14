@@ -37,6 +37,7 @@ type CommandType =
     | Redo
     | Restart
     | Reboot
+    | Exit
     | NightSummary
     | DaySummary
     | VoteSummary
@@ -74,6 +75,7 @@ let parseCommand (input : string) =
     | "\\day" -> Ok DaySummary
     | "\\summary" -> Ok Summary
     | "\\vote" -> Ok VoteSummary
+    | "\\exit" -> Ok Exit
     | _ -> Error false
 
 let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =

@@ -87,6 +87,8 @@ let rec updateMain main : MainState =
             cliReplay <- cliUndo
             cliSilent <- true
             updateMain (MainState.New seed)
+        | Exit ->
+            main
     | ex ->
         printfn "%s" ex.Message
         reraise()
