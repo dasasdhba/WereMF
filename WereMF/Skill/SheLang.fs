@@ -63,7 +63,7 @@ let sheLangSendSkill ps (game: GameContext) =
         | :? SheLangRole as se -> se.LastSelected.Selected
         | _ -> []
         
-    let title = "输入要扔弹簧的玩家编号（最多 2 个），输入 0 放弃"
+    let title = "输入要扔弹簧的玩家编号，输入 0 放弃"
     let filter = filterNonExists game
                 >> filterDead game
                 >> filterSelectable game
