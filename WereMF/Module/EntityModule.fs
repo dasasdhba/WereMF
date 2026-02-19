@@ -212,10 +212,13 @@ module Entity =
         sendMessage { Type = Public ; Content = $"{header}{reason}" }
         let context, result = entity.Role |> tryPreventDead request.DeadType context
         if result.IsSome then
-            let role = result.Value
+            let value = result.Value
             let entity, (main, game) = context
-            let entity = { entity with Role = role
-                                       State = entity.State |> EntityState.updateOnDeadButReborn }
+            let entity = { entity with Role = value.NewRole
+                                       State =
+                                           entity.State
+                                           |> EntityState.updateOnDeadButReborn
+                                           |> value.StateSetter }
             let game = game.UpdateEntity entity
             sendMessage { Type = Public ; Content = $"但是{header}复活了" }
             entity, (main, game)

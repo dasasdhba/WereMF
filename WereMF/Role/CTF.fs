@@ -45,10 +45,8 @@ type CTFRole =
                                              | Some v -> Some (v - 1)
                                              | _ -> None }
             let game = game.UpdateEntity bugPlayer
-            let entity = { entity with State.Bug = Some (myBug + 1) }
-            let game = game.UpdateEntity entity
             let bind = main, game
             do! State.put (entity, bind)
             
-            this :> IRole |> Some
+            Some { NewRole = this; StateSetter = fun e -> { e with Bug = Some 1 } }
         }

@@ -80,17 +80,23 @@ type FenXiaRole =
     interface IRolePreventDead with
         member this.Prevent dead = monad {
             let! context = State.get
-            let context, role, result =
-                [0..(this.CopiedRoles.Length-1)] |> List.fold (fun (c, root, result) i ->
-                    if result then c, root, result else
-                    let sub = this.CopiedRoles[i]
+            let context, result, success =
+                [0..(this.CopiedRoles.Length-1)] |> List.fold (fun (c, root, success) i ->
+                    if success then c, root, success else
+                    let role, setter = root
+                    let sub = role.CopiedRoles[i]
                     let c, r = tryPreventDead dead c sub
-                    if r.IsNone then c, root, result else
-                    let root = { root with CopiedRoles = root.CopiedRoles |> List.updateAt i r.Value }
-                    c, root, true
-                ) (context, this, false)
+                    if r.IsNone then c, root, success else
+                    let r = r.Value
+                    let role = { role with CopiedRoles = role.CopiedRoles |> List.updateAt i r.NewRole }
+                    let setter = setter >> r.StateSetter
+                    c, (role, setter), true
+                ) (context, (this, id), false)
             do! State.put context
-            if result then role :> IRole |> Some else
+            if success then
+                let role, setter = result
+                Some { NewRole = role; StateSetter = setter }
+            else
             
             if dead = Force || this.RebornRound.IsSome || this.FenCount <= 1 then None else
             let entity, bind = context
@@ -98,7 +104,8 @@ type FenXiaRole =
             let yes = requestInputWithMessage msg parseBool
             if yes |> not then None else
             
-            { this with RebornRound = Some 1 ; FenCount = this.FenCount - 1 } :> IRole |> Some
+            let role = { this with RebornRound = Some 1 ; FenCount = this.FenCount - 1 }
+            Some { NewRole = role; StateSetter = id }
         }
     member private this.UpdateCopiedRolesAndContextWith func = monad {
         let! context = State.get

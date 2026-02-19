@@ -55,9 +55,10 @@ type HeChongRole =
             let! context = State.get
             let context, result = tryPreventDead dead context role
             if result.IsNone then None else
-            let r = { this with CopiedRole = Some result.Value }
+            let result = result.Value
+            let r = { this with CopiedRole = Some result.NewRole }
             do! State.put context
-            r :> IRole |> Some
+            Some { result with NewRole = r }
         }
     member private this.UpdateCopiedRoleAndContextWith func = monad {
         if this.CopiedRole.IsNone then this :> IRole else

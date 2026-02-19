@@ -44,5 +44,6 @@ type CaiMonRole =
             let yes = requestInputWithMessage msg parseBool
             if yes |> not then None else
             
-            { this with RebornRound = Some 1 ; CaiCount = this.CaiCount - 1 } :> IRole |> Some
+            let role = { this with RebornRound = Some 1 ; CaiCount = this.CaiCount - 1 }
+            Some { NewRole = role; StateSetter = id }
         }

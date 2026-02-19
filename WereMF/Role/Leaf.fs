@@ -99,17 +99,24 @@ type LeafRole =
             let min = if this.Fury then 1 else 0
             let max = if this.Fury then this.Roles.Length - 1 else 0
             let! context = State.get
-            let context, role, result =
-                [min..max] |> List.fold (fun (c, root, result) i ->
-                    if result then c, root, result else
-                    let sub = this.Roles[i]
+            let context, result, success =
+                [min..max] |> List.fold (fun (c, root, success) i ->
+                    if success then c, root, success else
+                    let role, setter = root
+                    let sub = role.Roles[i]
                     let c, r = tryPreventDead dead c sub
-                    if r.IsNone then c, root, result else
-                    let root = { root with Roles = root.Roles |> List.updateAt i r.Value }
-                    c, root, true
-                ) (context, this, false)
+                    if r.IsNone then c, root, success else
+                    let r = r.Value
+                    let role = { role with Roles = role.Roles |> List.updateAt i r.NewRole }
+                    let setter = setter >> r.StateSetter
+                    c, (role, setter), true
+                ) (context, (this, id), false)
             do! State.put context
-            if result then role :> IRole |> Some else None
+            if success then
+                let role, setter = result
+                Some { NewRole = role; StateSetter = setter }
+            else
+                None
         }
     member private this.UpdateCopiedRolesAndContextWith func = monad {
         let! context = State.get

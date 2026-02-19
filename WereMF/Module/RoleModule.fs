@@ -37,9 +37,14 @@ let getValidHandlers (role: IRole) =
     | _ -> [IdHandler]
 
 type DeadContext = Entity * BindContext
+type DeadPreventResult =
+    {
+        NewRole : IRole
+        StateSetter: EntityState -> EntityState
+    }
 
 type IRolePreventDead =
-    abstract member Prevent : DeadType -> State<DeadContext, IRole option>
+    abstract member Prevent : DeadType -> State<DeadContext, DeadPreventResult option>
 
 let tryPreventDead (deadType: DeadType) (context : DeadContext) (role: IRole) =
     match role with

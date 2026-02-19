@@ -37,5 +37,6 @@ type XianSongRole =
     interface IRolePreventDead with
         member this.Prevent dead = monad {
             if dead = Force || this.Reborn.IsSome || this.CanReborn |> not then None else
-            { this with Reborn = Some true } :> IRole |> Some
+            let role = { this with Reborn = Some true } :> IRole
+            Some { NewRole = role; StateSetter = id }
         }
