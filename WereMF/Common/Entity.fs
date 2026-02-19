@@ -76,7 +76,7 @@ type EntityState =
         Bug : int option // ctf
         Capsule : int list // 庸医
         Potion : int list // 法猫
-        XianSong : int list // 闲松球
+        XianSong : int // 闲松球
         Kidnapped : PlayerId list // 实物
         Threaten : ThreatenState option // myz
         QueuedBomb : int // creeper
@@ -92,7 +92,6 @@ type EntityState =
     member this.SmogCount = this.Smog.Length
     member this.CapsuleCount = this.Capsule.Length
     member this.PotionCount = this.Potion.Length
-    member this.XianSongCount = this.XianSong.Length
     member this.BugCount = if this.Bug.IsSome then this.Bug.Value else 0
     static member New () =
         {
@@ -105,7 +104,7 @@ type EntityState =
             Bug = None
             Capsule = []
             Potion = []
-            XianSong = []
+            XianSong = 0
             Kidnapped = []
             Threaten = None
             QueuedBomb = 0

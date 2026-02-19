@@ -57,6 +57,10 @@ type KirbyRole =
                     let subList = role |> getValidHandlers |> List.map (fun h -> sub.Bind h)
                     IdHandler :: subList
                 | None -> [IdHandler]
+    interface IRoleUpdateOnNightInit with
+        member this.Update () =
+            this.UpdateCopiedRoleWith updateOnNightInit
+    
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             this.UpdateCopiedRoleWith updateOnNightStart

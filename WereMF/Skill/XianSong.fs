@@ -71,16 +71,19 @@ type XianSongSkill =
                 else
                     let msg = { Type = ToPlayer tEntity.Player; Content = "你被要mfa了，给吗？（1：给；0：不给）" }
                     requestInputWithMessage msg parseBool
+            
             if mfa then
                 let entity = entity |> updateRoleWithHandler
-                                      (fun (x: XianSongRole) -> { x with MfaList = target :: x.MfaList })
+                                      (fun (x: XianSongRole) -> { x with MfaList = target :: x.MfaList
+                                                                         CanReborn = true })
                                       handler
                 let game = game.UpdateEntity entity
 
                 let th = tEntity |> Entity.getQueriedHandler main.Rng
 
                 if th.IsNone then
-                    sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                    sendMessage { Type = ToPlayer entity.Player; Content = "你要到mfa了，但是对面的身份不明" }
+                    do! State.put ((main, game), night)
                     this
                 else
 
@@ -95,7 +98,9 @@ type XianSongSkill =
             else
                 if forceBall |> not then
                     sendMessage { Type = ToPlayer entity.Player; Content = "你没有要到mfa" }
-                let tEntity = { tEntity with State = tEntity.State |> EntityState.addXianSong }
+                let tEntity = { tEntity with State.XianSong = tEntity.State.XianSong + 1 }
+                let recv = target |> getPlayerName game
+                let night = night.AddMessage $"{recv}被丢了咸松球"
                 let game = game.UpdateEntity tEntity
                 do! State.put ((main, game), night)
                 this

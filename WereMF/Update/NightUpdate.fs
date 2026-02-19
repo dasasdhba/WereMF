@@ -139,6 +139,9 @@ let nightStart () = monad {
     let! (main: MainContext, game : GameContext) = State.get
     sendMessage { Type = Public ; Content = "晚上开始" }
     
+    let entities = game.Entities |> List.map Entity.updateOnNightInit
+    let game = { game with Entities = entities }
+    
     let main, game =
         [0..(game.Entities.Length - 1)] |> List.fold (fun (m, g) i ->
             let e = g.Entities[i]
@@ -312,13 +315,11 @@ let nightSummary (night: NightContext) = monad {
     
     let (main, game), night = context
     let xian = game.Entities
-               |> List.filter (fun e -> e.State.XianSongCount >= 2
-                                        || e.State.XianSong
-                                        |> List.exists (fun x -> x <= 0))
+               |> List.filter (fun e -> e.State.XianSong >= 2)
     for x in xian do
         let (main, game), night = context
         sendMessage { Type = Public ; Content = $"{x.Player.Name}身上的咸松球爆炸了！" }
-        let x = { x with State.XianSong = [] }
+        let x = { x with State.XianSong = 0 }
         let game = game.UpdateEntity x
         context <- (main, game), night
         let request = DeadRequest.New Sudden

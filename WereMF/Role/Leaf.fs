@@ -69,6 +69,9 @@ type LeafRole =
     interface IRoleValidHandlers with
         member this.Get () =
             this.GetHandlersWith getValidHandlers
+    interface IRoleUpdateOnNightInit with
+        member this.Update () =
+            this.UpdateRolesWith updateOnNightInit
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             this.UpdateRolesWith updateOnNightStart

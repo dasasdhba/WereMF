@@ -39,8 +39,10 @@ type JiaoHuaRole =
             if dead <> Kill then this else { this with VoteBlock = true }
     interface IRoleUpdateOnVoteStart with
         member this.Update player = monad {
-            if this.VoteBlock |> not then this else
             let! game = State.get
+            let entity = game.GetEntity player.Id
+            
+            if entity.State |> EntityState.isDead |> not || this.VoteBlock |> not then this else
             let game =
                 if game.Entities |> List.exists (fun p ->
                     Ok p.Player.Id |> voteJiaoHuaFilter game |> Result.isOk ) |> not then game else

@@ -36,11 +36,6 @@ module EntityState =
     let addPotion state =
         state |> addPotionRound 2
         
-    let addXianSongRound round state =
-        { state with XianSong = round :: state.XianSong }
-    let addXianSong state =
-        state |> addXianSongRound 1
-        
     let isThreatenDead (state: EntityState) =
         state.Threaten.IsSome && state.Threaten.Value.Type = QueuedDeath
         
@@ -51,7 +46,7 @@ module EntityState =
         let entity = { entity with Bug = None }
         let entity = { entity with Capsule = [] }
         let entity = { entity with Potion = [] }
-        let entity = { entity with XianSong = [] }
+        let entity = { entity with XianSong = 0 }
         entity
         
     let getTopMark entity =
@@ -68,7 +63,7 @@ module EntityState =
             else [1..n] |> List.map (fun i -> s) |> String.concat ""
         let smog = repeat entity.SmogCount "\u2601"
         let bug = repeat entity.BugCount "\U0001F41E"
-        let xian = repeat entity.XianSongCount "\U0001F36A"
+        let xian = repeat entity.XianSong "\U0001F36A"
         let cap = repeat entity.CapsuleCount "\U0001F48A"
         let drop = repeat entity.PotionCount "\U0001F4A7"
         smog + bug + xian + cap + drop
@@ -93,7 +88,7 @@ module EntityState =
                 LeafProtected = updateNightOptionBool entity.LeafProtected
                 Kidnapped = []
                 Threaten = None
-                XianSong = entity.XianSong |> List.map (fun i -> i - 1)
+                XianSong = 0
                 Bomb = 0
                 QueuedBomb = 0
                 JiaoHuaVoteBlocked = false
@@ -120,6 +115,9 @@ module EntityState =
                 PaoXianParty = state.PaoXianParty
                 Reversed = state.Reversed
         }
+        
+    let updateOnDeadButReborn state=
+        { state with Bomb = 0 } |> clearMarks
     
 module Entity =
     
@@ -216,7 +214,8 @@ module Entity =
         if result.IsSome then
             let role = result.Value
             let entity, (main, game) = context
-            let entity = { entity with Role = role }
+            let entity = { entity with Role = role
+                                       State = entity.State |> EntityState.updateOnDeadButReborn }
             let game = game.UpdateEntity entity
             sendMessage { Type = Public ; Content = $"但是{header}复活了" }
             entity, (main, game)
@@ -293,17 +292,18 @@ module Entity =
         entity, (main, game)
     
     let private updateOnNightStartCreeper (context : DeadContext) =
-        let rec bombKill count (c: DeadContext) =
-            if count <= 0 then c else
-            let e, _ = c
-            sendMessage { Type = Public ; Content = $"{e.Player.Name}身上的炸药爆炸了！" }
-            let c = requestDead (DeadRequest.New Kill) c
-            let e, _ = c
-            if e.State |> EntityState.isDead then c else
-            bombKill (count - 1) c
-        
-        let entity, _ = context
-        bombKill entity.State.Bomb context
+        let e, _ = context
+        if e.State.Bomb <= 0 then context else
+            
+        sendMessage { Type = Public ; Content = $"{e.Player.Name}身上的炸药爆炸了！" }
+        requestDead (DeadRequest.New Kill) context
+    
+    let private updateOnNightStartXianSong (context : DeadContext) =
+        let e, _ = context
+        if e.State.XianSong <= 0 then context else
+            
+        sendMessage { Type = Public ; Content = $"{e.Player.Name}身上的咸松球爆炸了！" }
+        requestDead (DeadRequest.New Sudden) context
     
     let private updateOnNightStartMyz (context : DeadContext) =
         let entity, _ = context
@@ -315,19 +315,25 @@ module Entity =
         requestDead (DeadRequest.New Kill) context
     
     let updateOnNightStartRequestDead (context: DeadContext) =
+        // 彩怪复活计时器
         let context = updateOnNightStartReborn context
         if context |> isDead then context else
-        
-        let context = updateOnNightStartCreeper context
-        if context |> isDead then context else
-        
-        let context = updateOnNightStartMyz context
-        if context |> isDead then context else
-         
-         // 身份各自处理（粉侠，彩怪复活后会暴毙的角色等）
+            
+        // 身份各自处理（粉侠，彩怪复活后会暴毙的角色等）
         let entity, _ = context
         let list = entity.Role |> Role.getNightStartDeadRequest
-        requestDeadList list context
+        let context = requestDeadList list context
+        if context |> isDead then context else
+        
+        // 炸药与咸松球
+        let context = updateOnNightStartCreeper context
+        if context |> isDead then context else
+            
+        let context = updateOnNightStartXianSong context
+        if context |> isDead then context else
+        
+        // myz威胁
+        updateOnNightStartMyz context
        
     let updateOnDayStartRequestDead (context: DeadContext) =
         if context |> isDead then context else
@@ -362,6 +368,10 @@ module Entity =
             sendMessage { Type = ToPlayer entity.Player ; Content = $"队友：{msg}" }
             { entity with State.PaoXianParty = members |> List.map (fun m -> m.Player.Id) }
         
+    let updateOnNightInit entity =
+        if entity.State |> EntityState.isDead then entity else
+        { entity with Role = entity.Role |> Role.updateOnNightInit }
+    
     let updateOnNightStart main entity =
         if entity.State |> EntityState.isDead then entity else
         {

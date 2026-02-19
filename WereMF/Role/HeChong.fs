@@ -38,7 +38,7 @@ type HeChongRole =
             if this.CopiedRole.IsNone then [] else
             let role = this.CopiedRole.Value
             getDayStartDeadRequest role
-    interface IRoleUpdateOnNightStart with
+    interface IRoleUpdateOnNightInit with
         member this.Update () =
             { this with CopiedRole = None }
     interface IRoleUpdateOnDayStart with

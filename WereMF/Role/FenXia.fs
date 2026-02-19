@@ -47,6 +47,9 @@ type FenXiaRole =
     interface IRoleValidHandlers with
         member this.Get () =
             this.GetHandlersWith getValidHandlers
+    interface IRoleUpdateOnNightInit with
+        member this.Update () =
+            this.UpdateCopiedRolesWith updateOnNightInit
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             let r = this.UpdateCopiedRolesWith updateOnNightStart

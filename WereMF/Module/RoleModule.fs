@@ -56,6 +56,9 @@ type IRoleGetNightStartDeadRequest =
 type IRoleGetDayStartDeadRequest =
     abstract member Get : unit -> DeadRequest list
     
+type IRoleUpdateOnNightInit =
+    abstract member Update : unit -> IRole
+    
 type IRoleUpdateOnNightStart =
     abstract member Update : unit -> IRole
     
@@ -74,6 +77,11 @@ let getDayStartDeadRequest (role : IRole) =
     match role with
     | :? IRoleGetDayStartDeadRequest as h -> h.Get ()
     | _ -> []
+    
+let updateOnNightInit (role : IRole) =
+    match role with
+    | :? IRoleUpdateOnNightInit as h -> h.Update ()
+    | _ -> role
 
 let updateOnNightStart (role : IRole) =
     match role with
