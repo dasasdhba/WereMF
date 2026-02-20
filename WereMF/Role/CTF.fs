@@ -48,5 +48,5 @@ type CTFRole =
             let bind = main, game
             do! State.put (entity, bind)
             
-            Some { NewRole = this; StateSetter = fun e -> { e with Bug = Some 1 } }
+            Some { NewRole = this; StateSetter = fun e -> { e with Bug = Some (myBug + 1) } }
         }
