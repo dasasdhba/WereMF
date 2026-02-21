@@ -158,15 +158,6 @@ let getPriority (role :IRole) =
 let getSummaryName (role :IRole) =
     role.Base.SummaryName
 
-let getQueriedCharaType (handler: RoleHandler) (role: IRole) =
-    role |> handler.Getter |> getCharaType
-    
-let getQueriedName (handler: RoleHandler) (role: IRole) =
-    let chara = getQueriedCharaType handler role
-    match handler with
-    | KirbyHandler _ -> $"{chara.ToString()}{Kirby.ToString()}"
-    | _ -> chara.ToString()
-
 let updateNightOptionBool bool : bool option =
     match bool with
     | Some true -> Some false

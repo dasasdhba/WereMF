@@ -1,5 +1,6 @@
 module WereMF.Module.Skill
 
+open System
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common

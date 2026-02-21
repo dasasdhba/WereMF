@@ -92,11 +92,11 @@ type FenXiaSkill =
                 sendMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () }
                 let role = createRole main.Roll chara
                 let entity = entity |> updateRoleWithHandler
-                                 (fun (f: FenXiaRole) -> { f with CopiedRoles = role :: f.CopiedRoles })
+                                 (fun (f: FenXiaRole) -> { f with CopiedRoles = f.CopiedRoles @ [role] })
                                  handler
                 let game = game.UpdateEntity entity
                 let sub = entity |> getFromRoleWithHandler
-                            (fun (f: FenXiaRole) -> f.GetSubHandler 0)
+                            (fun (f: FenXiaRole) -> f.GetSubHandler (f.CopiedRoles.Length-1))
                             handler
                 let hs = role |> getPendingHandlers entity.Player
                 let handlers = hs |> List.map (fun h -> handler.Bind (sub.Bind h))

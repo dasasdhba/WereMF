@@ -137,11 +137,14 @@ module Entity =
         if entity.State.SmogCount > 0 then None
         else Some (entity.Role |> Role.getQueriedHandler rng)
         
-    let getHandlerCharaType handler (entity: Entity) =
-        entity.Role |> Role.getQueriedCharaType handler
+    let getHandlerCharaType (handler: RoleHandler) (entity: Entity) =
+        entity |> handler.GetFromEntity |> Role.getCharaType
         
     let getHandlerName handler (entity: Entity) =
-        entity.Role |> Role.getQueriedName handler
+        let chara = entity |> getHandlerCharaType handler
+        match handler with
+        | KirbyHandler _ -> $"{chara.ToString()}{Kirby.ToString()}"
+        | _ -> chara.ToString()
         
     let getInGameName entity =
         let reversed = if entity.State.Reversed then "反·" else ""
