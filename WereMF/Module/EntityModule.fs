@@ -99,6 +99,7 @@ module EntityState =
             l |> List.map (fun i -> i - 1) |> List.filter (fun i -> i > 0)
         {
              entity with
+                Dead.Name = ""
                 LeafProtected = updateNightOptionBool entity.LeafProtected
                 Smog = entity.Smog |> removeRes
                 Capsule = entity.Capsule |> removeRes
@@ -164,14 +165,14 @@ module Entity =
         reversed + (entity.Role |> Role.getSummaryName) + barLeader
         
     let getNightSummary entity =
-        if entity.State |> EntityState.isDead then
+        if entity.State.Dead.Name <> "" then
             $"{entity.Player.Id.ToCircleString()}【{entity.State.Dead.Name}】"
         else
             $"{entity.Player.Id.ToCircleString()}{getInGameName entity}" +
             $"{entity.State |> EntityState.getTopMark} {entity.State |> EntityState.getBuffMark}"
 
     let getDaySummary entity =
-        if entity.State |> EntityState.isDead then
+        if entity.State.Dead.Name <> "" then
             $"{entity.Player.Id.ToCircleString()}【{entity.State.Dead.Name}】"
         else
             $"{entity.Player.Id.ToCircleString()}{getInGameName entity}" +
@@ -283,6 +284,7 @@ module Entity =
                 state
         
         let entity = { entity with State = state }
+        let game = game.UpdateEntity entity
         let entity, (main, game) =
             if state |> EntityState.isDead |> not
                && state.Reborn.IsSome && state.Reborn.Value.Reborn |> not then
