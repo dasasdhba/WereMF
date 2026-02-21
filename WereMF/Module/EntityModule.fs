@@ -243,6 +243,7 @@ module Entity =
                 sendMessage { Type = Public ; Content = $"{entity.Player.Name}是叶子" }
                 let entity = { entity with
                                    State.Dead.Dead = false
+                                   State.Dead.Name = ""
                                    State.LeafProtected = Some true
                                    Role = leaf.SetFury () }
                 let game = game.UpdateEntity entity
