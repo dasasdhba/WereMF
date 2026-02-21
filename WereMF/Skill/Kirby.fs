@@ -13,6 +13,19 @@ open WereMF.Role.Kirby
 type KirbySkill =
     | KirbySkill
     interface ISkill
+    interface ISkillCost with
+        member this.Cost sending = monad {
+            let! (main, game), night = State.get
+            let source = sending |> getSource
+            let entity = source |> game.GetEntity
+            let handler = sending |> getHandler
+            let entity = entity |> updateRoleWithHandler
+                             (fun (k: KirbyRole) -> { k with CopiedRole = None })
+                             handler
+            let game = entity |> game.UpdateEntity
+            do! State.put ((main, game), night)
+            this
+        }
     interface ISkillExecute with
         member this.Execute sending = monad {
             let! (main, game), night = State.get

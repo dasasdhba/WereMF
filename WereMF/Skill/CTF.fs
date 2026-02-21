@@ -18,7 +18,6 @@ let private updateStateIfBug (night: NightContext) entity =
              |> List.filter (fun h -> (entity |> getHandlerCharaType h) = XianSong)
     let mutable e = entity
     for h in hs do
-        let r = e |> h.GetFromEntity
         e <- e |> updateRoleWithHandler
                              (fun (x: XianSongRole) -> { x with Disabled = Some true })
                              h

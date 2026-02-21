@@ -16,6 +16,20 @@ type YinMoSkill =
     }
     static member New () = { Success = None }
     interface ISkill
+    interface ISkillCost with
+        member this.Cost sending = monad {
+            let! (main, game), night = State.get
+
+            let source = sending |> getSource
+            let entity = source |> game.GetEntity
+            let handler = sending |> getHandler
+            let entity = entity |> updateRoleWithHandler
+                             (fun (y: YinMoRole) -> { y with DiscCount = y.DiscCount - 1 })
+                             handler
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
+            this
+        }
     interface ISkillExecute with
         member this.Execute sending = monad {
             let! (main, game), night = State.get
