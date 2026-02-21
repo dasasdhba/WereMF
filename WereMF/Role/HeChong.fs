@@ -18,7 +18,7 @@ type HeChongRole =
     interface IRole with
         member this.Base = {
             CharaType = HeChong
-            Priority = 9
+            Priority = 6
             SummaryName = HeChong.ToString ()
         }
     member this.GetSubHandler () =

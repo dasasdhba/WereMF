@@ -16,7 +16,7 @@ type CaiMonRole =
     interface IRole with
         member this.Base = {
             CharaType = CaiMon
-            Priority = 100
+            Priority = 99
             SummaryName = CaiMon.ToString ()
         }
     interface IRoleUpdateOnNightStart with
