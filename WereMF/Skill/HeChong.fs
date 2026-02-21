@@ -9,7 +9,6 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
-open WereMF.Role
 open WereMF.Role.HeChong
 open WereMF.Role.Leaf
 open WereMF.Role.ShiWu

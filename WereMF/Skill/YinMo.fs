@@ -12,7 +12,7 @@ open WereMF.Role.YinMo
 
 type YinMoSkill =
     {
-        Success : PlayerNightState option
+        Success : PlayerId option
     }
     static member New () = { Success = None }
     interface ISkill
@@ -42,15 +42,15 @@ type YinMoSkill =
                 do! State.put ((main, game), night)
                 this
             else
-                let state = night.GetPlayerState target
-                let state = { state with Blocked = true }
-                { this with Success = Some state }
+                { this with Success = Some target }
         }
     interface ISkillExecuteQueued with
         member this.Execute sending = monad {
             if this.Success.IsNone then this else
-            let state = this.Success.Value
+            let target = this.Success.Value
             let! (main, game), night = State.get
+            let state = night.GetPlayerState target
+            let state = { state with Blocked = true }
             let night = night.SetPlayerState state
             do! State.put ((main, game), night)
             this
