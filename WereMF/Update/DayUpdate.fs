@@ -80,6 +80,13 @@ let private getVoteString (vote: PlayerVote) =
     | Some v when vote.Confirmed -> $"：{v}√"
     | Some v -> $"：{v}"
 
+let private printVoteStartSummary (game: GameContext) (day: DayContext) =
+    game.Entities |> printSummaryWith (fun e ->
+        if e.State |> EntityState.isDead then e |> getNightSummary else
+        let vote = day.GetPlayerVote e.Player.Id
+        (e |> getNightSummary) + getVoteString vote
+    )
+
 let printVoteSummary (game: GameContext) (day: DayContext) =
     game.Entities |> printSummaryWith (fun e ->
         if e.State |> EntityState.isDead then e |> getDaySummary else
@@ -221,7 +228,7 @@ let dayVote (day : DayContext) = monad {
     let! (main :MainContext, game : GameContext) = State.get
     
     let game, day = updateContextOnVoteStart game day
-    sendMessage { Type = Public ; Content = "\n" + (printNightSummary game.Entities) }
+    sendMessage { Type = Public ; Content = "\n" + (printVoteStartSummary game day) }
     
     let rec voteRec d =
         let msg = { Type = Internal ; Content = "输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节" }

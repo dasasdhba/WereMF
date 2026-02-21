@@ -15,6 +15,52 @@ open WereMF.Skill.CTF
 open WereMF.State
 open WereMF.Module
 
+let nightStart () = monad {
+    let! (main: MainContext, game : GameContext) = State.get
+    sendMessage { Type = Public ; Content = "晚上开始" }
+    
+    let entities = game.Entities |> List.map Entity.updateOnNightInit
+    let game = { game with Entities = entities }
+    
+    let main, game =
+        [0..(game.Entities.Length - 1)] |> List.fold (fun (m, g) i ->
+            let e = g.Entities[i]
+            let e, (m, g) = updateOnNightStartRequestDead (e, (m, g))
+            m, g
+        ) (main, game)
+    
+    let entities = game.Entities |> List.map (Entity.updateOnNightStart main)
+    let game = { game with Entities = entities }
+    sendMessage { Type = Public ; Content = "\n" + (printNightSummary game.Entities) }
+    do! State.put (main, game)
+}
+
+let getGameWinString (game: GameContext) : string =
+    let alive = game.Entities |> List.filter (fun e -> e.State |> EntityState.isDead |> not)
+    if alive.Length = 0 then
+        "游戏结束，无人生还"
+    elif alive |> List.forall (fun e -> e |> getCamp = Bar) then
+        "游戏结束，吧方获胜"
+    elif alive |> List.forall (fun e -> e |> getCamp = Boom) then
+        "游戏结束，爆方获胜"
+    elif alive |> List.forall (fun e -> e |> getCamp = Yezi) then
+        "游戏结束，叶子获胜"
+    else
+        ""
+
+let sendGameWinMessage (game: GameContext) (str: string) =
+    sendMessage { Type = Public ; Content = str }
+    sendMessage { Type = Public ; Content = $"\n{printSummary game.Entities}" }
+
+let gameWin (game: GameContext) : bool =
+    let result = getGameWinString game
+    
+    if result <> "" then
+        sendGameWinMessage game result
+        true
+    else
+        false
+
 let private updateBugWith (context: SkillContext) (skill : SendingSkill) =
     let update (updater : NightContext -> Entity -> NightContext * Entity) (c: SkillContext) (id: PlayerId) =
         let (m, g), n = c
@@ -91,16 +137,12 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
         else
             sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
             sendMessage { Type = ToPlayer kEntity.Player ; Content = chara.ToString () }
-            let role = handler.GetFromEntity kEntity
-            match role with
-            | :? KirbyRole as k ->
-                let k = { k with CopiedRole = Some (createRole main.Roll chara) }
-                let kEntity = kEntity |> handler.SetToEntity k
-                let game = game.UpdateEntity kEntity
-                let context = (main, game), night
-                context, true
-            | _ ->
-                context, true
+            let kEntity = kEntity |> updateRoleWithHandler
+                             (fun (k: KirbyRole) -> { k with CopiedRole = Some (createRole main.Roll chara) })
+                             handler
+            let game = game.UpdateEntity kEntity
+            let context = (main, game), night
+            context, true
     
     // general
     let skill, context, success =
@@ -120,6 +162,36 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
     let context = skill.Sending |> updateBugWith context
     context, skill, success
 
+let rec private executeSkills (context: SkillContext) =
+    let (main, game), night = context
+    if night.Skills.Length = 0 then context else
+    let skill = night.Skills.Head
+    let night = { night with Skills = night.Skills.Tail }
+    let context = (main, game), night
+    let context, skill, success = executeSkill context skill
+    let (main, game), night = context
+    let night =
+        if success |> not then night else
+        { night with QueuedSkills = night.QueuedSkills @ [skill] }
+    executeSkills ((main, game), night)
+    
+let rec private executeQueuedSkills (context: SkillContext) =
+    let (main, game), night = context
+    if night.QueuedSkills.Length = 0 then context else
+    let skill = night.QueuedSkills.Head
+    let night = { night with QueuedSkills = night.QueuedSkills.Tail }
+    let context = (main, game), night
+    let skill, context =
+        match skill.Actor with
+        | :? ISkillExecuteQueued as exe ->
+            let actor, context =
+                State.run (exe.Execute skill.Sending) context
+            { skill with Actor = actor }, context
+        | _ -> skill, context
+    let (main, game), night = context
+    let night = { night with SummarySkills = night.SummarySkills @ [skill] }
+    executeQueuedSkills ((main, game), night)
+
 let private createPendingSkills (entities: Entity list) (rng : Random) =
     let rec jiaoHuaBlock remaining (list: PendingSkill list) (player: Player) =
         if remaining = 0 || list.Length = 0 then list else
@@ -134,26 +206,6 @@ let private createPendingSkills (entities: Entity list) (rng : Random) =
         let s = jiaoHuaBlock e.State.JiaoHuaBlocked s e.Player
         result <- result @ s
     result
-
-let nightStart () = monad {
-    let! (main: MainContext, game : GameContext) = State.get
-    sendMessage { Type = Public ; Content = "晚上开始" }
-    
-    let entities = game.Entities |> List.map Entity.updateOnNightInit
-    let game = { game with Entities = entities }
-    
-    let main, game =
-        [0..(game.Entities.Length - 1)] |> List.fold (fun (m, g) i ->
-            let e = g.Entities[i]
-            let e, (m, g) = updateOnNightStartRequestDead (e, (m, g))
-            m, g
-        ) (main, game)
-    
-    let entities = game.Entities |> List.map (Entity.updateOnNightStart main)
-    let game = { game with Entities = entities }
-    sendMessage { Type = Public ; Content = "\n" + (printNightSummary game.Entities) }
-    do! State.put (main, game)
-}
 
 let private getNextPendingSkills (psList : PendingSkill list) =
     match psList with
@@ -177,38 +229,9 @@ let rec private sendPendingSkills (game: GameContext) (night: NightContext) (psL
             g, n
     sendPendingSkills game night psList.Tail
 
-let rec private executeSkills (context: SkillContext) =
-    let (main, game), night = context
-    if night.Skills.Length = 0 then context else
-    let skill = night.Skills.Head
-    let context, skill, success = executeSkill context skill
-    let (main, game), night = context
-    let night = { night with Skills = night.Skills.Tail }
-    let night =
-        if success |> not then night else
-        { night with QueuedSkills = night.QueuedSkills @ [skill] }
-    executeSkills ((main, game), night)
-    
-let rec private executeQueuedSkills (context: SkillContext) =
-    let (main, game), night = context
-    if night.QueuedSkills.Length = 0 then context else
-    let skill = night.QueuedSkills.Head
-    let night = { night with QueuedSkills = night.QueuedSkills.Tail }
-    let context = (main, game), night
-    let skill, context =
-        match skill.Actor with
-        | :? ISkillExecuteQueued as exe ->
-            let actor, context =
-                State.run (exe.Execute skill.Sending) context
-            { skill with Actor = actor }, context
-        | _ -> skill, context
-    let (main, game), night = context
-    let night = { night with SummarySkills = night.SummarySkills @ [skill] }
-    executeQueuedSkills ((main, game), night)
-
 let rec private pendingSkills (context: SkillContext) =
     let (main, game), night = context
-    if night.PendingSkills.Length = 0 then context else
+    if night.PendingSkills.Length = 0 then Ok context else
     let next, remain = getNextPendingSkills night.PendingSkills
     let next = next |> List.randomShuffleWith main.Rng
     let game, night = sendPendingSkills game night next
@@ -216,6 +239,9 @@ let rec private pendingSkills (context: SkillContext) =
     let context = (main, game), night
     let context = executeSkills context
     let context = executeQueuedSkills context
+    let (main, game), night = context
+    let win = getGameWinString game 
+    if win <> "" then Error (context, win) else
     pendingSkills context
 
 let nightAction night = monad {
@@ -224,10 +250,16 @@ let nightAction night = monad {
         fun e -> e |> Entity.getState |> EntityState.isDead |> not)) main.Rng
     let night = { night with PendingSkills = psList }
     let context = (main, game), night
-    let context = pendingSkills context
-    let (main, game), night = context
-    do! State.put (main, game)
-    night
+    let result = pendingSkills context
+    match result with
+    | Ok context ->
+        let (main, game), night = context
+        do! State.put (main, game)
+        Ok night
+    | Error (context, str) ->
+        let (main, game), night = context
+        do! State.put (main, game)
+        Error str
 }
 
 let private tryHeal (list: Skill list) (request: DeadRequest) (target: Entity) =
@@ -379,37 +411,27 @@ let nightSummary (night: NightContext) = monad {
     do! State.put (main, game)
     ()
 }
-
-let gameWin (game: GameContext) : bool =
-    let alive = game.Entities |> List.filter (fun e -> e.State |> EntityState.isDead |> not)
-    let result =
-        if alive.Length = 0 then
-            sendMessage { Type = Public ; Content = "游戏结束，无人生还" }
-            true
-        elif alive |> List.forall (fun e -> e |> getCamp = Bar) then
-            sendMessage { Type = Public ; Content = "游戏结束，吧方获胜" }
-            true
-        elif alive |> List.forall (fun e -> e |> getCamp = Boom) then
-            sendMessage { Type = Public ; Content = "游戏结束，爆方获胜" }
-            true
-        elif alive |> List.forall (fun e -> e |> getCamp = Yezi) then
-            sendMessage { Type = Public ; Content = "游戏结束，叶子获胜" }
-            true
-        else
-            false
-    
-    if result then
-        sendMessage { Type = Public ; Content = $"\n{printSummary game.Entities}" }
-    result
     
 let nightUpdate (night : NightContext) = monad {
     let! (main :MainContext, game : GameContext) = State.get
     let _, (main, game) = State.run (nightStart ()) (main, game)
-    let night, (main, game) = State.run (nightAction night) (main, game)
-    let _, (main, game) = State.run (nightSummary night) (main, game)
-    do! State.put (main, game)
+    
     if gameWin game then
-        End
+        do! State.put (main, game)
+        End 
     else
-        DayContext.New (game.Entities |> List.map (fun e -> e.Player.Id)) |> Day
+    
+    let result, (main, game) = State.run (nightAction night) (main, game)
+    match result with
+    | Error str ->
+        do! State.put (main, game)
+        sendGameWinMessage game str
+        End
+    | Ok night ->
+        let _, (main, game) = State.run (nightSummary night) (main, game)
+        do! State.put (main, game)
+        if gameWin game then
+            End
+        else
+            DayContext.New (game.Entities |> List.map (fun e -> e.Player.Id)) |> Day
 }

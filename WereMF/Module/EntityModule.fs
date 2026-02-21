@@ -137,10 +137,10 @@ module Entity =
         if entity.State.SmogCount > 0 then None
         else Some (entity.Role |> Role.getQueriedHandler rng)
         
-    let getQueriedCharaType handler (entity: Entity) =
+    let getHandlerCharaType handler (entity: Entity) =
         entity.Role |> Role.getQueriedCharaType handler
         
-    let getQueriedName handler (entity: Entity) =
+    let getHandlerName handler (entity: Entity) =
         entity.Role |> Role.getQueriedName handler
         
     let getInGameName entity =
@@ -156,7 +156,7 @@ module Entity =
         
     let getDeadName handler (entity: Entity) =
         match handler with
-        | Some v -> entity |> getQueriedName v
+        | Some v -> entity |> getHandlerName v
         | None -> "???"
         
     let getSummaryName entity =
@@ -510,13 +510,7 @@ module Entity =
             Threaten = None
             Kidnapped = entity.State.Kidnapped.Length > 0
         }
-        
-    let getHandlerCharaType (handler: RoleHandler) entity =
-        handler.GetFromEntity entity |> Role.getCharaType
-        
-    let getHandlerName (handler: RoleHandler) entity =
-        (getHandlerCharaType handler entity).ToString ()
     
     let getValidCharaTypes entity =
         let handlers = entity.Role |> getValidHandlers
-        handlers |> List.map (fun h -> h.GetFromEntity entity |> Role.getCharaType)
+        handlers |> List.map (fun h -> entity |> getHandlerCharaType h)

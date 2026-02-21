@@ -61,7 +61,7 @@ type ShiWuSkill =
                     let h = h.Value
                     let tEntity = tEntity |> exposeIfShiWu h
                     let game = game.UpdateEntity tEntity
-                    let name = tEntity |> Entity.getQueriedName h
+                    let name = tEntity |> Entity.getHandlerName h
                     sendMessage { Type = Public; Content = $"{sender}公开了{recv}的身份！" }
                     sendMessage { Type = Public; Content = $"{recv}是{name}" }
                     game

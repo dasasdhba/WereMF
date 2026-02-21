@@ -92,7 +92,7 @@ type XianSongSkill =
                 let game = game.UpdateEntity tEntity
                 do! State.put ((main, game), night)
 
-                let name = tEntity |> Entity.getQueriedName th
+                let name = tEntity |> Entity.getHandlerName th
                 sendMessage { Type = ToPlayer entity.Player; Content = $"你要到mfa了，对面的身份是{name}" }
                 this
             else

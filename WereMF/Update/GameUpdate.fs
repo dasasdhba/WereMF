@@ -65,7 +65,13 @@ let gameUpdate (game: GameState) = monad {
            main.Players |> List.map (fun p -> p.Id) |> NightContext.New |> Night, (main, game.Context)
         | Night night -> State.run (nightUpdate night) (main, game.Context)
         | Day day -> State.run (dayUpdate day) (main, game.Context)
-        | _ -> raise (Reboot |> CommandEx)
+        | End ->
+            let msg = { Type = Internal ; Content = "开启下一局？（1：是；0：否）" }
+            let result = requestInputWithMessage msg parseBool
+            if result then
+                raise (Restart |> CommandEx)
+            else
+                raise (Reboot |> CommandEx)
     
     let game = { game with Context = gc ; Status = status }
     do! State.put main

@@ -31,7 +31,7 @@ type JiaoHuaSkill =
             let game = game.UpdateEntity entity
             do! State.put ((main, game), night)
             
-            let name = entity |> getQueriedName handler
+            let name = entity |> getHandlerName handler
             sendMessage { Type = ToPlayer player; Content = name }
             this
         }
