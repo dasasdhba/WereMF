@@ -7,6 +7,7 @@ open WereMF.Common
 open WereMF.Module
 open WereMF.Module.Cli
 open WereMF.Module.Entity
+open WereMF.Module.EntityState
 open WereMF.State
 open WereMF.Update.Night
 
@@ -174,7 +175,7 @@ let VoteOutIfTooManyGiveUp (day: DayContext) (bind: BindContext) =
         && v.GetTarget () = PlayerId 0)
     if giveUp.Length < half then bind else
     
-     sendMessage { Type = Public; Content = "超过半数的玩家弃票了！度娘要抽贴了！" }
+     sendMessage { Type = Public; Content = "半数玩家都弃票了！度娘要抽贴了！" }
      let r = giveUp |> List.randomChoiceWith main.Rng
      let rEntity = game.GetEntity r.Id
      sendMessage { Type = Public; Content = $"{rEntity.Player.Name}被抽贴了！" }
@@ -206,11 +207,11 @@ let private getVoteOutPlayerWithBarLeader (day : DayContext) (game: GameContext)
 let getVoteOutPlayer (day : DayContext) (game: GameContext) =
     let p1 = getVoteOutPlayerNormal day
     let p2 = getVoteOutPlayerWithBarLeader day game
-    if p1 = p2 then p1, game else
+    if p1 = p2 then p1, game, None else
     let bar = game.Entities |> List.find (fun e -> e.State |> EntityState.hasBarVote)
     let bar = { bar with State = bar.State |> EntityState.clearBarVote }
     let game = game.UpdateEntity bar
-    p2, game
+    p2, game, Some bar.Player.Id
 
 let private updateContextWith func game day =
     [0..(game.Entities.Length - 1)] |> List.fold (fun (g, d) i ->
@@ -263,13 +264,26 @@ let dayVote (day : DayContext) = monad {
         sendMessage { Type = Public ; Content = $"\n{printVoteSummary game day}" }
         let game, day = updateContextOnVoteEnd game day
         let main, game = VoteOutIfTooManyGiveUp day (main, game)
-        sendMessage { Type = Public ; Content = "投票结果是" }
-        let out, game = getVoteOutPlayer day game
+        let out, game, bar = getVoteOutPlayer day game
         if out <= PlayerId 0 then
+            sendMessage { Type = Public ; Content = "投票结果是" }
             sendMessage { Type = Public ; Content = "平票" }
             do! State.put (main, game)
         else
-            let o = game.GetEntity out
+        
+        let o = game.GetEntity out
+        if o.State |> isDead then
+            sendMessage { Type = Public ; Content = $"由于{o.Player.Name}被抽帖，本轮投票没有其他玩家出局" }
+            match bar with
+            | None ->
+                do! State.put (main, game)
+            | Some barId ->
+                let b = game.GetEntity barId
+                let b = { b with State.BarLeader = Some true }
+                let game = game.UpdateEntity b
+                do! State.put (main, game)
+        else
+            sendMessage { Type = Public ; Content = "投票结果是" }
             let main, game = requestVoteOut o (main, game)
             do! State.put (main, game)
     ()
