@@ -1,6 +1,7 @@
 module WereMF.Role.ShiWu
 
 open WereMF.Common
+open WereMF.Module
 open WereMF.Module.Role
 
 type ShiWuRole =
@@ -27,6 +28,7 @@ type ShiWuRole =
             { this with LastSelected = SelectionState.New () }
 
 let exposeIfShiWu (handler: RoleHandler) entity =
+    if entity.State |> EntityState.isDead then entity else
     let role = handler.GetFromEntity entity
     match role with
     | :? ShiWuRole as shiWu ->
