@@ -74,6 +74,7 @@
         <Compile Include="Update\NightUpdate.fs" />
         <Compile Include="Update\DayUpdate.fs" />
         <Compile Include="Update\GameUpdate.fs" />
+        <Compile Include="Update\MainUpdate.fs" />
         <Compile Include="Program.fs" />
         <EmbeddedResource Include="config.json" />
     </ItemGroup>

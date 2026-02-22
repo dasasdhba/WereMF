@@ -1,99 +1,33 @@
-﻿open System
+open System
 open System.Text
-open FSharpPlus.Data
-open WereMF.State
-open WereMF.Module
-open WereMF.Module.Cli
-open WereMF.Update
-open WereMF.Update.Game
-open WereMF.Update.Init
-open WereMF.Update.Roll
+open WereMF.Module.Roll
+open WereMF.Update.Main
 
-let mutable seed = DateTime.UtcNow.Ticks.GetHashCode()
+type CliOptions = {
+    Help: bool
+    Api: bool
+    Config: string option
+}
 
-let private tryPrintWith (main: MainState) printer =
-    match main.Status with
-    | Game game ->
-        let context = game.Context
-        sendMessage { Type = Public ; Content = $"\n{Entity.printSummaryWith printer context.Entities}" }
-    | _ -> ()
+let args = Environment.GetCommandLineArgs() |> Array.skip 1 |> Array.toList
 
-let rec private tryPrintVote (main: MainState) =
-    match main.Status with
-    | Game game ->
-        match game.Status with
-        | Day day ->
-            sendMessage { Type = Public ; Content = $"\n{Day.printVoteSummary game.Context day}" }
-        | _ -> ()
-    | _ -> ()
+let rec parseArgs args acc =
+    match args with
+    | [] -> acc
+    | "--help" :: rest -> parseArgs rest { acc with Help = true }
+    | "--api" :: rest -> parseArgs rest { acc with Api = true }
+    | "--config" :: path :: rest -> parseArgs rest { acc with Config = Some path }
+    | "--config" :: [] -> failwith "--config requires a path"
+    | unknown :: _ -> failwith $"Unknown argument: {unknown}"
 
-let rec updateMain main : MainState =
-    try 
-        let s, c =
-           match main.Status with
-           | InputPlayers -> State.run (initPlayers ()) main.Context
-           | Roll -> State.run (rollUpdate ()) main.Context
-           | Game game -> State.run (gameUpdate game) main.Context
-        updateMain { main with Status = s; Context = c }
-    with
-    | CommandEx c ->
-        match c with
-        | Undo ->
-            cliRedo <- cliRedo @ [cliUndo |> List.last]
-            cliUndo <- if cliUndo.Length > 1 then
-                           cliUndo[..(cliUndo.Length - 2)]
-                       else
-                           []
-            cliReplay <- cliUndo
-            cliSilent <- true
-            updateMain (MainState.New seed)
-        | Redo ->
-            cliUndo <- cliUndo @ [cliRedo.Head]
-            cliRedo <- cliRedo.Tail
-            cliReplay <- cliUndo
-            cliSilent <- true
-            updateMain (MainState.New seed)
-        | Reboot ->
-            cliUndo <- []
-            cliRedo <- []
-            cliReplay <- []
-            cliSilent <- false
-            seed <- DateTime.UtcNow.Ticks.GetHashCode()
-            updateMain (MainState.New seed)
-        | Restart ->
-            cliUndo <- [cliUndo.Head]
-            cliRedo <- []
-            cliReplay <- cliUndo
-            cliSilent <- false
-            seed <- DateTime.UtcNow.Ticks.GetHashCode()
-            updateMain (MainState.New seed)
-        | NightSummary ->
-            tryPrintWith main Entity.getNightSummary
-            cliReplay <- cliUndo
-            cliSilent <- true
-            updateMain (MainState.New seed)
-        | DaySummary ->
-            tryPrintWith main Entity.getDaySummary
-            cliReplay <- cliUndo
-            cliSilent <- true
-            updateMain (MainState.New seed)
-        | VoteSummary ->
-            tryPrintVote main
-            cliReplay <- cliUndo
-            cliSilent <- true
-            updateMain (MainState.New seed)
-        | Summary ->
-            tryPrintWith main Entity.getSummary
-            cliReplay <- cliUndo
-            cliSilent <- true
-            updateMain (MainState.New seed)
-        | Exit ->
-            main
-    | ex ->
-        printfn "%s" ex.Message
-        reraise()
+let options = parseArgs args { Help = false; Api = false; Config = None }
+
+if options.Help then
+    printfn "Usage: WereMF [--help] [--api] [--config <path>]"
+    exit 0
 
 Console.OutputEncoding <- Encoding.UTF8
 Console.InputEncoding <- Encoding.UTF8
 
-updateMain (MainState.New seed) |> ignore
+initRollPools (defaultArg options.Config "config.json")
+launchMain() |> ignore
