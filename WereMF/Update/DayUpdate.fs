@@ -24,6 +24,7 @@ let dayStart (day: DayContext) = monad {
     
     let entities = game.Entities |> List.map Entity.updateOnDayStart
     let game = { game with Entities = entities }
+    sendMessage { Type = Public ; Content = "\n" + (printNightSummary entities) }
     
     do! State.put (main, game)
     day
@@ -228,6 +229,7 @@ let private updateContextOnVoteEnd game day =
 let dayVote (day : DayContext) = monad {
     let! (main :MainContext, game : GameContext) = State.get
     
+    sendMessage { Type = Public ; Content = "投票开始" }
     let game, day = updateContextOnVoteStart game day
     sendMessage { Type = Public ; Content = "\n" + (printVoteStartSummary game day) }
     
