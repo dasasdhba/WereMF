@@ -91,10 +91,9 @@ type HeChongSkill =
             let tEntity = tEntity |> exposeIfShiWu th
             let game = game.UpdateEntity tEntity
 
-            let chara = getHandlerCharaType th tEntity
-            sendMessage { Type = ToPlayer entity.Player; Content = $"{chara.ToString()}" }
-
             let role = th.GetFromEntity tEntity
+            sendMessage { Type = ToPlayer entity.Player; Content = role |> getSummaryName }
+
             let handler = sending |> getHandler
             let entity = entity |> updateRoleWithHandler
                              (fun (f: HeChongRole) -> { f with CopiedRole = Some role })
