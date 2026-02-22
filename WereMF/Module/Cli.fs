@@ -9,6 +9,7 @@ let mutable cliUndo : string list = []
 let mutable cliRedo : string list = []
 let mutable cliReplay : string list = []
 let mutable cliSilent : bool = false
+let mutable cliApi : bool = false
 
 type MessageType =
     | Internal

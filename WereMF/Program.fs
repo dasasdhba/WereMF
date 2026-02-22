@@ -1,5 +1,6 @@
 open System
 open System.Text
+open WereMF.Module.Cli
 open WereMF.Module.Roll
 open WereMF.Update.Main
 
@@ -17,7 +18,7 @@ let rec parseArgs args acc =
     | "--help" :: rest -> parseArgs rest { acc with Help = true }
     | "--api" :: rest -> parseArgs rest { acc with Api = true }
     | "--config" :: path :: rest -> parseArgs rest { acc with Config = Some path }
-    | "--config" :: [] -> failwith "--config requires a path"
+    | [ "--config" ] -> failwith "--config requires a path"
     | unknown :: _ -> failwith $"Unknown argument: {unknown}"
 
 let options = parseArgs args { Help = false; Api = false; Config = None }
@@ -30,4 +31,6 @@ Console.OutputEncoding <- Encoding.UTF8
 Console.InputEncoding <- Encoding.UTF8
 
 initRollPools (defaultArg options.Config "config.json")
+cliApi <- options.Api
+
 launchMain() |> ignore
