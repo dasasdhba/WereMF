@@ -475,10 +475,10 @@ module Entity =
         else
 
         let entity = { entity with State.QueuedBomb = 0 }
+        let game = game.UpdateEntity entity
         let te = game.GetEntity t
         let te = { te with State.Bomb = te.State.Bomb + b }
-        let game = game.UpdateEntity te
-        game.UpdateEntity entity
+        game.UpdateEntity te
     
     let updateOnVoteStart (entity : Entity) (game : GameContext) (day: DayContext) =
         // 脚滑人禁票等
