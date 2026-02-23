@@ -81,7 +81,7 @@ type ShiWuSkill =
             { this with Success = true }
         }
     interface ISkillSummary with
-        member this.Priority = 1
+        member this.Priority = 2
         member this.GetRealTarget sending =
             sending |> getRealTarget
         member this.Summarize sending = monad {

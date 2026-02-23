@@ -15,6 +15,7 @@ open WereMF.Role.XianSong
 type XianSongSkill =
     {
         ForceMfa : bool option
+        Ball : bool
     }
     interface ISkill
     interface ISkillCost with
@@ -98,12 +99,35 @@ type XianSongSkill =
             else
                 if forceBall |> not then
                     sendMessage { Type = ToPlayer entity.Player; Content = "你没有要到mfa" }
-                let tEntity = { tEntity with State.XianSong = tEntity.State.XianSong + 1 }
-                let recv = target |> getPlayerName game
-                let night = night.AddMessage $"{recv}被丢了咸松球"
-                let game = game.UpdateEntity tEntity
-                do! State.put ((main, game), night)
-                this
+                { this with Ball = true }
+        }
+    interface ISkillSummary with
+        member this.Priority = 9
+        member this.GetRealTarget sending =
+            sending |> getRealTarget
+        member this.Summarize sending = monad {
+            if this.Ball |> not then None else
+            let! (main, game), night = State.get
+            
+            let target = sending |> getRealTarget
+            let entity = game.GetEntity target
+            let recv = target |> getPlayerName game
+            sendMessage { Type = Public ; Content = $"{recv}被丢了咸松球" }
+            let entity = { entity with State.XianSong = entity.State.XianSong + 1 }
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
+            
+            if entity.State.XianSong < 2 then None else
+            
+            let entity = { entity with State.XianSong = 0 }
+            let game = game.UpdateEntity entity
+            do! State.put ((main, game), night)
+            
+            sendMessage { Type = Public; Content = $"{recv}身上的咸松球爆炸了！" }
+            Some {
+                Target = entity
+                Request = DeadRequest.New Sudden
+            }
         }
 
 // 解析贤松输入，格式: "玩家ID" 或 "玩家ID m" 或 "玩家ID x"
@@ -146,7 +170,7 @@ let xianSongSendSkill ps (game: GameContext) =
                 >> (if disabled then filterDisabled "你被丟虫了，技能失效一晚" else id)
     let filter = giveUpOrFilterWith filter
     let def () =
-        if isRebornChoice |> not then { ForceMfa = None } :> ISkill else
+        if isRebornChoice |> not then { ForceMfa = None; Ball = false } :> ISkill else
         let msg = { Type = ToPlayer entity.Player ; Content = "你可以输入 m 或者 x 表示强制要 mfa 或丢咸松球，输入 0 放弃" }
         let parser (input: string) =
             match input.Trim().ToLower() with
@@ -155,7 +179,7 @@ let xianSongSendSkill ps (game: GameContext) =
             | "0" -> Ok None
             | _ -> Error "未知格式"
         let yes = requestInputWithMessage msg parser
-        { ForceMfa = yes } :> ISkill
+        { ForceMfa = yes ; Ball = false } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! targetId, forceMfa = parseXianSongInput input
@@ -167,7 +191,7 @@ let xianSongSendSkill ps (game: GameContext) =
         elif forceMfa.IsSome && (mfaList |> List.contains targetId) then
             return! Error "该玩家已给出 mfa，不能强制其选择"
         else
-            let skill = Skill.New ps targetId { ForceMfa = forceMfa }
+            let skill = Skill.New ps targetId { ForceMfa = forceMfa ; Ball = false }
             [ skill |> Some ]
     }
     

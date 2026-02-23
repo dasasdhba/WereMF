@@ -342,28 +342,6 @@ let nightSummary (night: NightContext) = monad {
             let r, l = involveIfDogeSummary bug ((main, game), night) skills
             context <- r
             skills <- l
-     
-    // 闲松球
-    
-    let (main, game), night = context
-    let xian = game.Entities
-               |> List.filter (fun e -> e.State.XianSong >= 2)
-    for x in xian do
-        let (main, game), night = context
-        sendMessage { Type = Public ; Content = $"{x.Player.Name}身上的咸松球爆炸了！" }
-        let x = { x with State.XianSong = 0 }
-        let game = game.UpdateEntity x
-        context <- (main, game), night
-        let request = DeadRequest.New Sudden
-        let sk, heal = tryHeal skills request x
-        if heal then
-            skills <- sk
-        else
-            let dead = x, (main, game)
-            let x, (main, game) = requestDead request dead
-            let r, l = involveIfDogeSummary x ((main, game), night) skills
-            context <- r
-            skills <- l
     
     // 其他技能
     

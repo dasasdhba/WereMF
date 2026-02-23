@@ -106,7 +106,7 @@ type FenXiaSkill =
                 skill
         }
     interface ISkillSummary with
-        member this.Priority = 9
+        member this.Priority = 8
         member this.GetRealTarget sending =
             sending |> getSource
         member this.Summarize sending = monad {

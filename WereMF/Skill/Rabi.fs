@@ -18,7 +18,7 @@ type MilkType =
 type RabiSkill =
     {
         MilkType : MilkType
-        Success : PlayerId option
+        Poison : bool
     }
     interface ISkill
     interface ISkillExecute with
@@ -43,6 +43,9 @@ type RabiSkill =
             let target = sending |> getRealTarget
             let tEntity = target |> game.GetEntity
             let lastMilk = tEntity.State.Milk.HasLastMilk
+            let tEntity = { tEntity with State.Milk = tEntity.State.Milk.Set () }
+            let game = game.UpdateEntity tEntity
+            do! State.put ((main, game), night)
 
             let force = round > 2 || lastMilk
             let milkName = match this.MilkType with
@@ -60,9 +63,6 @@ type RabiSkill =
                     yes
 
             if drink then
-                let tEntity = { tEntity with State.Milk = tEntity.State.Milk.Set () }
-                let game = game.UpdateEntity tEntity
-                do! State.put ((main, game), night)
                 if this.MilkType = Fresh then
                     let handlers = getValidHandlers tEntity.Role
                     let handler = handlers |> List.randomChoiceWith main.Rng
@@ -73,28 +73,17 @@ type RabiSkill =
                     do! State.put ((main, game), night)
                     this
                 else
-                    { this with Success = Some target }
+                    { this with Poison = true }
             else
 
             this
     }
-    interface ISkillExecuteQueued with
-        member this.Execute sending = monad {
-            if this.Success.IsNone then this else
-            let target = this.Success.Value
-            let! (main, game), night = State.get
-            let state = night.GetPlayerState target
-            let state = { state with Blocked = true }
-            let night = night.SetPlayerState state
-            do! State.put ((main, game), night)
-            this
-        }
     interface ISkillSummary with
-         member this.Priority = 2
+         member this.Priority = 0
          member this.GetRealTarget sending =
              sending |> getRealTarget
          member this.Summarize sending = monad {
-            if this.Success.IsNone then None else
+            if this.Poison |> not then None else
 
             let! (main, game), night = State.get
 
@@ -140,13 +129,13 @@ let rabbitSendSkill ps (game: GameContext) =
         let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择给鲜奶还是毒奶（1：鲜奶；0：毒奶）" }
         let yes = requestInputWithMessage msg parseBool
         let t = if yes then Fresh else Dry
-        { MilkType = t; Success = None } :> ISkill
+        { MilkType = t; Poison = false } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! playerId, milkType = parseRabbitInput input
         let! playerId = Ok playerId |> filter
         if playerId <= PlayerId 0 then [ None ] else
-        let rabiSkill = Skill.New ps playerId { MilkType = milkType ; Success = None }
+        let rabiSkill = Skill.New ps playerId { MilkType = milkType ; Poison = false }
         [ rabiSkill |> Some ]
     }
     
