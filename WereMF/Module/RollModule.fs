@@ -6,6 +6,7 @@ open System.Text
 open System.Text.Json
 open FSharpPlus
 open WereMF.Common
+open WereMF.Module.Cli
 
 type private CharaRoll = {
     Type : CharaType
@@ -32,8 +33,8 @@ let private tryLoadConfig (path: string) =
     else
         Error $"{path} 不存在"
 
-let private getJsonRolls path = monad {
-    let! json = tryLoadConfig path
+let private jsonRolls = monad {
+    let! json = tryLoadConfig cliConfig
     return json.Charas 
            |> Array.fold (fun r jr ->
                let result = CharaType.Create jr.Chara
@@ -71,18 +72,41 @@ let private boomPoolDefault = [
     { Type = Myz ; Prob = 0.5 }
 ]
 
-let mutable private barPool = []
-let mutable private boomPool = []
-let mutable barCharaPool = []
-let mutable boomCharaPool = []
+let private barPool =
+    match jsonRolls with
+    | Ok pool ->
+        let bar = pool |> List.filter (fun x -> x.Type.GetCamp() = Bar && x.Prob > 0)
+        if bar.Length < 4 then
+            Console.WriteLine "[Init] 吧方角色不足, 使用默认配置"
+            barPoolDefault
+        else
+            bar
+    | Error e ->
+        Console.WriteLine $"[Init] {e}, 吧方使用默认配置"
+        barPoolDefault
 
-let minPlayer = 7
-let mutable maxPlayer = 7
-
-let private getCharaPool (pool: CharaRoll list) =
-    pool
-    |> List.filter (fun x -> x.Prob > 0)
-    |> List.map (fun x -> x.Type)
+let private boomPool =
+    match jsonRolls with
+    | Ok pool ->
+        let boom = pool |> List.filter (fun x -> x.Type.GetCamp() = Boom && x.Prob > 0)
+        if boom.Length < 3 then
+            Console.WriteLine "[Init] 爆方角色不足，使用默认配置"
+            boomPoolDefault
+        else
+            boom
+    | Error e ->
+        Console.WriteLine $"[Init] {e}, 爆方使用默认配置"
+        boomPoolDefault
+        
+let barCharaPool =
+    barPool
+        |> List.filter (fun x -> x.Prob > 0)
+        |> List.map (fun x -> x.Type)
+       
+let boomCharaPool =
+    boomPool
+        |> List.filter (fun x -> x.Prob > 0)
+        |> List.map (fun x -> x.Type)
 
 let private getMaxBarAndBoom () =
     let bar = barPool.Length
@@ -92,32 +116,8 @@ let private getMaxBarAndBoom () =
     else
         boom + boom + 1
 
-let initRollPools path =
-    let json = getJsonRolls path
-    match json with
-    | Ok pool ->
-        barPool <-
-            let bar = pool |> List.filter (fun x -> x.Type.GetCamp() = Bar && x.Prob > 0)
-            if bar.Length < 4 then
-                Console.WriteLine "[Init] 吧方角色不足, 使用默认配置"
-                barPoolDefault
-            else
-                bar
-        boomPool <-
-            let boom = pool |> List.filter (fun x -> x.Type.GetCamp() = Boom && x.Prob > 0)
-            if boom.Length < 3 then
-                Console.WriteLine "[Init] 爆方角色不足，使用默认配置"
-                boomPoolDefault
-            else
-                boom
-    | Error e ->
-        Console.WriteLine $"[Init] {e}, 使用默认配置"
-        barPool <- barPoolDefault
-        boomPool <- boomPoolDefault
-    
-    barCharaPool <- getCharaPool barPool
-    boomCharaPool <- getCharaPool boomPool
-    maxPlayer <- max 7 (getMaxBarAndBoom() + 1)
+let minPlayer = 7
+let maxPlayer = max 7 (getMaxBarAndBoom() + 1)
 
 // random draw powered by Kimi
 let private drawFromPoolWith (random : Random) (pool: CharaRoll list) (count: int) : CharaType list =

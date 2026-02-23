@@ -5,11 +5,36 @@ open System.Text.RegularExpressions
 open FSharpPlus
 open WereMF.Common
 
+type private CliOptions = {
+    Help: bool
+    Api: bool
+    Config: string option
+}
+
+let private args = Environment.GetCommandLineArgs() |> Array.skip 1 |> Array.toList
+
+let rec private parseArgs args acc =
+    match args with
+    | [] -> acc
+    | "--help" :: rest -> parseArgs rest { acc with Help = true }
+    | "--api" :: rest -> parseArgs rest { acc with Api = true }
+    | "--config" :: path :: rest -> parseArgs rest { acc with Config = Some path }
+    | [ "--config" ] -> failwith "--config requires a path"
+    | unknown :: _ -> failwith $"Unknown argument: {unknown}"
+
+let private options = parseArgs args { Help = false; Api = false; Config = None }
+
+if options.Help then
+    printfn "Usage: WereMF [--help] [--api] [--config <path>]"
+    exit 0
+
+let cliConfig = defaultArg options.Config "config.json"
+let cliApi = options.Api
+
 let mutable cliUndo : string list = []
 let mutable cliRedo : string list = []
 let mutable cliReplay : string list = []
 let mutable cliSilent : bool = false
-let mutable cliApi : bool = false
 
 type MessageType =
     | Internal
