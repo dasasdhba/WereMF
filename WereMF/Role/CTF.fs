@@ -10,8 +10,9 @@ open WereMF.State
 type CTFRole =
     {
         BugCount : int
+        Reborn: bool
     }
-    static member New count = { BugCount = count }
+    static member New count = { BugCount = count; Reborn = false }
     interface IRole with
         member this.Base = {
             CharaType = CTF
@@ -20,7 +21,7 @@ type CTFRole =
         }
     interface IRolePreventDead with
         member this.Prevent dead = monad {
-            if dead = Force then None else
+            if this.Reborn || dead = Force then None else
             
             let! entity, bind = State.get
             let main, game = bind
@@ -48,5 +49,5 @@ type CTFRole =
             let bind = main, game
             do! State.put (entity, bind)
             
-            Some { NewRole = this; StateSetter = fun e -> { e with Bug = Some (myBug + 1) } }
+            Some { NewRole = { this with Reborn = true }; StateSetter = fun e -> { e with Bug = Some (myBug + 1) } }
         }
