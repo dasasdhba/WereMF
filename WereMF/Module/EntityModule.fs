@@ -106,6 +106,7 @@ module EntityState =
                 Potion = entity.Potion |> removeRes
                 Milk = entity.Milk.UpdateOnDayStart ()
                 JiaoHuaBlocked = 0
+                JiaoHuaProtected = false
         }
         
     let updateOnDead state=
