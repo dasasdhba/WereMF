@@ -20,6 +20,7 @@ type NightContext =
         Skills : Skill list
         QueuedSkills: Skill list
         SummarySkills: Skill list
+        BugPlayers: PlayerId list
         Messages: string list
     }
     member this.GetPlayerPendingSkills player =
@@ -41,6 +42,7 @@ type NightContext =
             Skills = []
             QueuedSkills = []
             SummarySkills = []
+            BugPlayers = []
             Messages = []
         }
 

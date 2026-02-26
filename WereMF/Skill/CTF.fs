@@ -13,7 +13,6 @@ open WereMF.Role.CTF
 
 let private updateStateIfBug (night: NightContext) entity =
     // 闲松技能失效
-    
     let hs = entity.Role |> getValidHandlers
              |> List.filter (fun h -> (entity |> getHandlerCharaType h) = XianSong)
     let mutable e = entity
@@ -23,28 +22,27 @@ let private updateStateIfBug (night: NightContext) entity =
                              h
     let entity = e
     
-    // 暴毙阻断
+    // 暴毙记录与阻断
     if entity.State.BugCount < 3 then night, entity else
     let state = night.GetPlayerState entity.Player.Id
     let state = { state with Blocked = true }
     let night = night.SetPlayerState state
+    let night =
+        if night.BugPlayers |> List.contains entity.Player.Id then
+            night
+        else
+            { night with BugPlayers = night.BugPlayers @ [ entity.Player.Id ] }
     night, entity
     
 let updateBugOnNight (night: NightContext) entity =
     if entity.State.Bug = None then night, entity else
-    let night = if entity.State.BugCount < 3 then
-                    night.AddMessage $"{entity.Player.Name}身上多了一只虫子"
-                else
-                    night
+    let night = night.AddMessage $"{entity.Player.Name}身上多了一只虫子"
     let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 1) }
     updateStateIfBug night entity
     
 let updateSpringBugOnNight (night: NightContext) entity =
     if entity.State.Bug = None then night, entity else
-    let night = if entity.State.BugCount < 3 then
-                    night.AddMessage $"{entity.Player.Name}身上多了无数只虫子"
-                else
-                    night
+    let night = night.AddMessage $"{entity.Player.Name}身上多了无数只虫子"
     let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 3) }
     updateStateIfBug night entity
 

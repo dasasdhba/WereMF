@@ -323,35 +323,38 @@ let nightSummary (night: NightContext) = monad {
     
     // 虫子
     
-    let mutable skills = night.SummarySkills
-    let mutable context = (main, game), night
-    let bugs = game.Entities |> List.filter (fun e -> e.State.BugCount >= 3)
-    for bug in bugs do
+    let rec updateBugs (context: SkillContext) (skills: Skill list) (bugs : PlayerId list) =
+        if bugs.Length = 0 then context, skills else
         let (main, game), night = context
-        sendMessage { Type = Public ; Content = $"{bug.Player.Name}的虫子数量过多！" }
-        let bug = { bug with State.Bug = None }
-        let game = game.UpdateEntity bug
-        context <- (main, game), night
-        let request = DeadRequest.New Sudden
-        let sk, heal = tryHeal skills request bug
-        if heal then
-            skills <- sk
+        let bug = bugs.Head
+        let remain = bugs.Tail
+        let entity = game.GetEntity bug
+        
+        if entity.State |> EntityState.isDead ||
+           entity.State |> EntityState.isLeafProtected ||
+           entity.State.BugCount < 3 then
+            updateBugs context skills remain
         else
-            let dead = bug, (main, game)
-            let bug, (main, game) = requestDead request dead
-            let r, l = involveIfDogeSummary bug ((main, game), night) skills
-            context <- r
-            skills <- l
+        
+        sendMessage { Type = Public ; Content = $"{entity.Player.Name}的虫子数量过多！" }
+        let entity = { entity with State.Bug = None }
+        let game = game.UpdateEntity entity
+        let context = (main, game), night
+        let request = DeadRequest.New Sudden
+        let sk, heal = tryHeal skills request entity
+        if heal then
+            updateBugs context sk remain
+        else
+            let dead = entity, (main, game)
+            let entity, (main, game) = requestDead request dead
+            let c, s = involveIfDogeSummary entity ((main, game), night) skills
+            updateBugs c s remain
+    
+    let skills = night.SummarySkills
+    let context = (main, game), night
+    let context, skills = updateBugs context skills night.BugPlayers
     
     // 其他技能
-    
-    let (main, game), night = context
-    
-    let list = skills |> List.sortByDescending (fun s ->
-            match s.Actor with
-            | :? ISkillSummary as summary -> summary.Priority
-            | _ -> -100
-        )
     
     let rec updateSkills (context: SkillContext) (sList : Skill list) =
         if sList.Length = 0 then context else
@@ -382,9 +385,13 @@ let nightSummary (night: NightContext) = monad {
             let context, sList = involveIfDogeSummary target ((m, g), n) sList
             updateSkills context sList
         | _ -> updateSkills context sList
-        
-    let context = (main, game), night
-    let context = updateSkills context list
+    
+    let skills = skills |> List.sortByDescending (fun s ->
+            match s.Actor with
+            | :? ISkillSummary as summary -> summary.Priority
+            | _ -> -100
+        )
+    let context = updateSkills context skills
     
     let (main, game), _ = context
     do! State.put (main, game)
