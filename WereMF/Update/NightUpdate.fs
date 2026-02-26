@@ -94,12 +94,12 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
     let blocked = (night.GetPlayerState source).Blocked
     if blocked || sEntity |> Entity.getState |> EntityState.isDead then
         sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
-        context, skill, false
+        context, None
     else
     
     if skill.Sending.Target <= PlayerId 0 then
         sendMessage { Type = Internal ; Content = $"无效的技能：{skill.Sending.Pending.Type}，请检查输入处理是否正确" }
-        context, skill, false
+        context, None
     else
     
     // spring
@@ -109,13 +109,29 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
     let context, skill =
         match skill.Actor with
         | :? ISkillCost as cost ->
-            let actor, context = (State.run (cost.Cost skill.Sending) context)
+            let actor, context = State.run (cost.Cost skill.Sending) context
             let skill = { skill with Actor = actor }
             context, skill
         | _ -> context, skill
     
-    // kirby
     let target = skill.Sending |> getRealTarget
+    
+    // leaf
+    let success =
+        let (main, game), night = context
+        if game.HasEntity target |> not then false else
+        let lEntity = game.GetEntity target
+        lEntity |> isLeafProtectedFresh
+    
+    if success then
+        sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+        let (main, game), night = context
+        let night, sEntity = updateBugOnNight night sEntity
+        let game = game.UpdateEntity sEntity
+        ((main, game), night), None
+    else
+    
+    // kirby
     let context, success =
         let (main, game), night = context
         if game.HasEntity target |> not then context, false else
@@ -145,22 +161,22 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
             context, true
     
     // general
-    let skill, context, success =
-        if success then skill, context, false else
+    let context, result =
+        if success then context, None else
         match skill.Actor with
         | :? ISkillExecute as exe ->
-            let (actor, context), success =
+            let actor, context =
                 if skill |> canExecute context then
-                    (State.run (exe.Execute skill.Sending) context), true
+                    State.run (exe.Execute skill.Sending) context
                 else
                     sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
-                    (skill.Actor, context), false
+                    skill.Actor, context
             let skill = { skill with Actor = actor }
-            skill, context, success
-        | _ -> skill, context, false
+            context, Some skill
+        | _ -> context, None
         
     let context = skill.Sending |> updateBugWith context
-    context, skill, success
+    context, result
 
 let rec private executeSkills (context: SkillContext) =
     let (main, game), night = context
@@ -168,28 +184,45 @@ let rec private executeSkills (context: SkillContext) =
     let skill = night.Skills.Head
     let night = { night with Skills = night.Skills.Tail }
     let context = (main, game), night
-    let context, skill, success = executeSkill context skill
+    let context, skill = executeSkill context skill
     let (main, game), night = context
     let night =
-        if success |> not then night else
+        if skill.IsNone then night else
+        let skill = skill.Value
         { night with QueuedSkills = night.QueuedSkills @ [skill] }
     executeSkills ((main, game), night)
+
+let private executeQueuedSkill (context: SkillContext) (skill : Skill) =
+    let target = skill.Sending |> getRealTarget
     
+    // leaf
+    let success =
+        let (main, game), night = context
+        if game.HasEntity target |> not then false else
+        let lEntity = game.GetEntity target
+        lEntity |> isLeafProtectedFresh
+    
+    if success then context, None else
+
+    match skill.Actor with
+    | :? ISkillExecuteQueued as exe ->
+        let actor, context =
+            State.run (exe.Execute skill.Sending) context
+        context, Some { skill with Actor = actor }
+    | _ -> context, None
+
 let rec private executeQueuedSkills (context: SkillContext) =
     let (main, game), night = context
     if night.QueuedSkills.Length = 0 then context else
     let skill = night.QueuedSkills.Head
     let night = { night with QueuedSkills = night.QueuedSkills.Tail }
     let context = (main, game), night
-    let skill, context =
-        match skill.Actor with
-        | :? ISkillExecuteQueued as exe ->
-            let actor, context =
-                State.run (exe.Execute skill.Sending) context
-            { skill with Actor = actor }, context
-        | _ -> skill, context
+    let context, skill = executeQueuedSkill context skill
     let (main, game), night = context
-    let night = { night with SummarySkills = night.SummarySkills @ [skill] }
+    let night =
+        if skill.IsNone then night else
+        let skill = skill.Value
+        { night with SummarySkills = night.SummarySkills @ [skill] }
     executeQueuedSkills ((main, game), night)
 
 let private createPendingSkills (entities: Entity list) (rng : Random) =
@@ -331,7 +364,6 @@ let nightSummary (night: NightContext) = monad {
         let entity = game.GetEntity bug
         
         if entity.State |> EntityState.isDead ||
-           entity |> isLeafProtectedFresh ||
            entity.State.BugCount < 3 then
             updateBugs context skills remain
         else
