@@ -103,7 +103,7 @@ let doctorSendSkill ps (game: GameContext) =
     
     let filter = filterNonExists game
                 >> filterDead game
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> (if capsuleCount <= 0 then filterDisabled "你没有药丸了" else id)
     let filter = giveUpOrFilterWith filter

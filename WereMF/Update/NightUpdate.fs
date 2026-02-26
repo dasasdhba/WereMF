@@ -331,7 +331,7 @@ let nightSummary (night: NightContext) = monad {
         let entity = game.GetEntity bug
         
         if entity.State |> EntityState.isDead ||
-           entity.State |> EntityState.isLeafProtected ||
+           entity |> isLeafProtectedFresh ||
            entity.State.BugCount < 3 then
             updateBugs context skills remain
         else
@@ -366,7 +366,7 @@ let nightSummary (night: NightContext) = monad {
             let t = summary.GetRealTarget s.Sending
             if t |> g.HasEntity |> not ||
                t |> g.GetEntity |> getState |> EntityState.isDead ||
-               t |> g.GetEntity |> getState |> EntityState.isLeafProtected then
+               t |> g.GetEntity |> isLeafProtectedFresh then
                 updateSkills context sList
             else
                 

@@ -137,7 +137,7 @@ let myzSendSkill ps (game: GameContext) =
     let filter = filterNonExists game
                 >> filterDead game
                 >> filterExceptIndex ps.Source "你不能威胁自己"
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
     let targetFilter = giveUpOrFilterWith (filterNonExists game)

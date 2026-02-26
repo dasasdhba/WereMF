@@ -12,7 +12,7 @@ let jiangXianSendSkill ps game =
     let title = "江仙设计未完成"
     let filter = filterNonExists game
                 >> filterDead game
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> filterDisabled "设计未完成"
     let filter = giveUpOrFilterWith filter

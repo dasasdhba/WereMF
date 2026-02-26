@@ -107,7 +107,7 @@ let dogeSendSkill ps (game: GameContext) =
     
     let filter = filterNonExists game
                     >> filterDead game
-                    >> filterSelectable game
+                    >> filterSelectable ps.Source game
                     >> filterKidnapped ps
                     >> filterExceptIndexList lastNightList "不能连续保护同一个玩家"
     let filter = giveUpOrFilterWith filter

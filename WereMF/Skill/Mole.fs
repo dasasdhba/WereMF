@@ -117,7 +117,7 @@ let moleSendSkill ps game =
     let filter = filterNonExists game
                 >> filterDead game
                 >> filterExceptIndex ps.Source "你不能突击自己"
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
     let def () = (MoleSkill.New ()) :> ISkill

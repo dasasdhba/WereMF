@@ -105,7 +105,7 @@ let yinMoSendSkill ps (game: GameContext) =
     
     let filter = filterNonExists game
                 >> filterDead game
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterExceptIndex ps.Source "你不能给自己发唱片"
                 >> filterKidnapped ps
                 >> (if isDisabled then filterDisabled "你的技能在冷却" else id)

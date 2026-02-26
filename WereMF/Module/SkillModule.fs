@@ -38,13 +38,13 @@ let filterAlive (game: GameContext) = function
         -> Error "玩家未死亡"
     | value -> value
 
-let filterSelectable (game: GameContext) = function
-    | Ok p when p |> game.GetEntity |> Entity.getState |> EntityState.canBeSelected |> not
+let filterSelectable (source: PlayerId) (game: GameContext) = function
+    | Ok p when p |> game.GetEntity |> Entity.canBeSelected source |> not
         -> Error "玩家无法选中"
     | value -> value
     
-let filterSelectableWithoutSmog (game: GameContext) = function
-    | Ok p when p |> game.GetEntity |> Entity.getState |> EntityState.canBeSelectedWithSmog |> not
+let filterSelectableWithoutSmog (source: PlayerId) (game: GameContext) = function
+    | Ok p when p |> game.GetEntity |> Entity.canBeSelectedWithSmog source |> not
         -> Error "玩家无法选中"
     | value -> value
     
@@ -215,7 +215,7 @@ let getPlayerName (game: GameContext) (player : PlayerId)=
     entity.Player.Name
     
 let blockIfLeaf (target: Entity) (night: NightContext) =
-    if target.State |> isLeafProtected |> not then night else
+    if target |> Entity.isLeafProtectedFresh |> not then night else
     let state = night.GetPlayerState target.Player.Id
     let state = { state with Blocked = true }
     night.SetPlayerState state

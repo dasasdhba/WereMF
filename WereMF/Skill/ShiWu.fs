@@ -138,7 +138,7 @@ let shiWuSendSkill ps (game: GameContext) =
     let filter = filterNonExists game
                 >> filterDead game
                 >> filterExceptIndex ps.Source "你不能绑架自己"
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> filterExceptIndexList lastSelected "你不能连续绑架同一个玩家"
     let filter = giveUpOrFilterWith filter

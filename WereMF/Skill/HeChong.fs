@@ -122,7 +122,7 @@ let heChongSendSkill ps (game: WereMF.State.GameContext) =
     let filter = filterNonExists game
                 >> filterDead game
                 >> filterExceptIndex ps.Source "你不能复制自己"
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> filterExceptIndexList last "不能连续模仿同一个玩家"
     let filter = giveUpOrFilterWith filter

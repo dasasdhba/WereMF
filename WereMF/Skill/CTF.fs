@@ -134,7 +134,7 @@ let ctfSendSkill ps (game: GameContext) =
     let filter = filterNonExists game
                 >> filterDead game
                 >> filterExceptIndex ps.Source "你不能给自己虫子"
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> (if bugCount <= 0 then filterDisabled "你没有虫子了" else id)
     let filter = giveUpOrFilterWith filter

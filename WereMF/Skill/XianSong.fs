@@ -181,7 +181,7 @@ let xianSongSendSkill ps (game: GameContext) =
     let filter = filterNonExists game
                 >> filterDead game
                 >> filterExceptIndex ps.Source "不能向自己要 mfa"
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> (if disabled then filterDisabled "你被丟虫了，技能失效一晚" else id)
     let filter = giveUpOrFilterWith filter

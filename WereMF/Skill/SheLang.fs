@@ -66,7 +66,7 @@ let sheLangSendSkill ps (game: GameContext) =
     let title = "输入要扔弹簧的玩家编号，输入 0 放弃"
     let filter = filterNonExists game
                 >> filterDead game
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> filterExceptIndexList last "不能连续对同一个玩家使用弹簧"
     let filter = giveUpOrFilterWith filter

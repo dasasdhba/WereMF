@@ -57,7 +57,7 @@ let paoXianSendSkill ps game =
     let filter = filterNonExists game
                 >> filterDead game
                 >> filterExceptIndex ps.Source "你不能杀死自己"
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
     let def () = (PaoXianSkill.New ()) :> ISkill

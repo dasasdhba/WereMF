@@ -77,7 +77,7 @@ let huiKaSendSkill ps (game: GameContext) =
     
     let filter = filterNonExists game
                 >> filterDead game
-                >> filterSelectableWithoutSmog game
+                >> filterSelectableWithoutSmog ps.Source game
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
     let def () = (HuiKaSkill.New ()) :> ISkill

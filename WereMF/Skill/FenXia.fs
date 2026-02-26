@@ -149,7 +149,7 @@ let fenXiaSendSkill ps (game: GameContext) =
     
     let filter = filterNonExists game
                 >> filterExceptIndex ps.Source "你不能给自己粉条"
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> filterFenXia game fenCount
                 >> (if fenCount <= 0 then filterDisabled "你没有粉条了" else id)

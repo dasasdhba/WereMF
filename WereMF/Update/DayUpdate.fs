@@ -55,7 +55,7 @@ let private parseVote (game: GameContext) (day: DayContext) (input: string) : Re
             return! Error $"玩家{xEntity.Player.ToCliString ()}不能改票了"
         else
             
-        let! y = y |> parsePlayerId |> voteTargetFilter game
+        let! y = y |> parsePlayerId |> voteTargetFilter x game
         VoteNormal (x, y)
     | _ ->
         return! Error "未知格式"
@@ -70,9 +70,9 @@ let updateVote (x: PlayerId) (y: PlayerId) (day: DayContext) =
     day.SetPlayerVote vote
 
 let canAnyoneVote (game: GameContext) (day: DayContext) =
-    day.Votes |> List.exists (fun v -> Ok v.Id |> voteTargetFilter game |> Result.isOk) &&
     day.Votes |> List.exists (fun v ->
-        Ok v.Id |> voteSourceFilter game |> Result.isOk && v.Confirmed |> not)
+        Ok v.Id |> voteSourceFilter game |> Result.isOk && v.Confirmed |> not &&
+        day.Votes |> List.exists (fun t -> Ok t.Id |> voteTargetFilter v.Id game |> Result.isOk))
 
 let private getVoteString (vote: PlayerVote) =
     match vote.Target with
@@ -100,13 +100,13 @@ type JiaoHuaAction =
     | Blocked
     | Protected
 
-let private parseJiaoHuaInput (game: GameContext) (input: string) : Result<PlayerId * JiaoHuaAction, string> = monad {
+let private parseJiaoHuaInput (source: PlayerId) (game: GameContext) (input: string) : Result<PlayerId * JiaoHuaAction, string> = monad {
     let parts = input.Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
     match parts.Length with
     | 1 when parts[0] = "0" -> PlayerId 0, Blocked
     | 2 ->
         let! playerId = parsePlayerId parts[0]
-        let! playerId = Ok playerId |> (voteTargetFilter game)
+        let! playerId = Ok playerId |> (voteTargetFilter source game)
         let! action =
             match parts[1].ToLower() with
             | "x" -> Ok Blocked
@@ -125,7 +125,7 @@ let private updateIfJiaoHuaOut (entity : Entity) (game: GameContext) =
                   Content = $"{entity.Player.Name}可以取消一人下一个晚上的一次行动，或令一人不可被其他人的技能选中" }
     let msg = { Type = ToPlayer entity.Player
                 Content = "输入玩家编号和行动类型（x=封住行动，p=保护玩家），输入 0 放弃" }
-    let target, action = requestInputWithMessage msg (parseJiaoHuaInput game)
+    let target, action = requestInputWithMessage msg (parseJiaoHuaInput entity.Player.Id game)
     if target <= PlayerId 0 then game else
     
     let tEntity = game.GetEntity target

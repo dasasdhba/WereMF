@@ -133,7 +133,7 @@ let caiMonSendSkill ps (game: GameContext) =
                 >> filterAlive game
                 >> filterExceptIndex ps.Source "你不能给自己彩条"
                 >> filterExceptIndexList rebornList "你已经复活过这个玩家了"
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> (if caiCount <= 0 then filterDisabled "你没有彩条了" else id)
     let filter = giveUpOrFilterWith filter

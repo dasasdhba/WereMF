@@ -59,7 +59,7 @@ let creeperSendSkill ps (game: GameContext) =
     let title = $"输入要在谁身上埋炸药（剩余 {bombCount} 个炸弹），输入 0 放弃"
     
     let filter = filterNonExists game
-                >> filterSelectable game
+                >> filterSelectable ps.Source game
                 >> filterKidnapped ps
                 >> filterExceptIndexList placedList "该玩家已被埋过炸药"
                 >> (if bombCount <= 0 then filterDisabled "你没有炸药了" else id)

@@ -67,20 +67,6 @@ module EntityState =
         let cap = repeat entity.CapsuleCount "\U0001F48A"
         let drop = repeat entity.PotionCount "\U0001F4A7"
         smog + bug + xian + cap + drop
-        
-    // in game judge
-    
-    let isLeafProtected state =
-        state.LeafProtected.IsSome
-    let canBeSelected state =
-        not (state.JiaoHuaProtected || state |> isLeafProtected
-             || state.Smog |> List.exists (fun i -> i > 1))
-    let canBeSelectedWithSmog state =
-        not (state.JiaoHuaProtected || state |> isLeafProtected)
-    let canBeVoted state =
-        state |> isLeafProtected |> not
-    let canVote state =
-        not state.JiaoHuaVoteBlocked
     
     // in game update
         
@@ -198,6 +184,24 @@ module Entity =
 
     let printSummary entities =
         entities |> printSummaryWith getSummary
+    
+    // in game judge
+    
+    let isLeafProtectedFresh entity =
+        entity.State.LeafProtected = Some true
+    let isLeafProtected source (entity: Entity) =
+        entity.Player.Id <> source && entity.State.LeafProtected.IsSome
+    let isJiaoHuaProtected source (entity: Entity) =
+        entity.Player.Id <> source && entity.State.JiaoHuaProtected
+    let canBeSelected source entity =
+        not (entity |> isJiaoHuaProtected source || entity |> isLeafProtected source
+             || entity.State.Smog |> List.exists (fun i -> i > 1))
+    let canBeSelectedWithSmog source entity =
+        not (entity |> isJiaoHuaProtected source || entity |> isLeafProtected source)
+    let canBeVoted source entity =
+        entity |> isLeafProtected source |> not
+    let canVote entity =
+        not entity.State.JiaoHuaVoteBlocked
     
     // dead check
     
@@ -413,18 +417,18 @@ module Entity =
         | Ok id ->
             let e = game.GetEntity id
             if e.State |> EntityState.isDead then Error "该玩家已死亡"
-            elif e.State |> EntityState.canVote |> not then Error "该玩家不能投票"
+            elif e |> canVote |> not then Error "该玩家不能投票"
             else Ok id
         | value -> value
 
-    let voteTargetFilter (game: GameContext) = function
+    let voteTargetFilter source (game: GameContext) = function
         | Ok id when id <= PlayerId 0 -> Ok (PlayerId 0)
         | Ok id when game.HasEntity id |> not ->
             Error "目标不存在"
         | Ok id ->
             let e = game.GetEntity id
             if e.State |> EntityState.isDead then Error "目标已死亡"
-            elif e.State |> EntityState.canBeVoted |> not then Error "目标不可选中"
+            elif e |> canBeVoted source |> not then Error "目标不可选中"
             else Ok id
         | value -> value
         
@@ -444,7 +448,7 @@ module Entity =
                 day, { entity with State.Threaten = None }
             else
 
-            if Ok target |> voteTargetFilter game |> Result.isOk then
+            if Ok target |> voteTargetFilter entity.Player.Id game |> Result.isOk then
                 if force |> not then day, entity else
                 let msg = if target <= PlayerId 0 then $"{entity.Player.Name}被强制弃票"
                           else $"{entity.Player.Name}被强制把票投给{target}"
