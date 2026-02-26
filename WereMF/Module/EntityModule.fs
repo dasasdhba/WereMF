@@ -70,13 +70,15 @@ module EntityState =
         
     // in game judge
     
+    let isLeafProtected state =
+        state.LeafProtected.IsSome
     let canBeSelected state =
-        not (state.JiaoHuaProtected || state.LeafProtected.IsSome
+        not (state.JiaoHuaProtected || state |> isLeafProtected
              || state.Smog |> List.exists (fun i -> i > 1))
     let canBeSelectedWithSmog state =
-        not (state.JiaoHuaProtected || state.LeafProtected.IsSome)
+        not (state.JiaoHuaProtected || state |> isLeafProtected)
     let canBeVoted state =
-        not state.LeafProtected.IsSome
+        state |> isLeafProtected |> not
     let canVote state =
         not state.JiaoHuaVoteBlocked
     

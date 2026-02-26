@@ -361,8 +361,9 @@ let nightSummary (night: NightContext) = monad {
         | :? ISkillSummary as summary ->
             let (m, g), n = context
             let t = summary.GetRealTarget s.Sending
-            if t |> g.HasEntity
-               && t |> g.GetEntity |> getState |> EntityState.isDead then
+            if t |> g.HasEntity |> not ||
+               t |> g.GetEntity |> getState |> EntityState.isDead ||
+               t |> g.GetEntity |> getState |> EntityState.isLeafProtected then
                 updateSkills context sList
             else
                 

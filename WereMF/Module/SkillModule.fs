@@ -6,6 +6,7 @@ open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Cli
 open WereMF.Module.Entity
+open WereMF.Module.EntityState
 open WereMF.State
 
 // ------------------------------------------------------------------
@@ -214,7 +215,7 @@ let getPlayerName (game: GameContext) (player : PlayerId)=
     entity.Player.Name
     
 let blockIfLeaf (target: Entity) (night: NightContext) =
-    if target.State.LeafProtected.IsNone then night else
+    if target.State |> isLeafProtected |> not then night else
     let state = night.GetPlayerState target.Player.Id
     let state = { state with Blocked = true }
     night.SetPlayerState state
