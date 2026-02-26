@@ -209,7 +209,7 @@ let private executeQueuedSkill (context: SkillContext) (skill : Skill) =
         let actor, context =
             State.run (exe.Execute skill.Sending) context
         context, Some { skill with Actor = actor }
-    | _ -> context, None
+    | _ -> context, Some skill
 
 let rec private executeQueuedSkills (context: SkillContext) =
     let (main, game), night = context
