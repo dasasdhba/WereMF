@@ -68,7 +68,7 @@ type KirbySkill =
             let kirby = state.Kirby
             match kirby with
             | Some (s, _) when s = source ->
-                let th = tEntity.Role |> getValidHandlers |> List.randomChoiceWith main.Rng
+                let th = tEntity.Role |> getQueriedHandler main.Rng
                 let chara = tEntity |> getHandlerCharaType th
                 if chara = Kirby || chara = Leaf then
                     sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
