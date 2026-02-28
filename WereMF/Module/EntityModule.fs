@@ -24,7 +24,7 @@ module EntityState =
     let addSmogRound round state =
         { state with Smog = round :: state.Smog }
     let addSmog state =
-        state |> addSmogRound 2
+        state |> addSmogRound 3
         
     let addCapsuleRound round state =
         { state with Capsule = round :: state.Capsule }
@@ -70,10 +70,14 @@ module EntityState =
     
     // in game update
         
+    let private removeRes l =
+        l |> List.map (fun i -> i - 1) |> List.filter (fun i -> i > 0)
+        
     let updateOnNightStart entity =
         {
              entity with
                 LeafProtected = updateNightOptionBool entity.LeafProtected
+                Smog = entity.Smog |> removeRes
                 Kidnapped = []
                 Threaten = None
                 XianSong = 0
@@ -83,8 +87,6 @@ module EntityState =
         }
         
     let updateOnDayStart entity =
-        let removeRes l =
-            l |> List.map (fun i -> i - 1) |> List.filter (fun i -> i > 0)
         {
              entity with
                 Dead.Name = ""
@@ -123,7 +125,7 @@ module Entity =
         else camp.Reverse()
     
     let getQueriedHandler (rng :Random) (entity : Entity) =
-        if entity.State.SmogCount > 0 then None
+        if entity.State.Smog |> List.exists (fun r -> r >= 2) then None
         else Some (entity.Role |> Role.getQueriedHandler rng)
         
     let getHandlerCharaType (handler: RoleHandler) (entity: Entity) =
@@ -195,7 +197,7 @@ module Entity =
         entity.Player.Id <> source && entity.State.JiaoHuaProtected
     let canBeSelected source entity =
         not (entity |> isJiaoHuaProtected source || entity |> isLeafProtected source
-             || entity.State.Smog |> List.exists (fun i -> i > 1))
+             || entity.State.Smog |> List.exists (fun i -> i > 2))
     let canBeSelectedWithSmog source entity =
         not (entity |> isJiaoHuaProtected source || entity |> isLeafProtected source)
     let canBeVoted source entity =
