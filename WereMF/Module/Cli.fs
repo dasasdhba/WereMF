@@ -68,76 +68,10 @@ type CommandType =
     | DaySummary
     | VoteSummary
     | Summary
+    | Rename of int * string
 
 exception CommandEx of CommandType
 
-let parseCommand (input : string) =
-    match input with
-    | "\\undo" ->
-        if cliUndo |> List.isEmpty then
-            sendMessage { Type = Internal ; Content = "撤销列表为空" }
-            Error true
-        else
-            Ok Undo
-    | "\\redo" ->
-        if cliRedo |> List.isEmpty then
-            sendMessage { Type = Internal ; Content = "重做列表为空" }
-            Error true
-        else
-            Ok Redo
-    | "\\reboot" ->
-        if cliUndo |> List.isEmpty then
-            sendMessage { Type = Internal ; Content = "游戏还没开始" }
-            Error true
-        else
-            Ok Reboot
-    | "\\restart" ->
-        if cliUndo |> List.isEmpty  then
-            sendMessage { Type = Internal ; Content = "请先输入玩家" }
-            Error true
-        else
-            Ok Restart
-    | "\\night" -> Ok NightSummary
-    | "\\day" -> Ok DaySummary
-    | "\\summary" -> Ok Summary
-    | "\\vote" -> Ok VoteSummary
-    | "\\exit" -> Ok Exit
-    | _ -> Error false
-
-let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =
-    let rec loop () =
-        let input = if cliReplay |> List.isEmpty then
-                        cliSilent <- false
-                        Console.WriteLine msg
-                        Console.ReadLine()
-                    else cliReplay.Head
-        let command = parseCommand input
-        match command with
-        | Ok c -> raise (c |> CommandEx)
-        | Error true -> loop ()
-        | Error false ->
-            match parser input with
-            | Ok result ->
-                if cliReplay |> List.isEmpty then
-                    cliUndo <- cliUndo @ [input]
-                    cliRedo <- []
-                else
-                    cliReplay <- cliReplay.Tail
-                result
-            | Error msg -> 
-                Console.WriteLine msg
-                loop ()
-    loop ()
-    
-let requestInputWithMessage (message : Message) (parser : string -> Result<'a, string>) =
-    let mParser = fun s ->
-        match parser s with
-        | Ok result -> Ok result
-        | Error msg ->
-            let errMsg = { Type = message.Type ; Content = msg }
-            Error (errMsg.ToString())
-    requestInputWith (message.ToString()) mParser
-    
 let splitInputList (input: string) : string list =
     let pattern = "\"([^\"]*)\"|(\\S+)"
     let matches = Regex.Matches(input, pattern)
@@ -254,3 +188,89 @@ let parseMultiSkill
             )
             skills
 }
+    
+let parseCommand (input : string) =
+    match input with
+    | "\\undo" ->
+        if cliUndo |> List.isEmpty then
+            sendMessage { Type = Internal ; Content = "撤销列表为空" }
+            Error true
+        else
+            Ok Undo
+    | "\\redo" ->
+        if cliRedo |> List.isEmpty then
+            sendMessage { Type = Internal ; Content = "重做列表为空" }
+            Error true
+        else
+            Ok Redo
+    | "\\reboot" ->
+        if cliUndo |> List.isEmpty then
+            sendMessage { Type = Internal ; Content = "游戏还没开始" }
+            Error true
+        else
+            Ok Reboot
+    | "\\restart" ->
+        if cliUndo |> List.isEmpty  then
+            sendMessage { Type = Internal ; Content = "请先输入玩家" }
+            Error true
+        else
+            Ok Restart
+    | s when s.StartsWith "\\rename" ->
+        if cliUndo |> List.isEmpty  then
+            sendMessage { Type = Internal ; Content = "请先输入玩家" }
+            Error true
+        else
+        
+        let args = splitInputList s
+        match args.Tail with
+        | [ id ; name ] ->
+            let id = parseInt id
+            match id with
+            | Error e ->
+                sendMessage { Type = Internal ; Content = e }
+                Error true
+            | Ok id ->
+                Ok (Rename (id, name))
+        | _ ->
+            sendMessage { Type = Internal ; Content = "请输入要重命名的玩家编号和新的玩家名" }
+            Error true
+    | "\\night" -> Ok NightSummary
+    | "\\day" -> Ok DaySummary
+    | "\\summary" -> Ok Summary
+    | "\\vote" -> Ok VoteSummary
+    | "\\exit" -> Ok Exit
+    | _ -> Error false
+
+let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =
+    let rec loop () =
+        let input = if cliReplay |> List.isEmpty then
+                        cliSilent <- false
+                        Console.WriteLine msg
+                        Console.ReadLine()
+                    else cliReplay.Head
+        let command = parseCommand input
+        match command with
+        | Ok c -> raise (c |> CommandEx)
+        | Error true -> loop ()
+        | Error false ->
+            match parser input with
+            | Ok result ->
+                if cliReplay |> List.isEmpty then
+                    cliUndo <- cliUndo @ [input]
+                    cliRedo <- []
+                else
+                    cliReplay <- cliReplay.Tail
+                result
+            | Error msg -> 
+                Console.WriteLine msg
+                loop ()
+    loop ()
+    
+let requestInputWithMessage (message : Message) (parser : string -> Result<'a, string>) =
+    let mParser = fun s ->
+        match parser s with
+        | Ok result -> Ok result
+        | Error msg ->
+            let errMsg = { Type = message.Type ; Content = msg }
+            Error (errMsg.ToString())
+    requestInputWith (message.ToString()) mParser

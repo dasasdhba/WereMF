@@ -87,6 +87,17 @@ let rec private updateMain main : MainState =
             cliReplay <- cliUndo
             cliSilent <- true
             updateMain (MainState.New seed)
+        | Rename (id, name) ->
+            let newHead =
+                let players = cliUndo.Head |> splitInputList
+                if id > 0 && id <= players.Length then
+                    players |> List.updateAt (id - 1) name |> String.concat " "
+                else
+                    cliUndo.Head
+            cliUndo <- newHead :: cliUndo.Tail
+            cliReplay <- cliUndo
+            cliSilent <- true
+            updateMain (MainState.New seed)
         | Exit ->
             main
     | ex ->
