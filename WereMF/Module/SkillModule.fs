@@ -78,14 +78,14 @@ let private getThreatenResult filter (creator: unit -> ISkill)
         else
             sendMessage { Type = ToPlayer entity.Player
                           Content = $"你被威胁{msg}" }
-            Some (Error threaten)
+            Some (Error threaten.Target)
     )
     
 let private updateThreatenIfViolate targets result entity =
     match result with
-    | Some (Error (threaten: ThreatenSkill)) ->
-        if targets |> List.contains threaten.Target then entity
-        else { entity with Entity.State.Threaten = Some { Type = QueuedDeath ; Source = threaten.Source } }
+    | Some (Error target) ->
+        if targets |> List.contains target then entity
+        else { entity with Entity.State.Threaten = Some true }
     | _ -> entity
     
 let sendSkillWith title filter
@@ -105,8 +105,8 @@ let sendSkillWith title filter
     match threaten with
     | Some (Ok v) ->
         if v.IsNone then () else
-            let night = { night with Skills = v.Value :: night.Skills }
-            do! State.put (game, night)
+        let night = { night with Skills = v.Value :: night.Skills }
+        do! State.put (game, night)
         ()
     | _ ->
         let msg = { Type = ToPlayer entity.Player; Content = title }

@@ -37,7 +37,7 @@ module EntityState =
         state |> addPotionRound 2
         
     let isThreatenDead (state: EntityState) =
-        state.Threaten.IsSome && state.Threaten.Value.Type = QueuedDeath
+        state.Threaten = Some true
         
     // in game marks
         
@@ -51,10 +51,11 @@ module EntityState =
         
     let getTopMark entity =
         let voteBlock = if entity.JiaoHuaVoteBlocked then "\u2716" else ""
+        let dayBlock = if entity.Threaten.IsSome then "\u274c" else ""
         let protect = if entity.JiaoHuaProtected then "\U0001F6E1" else ""
         let roleBlock = if entity.JiaoHuaBlocked > 0 then "\u274c" else ""
         let leafBlock = if entity.LeafProtected.IsSome then "\u274e" else ""
-        voteBlock + protect + roleBlock + leafBlock
+        voteBlock + dayBlock + protect + roleBlock + leafBlock
         
     let getBuffMark (entity : EntityState)=
         let repeat n s =
@@ -204,6 +205,8 @@ module Entity =
         entity |> isLeafProtected source |> not
     let canVote entity =
         not entity.State.JiaoHuaVoteBlocked
+    let isDayBlocked entity =
+        entity.State.Threaten.IsSome
     
     // dead check
     
@@ -329,11 +332,6 @@ module Entity =
             context
         else
         
-        let threaten = entity.State.Threaten.Value
-        let src = threaten.Source
-        let sEntity = game.GetEntity src
-        if sEntity.State |> EntityState.isDead then context else
-        
         sendMessage { Type = Public ; Content = $"{entity.Player.Name}无视了威胁！" }
         requestDead (DeadRequest.New Kill) context
     
@@ -435,45 +433,8 @@ module Entity =
         | value -> value
         
     let private updateThreatenOnVoteStart (game: GameContext) (day: DayContext) (entity: Entity) =
-        if entity.State.Threaten.IsNone then day, entity else
-            
-        let threaten = entity.State.Threaten.Value
-        let src = threaten.Source
-        let sEntity = game.GetEntity src
-        if sEntity.State |> EntityState.isDead then day, { entity with State.Threaten = None } else
-        
-        match threaten.Type with
-        | QueuedDeath -> day, entity
-        | DayVote (target, force) ->
-            if Ok entity.Player.Id |> voteSourceFilter game |> Result.isError then
-                sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
-                day, { entity with State.Threaten = None }
-            else
-
-            if Ok target |> voteTargetFilter entity.Player.Id game |> Result.isOk then
-                if force |> not then day, entity else
-                let msg = if target <= PlayerId 0 then $"{entity.Player.Name}被强制弃票"
-                          else $"{entity.Player.Name}被强制把票投给{target}"
-                sendMessage { Type = Public ; Content = msg }
-                let vote = day.GetPlayerVote entity.Player.Id
-                let vote = { vote with Target = Some target ; Confirmed = true }
-                let day = day.SetPlayerVote vote
-                day, { entity with State.Threaten = None }
-            else
-                sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
-                day, { entity with State.Threaten = None }
-    
-    let private updateThreatenOnVoteEnd (day: DayContext) (entity : Entity) =
-        let t = entity.State.Threaten
-        if t.IsNone then entity else
-        let t = t.Value
-        
-        match t.Type with
-        | QueuedDeath -> entity
-        | DayVote (target, _) ->
-            let real = (day.GetPlayerVote entity.Player.Id).GetTarget()
-            if real = target then { entity with State.Threaten = None }
-            else { entity with State.Threaten = Some { t with Type = QueuedDeath } }
+        if entity.State.Threaten.IsNone then () else
+        sendMessage { Type = Public ; Content = $"{entity.Player.Name}昨晚被威胁，白天无法行动" }
     
     let private updateBombOnVoteEnd (entity : Entity) (day: DayContext) (game : GameContext)  =
         let t = (day.GetPlayerVote entity.Player.Id).GetTarget()
@@ -496,18 +457,18 @@ module Entity =
         let game = game.UpdateEntity entity
         
         if entity.State |> EntityState.isDead then game, day else
-        let day, entity = updateThreatenOnVoteStart game day entity
-        let game = game.UpdateEntity entity
+        
+        // myz 威胁
+        updateThreatenOnVoteStart game day entity
         game, day
     
     let updateOnVoteEnd (entity : Entity) (game : GameContext) (day: DayContext)=
-        let entity = updateThreatenOnVoteEnd day entity
-        
         // 江仙投票等
         let day, role = entity.Role |> updateOnVoteEnd entity game day
         let entity = { entity with Role = role }
         let game = game.UpdateEntity entity
         
+        // 爬行者炸药
         let game = updateBombOnVoteEnd entity day game
         game, day
     

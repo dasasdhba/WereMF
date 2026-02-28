@@ -40,8 +40,18 @@ let private parseVote (game: GameContext) (day: DayContext) (input: string) : Re
     match parts.Length with
     | 1 when parts[0] = "0" -> Finish
     | 2 ->
-        let! x = parts[0] |> parsePlayerId |> voteSourceFilter game
+        let! x = parts[0] |> parsePlayerId
+        if game.HasEntity x |> not then
+            return! Error "玩家不存在"
+        else
+        
         let xEntity = game.GetEntity x
+        if xEntity |> Entity.isDayBlocked then
+            return! Error $"玩家{xEntity.Player.Name}无法行动"
+        else
+        
+        let! x = Ok x |> voteSourceFilter game
+
         let y = parts[1]
         if y.ToLower() = "b" then
             if xEntity |> Entity.getValidCharaTypes |> List.contains JiaoHua then
@@ -254,11 +264,7 @@ let dayVote (day : DayContext) = monad {
         sendMessage { Type = Public ; Content = $"{xEntity.Player.Name}自爆了" }
         let main, game = requestVoteOut xEntity (main, game)
         let entities = game.Entities |> List.map (fun e ->
-                let e = { e with State.Bomb = e.State.QueuedBomb }
-                if e.State.Threaten.IsNone then e else
-                match e.State.Threaten.Value.Type with
-                | DayVote _ -> { e with State.Threaten = None }
-                | _ -> e
+                { e with State.Bomb = e.State.QueuedBomb ; State.QueuedBomb = 0 }
              )
         let game = { game with Entities = entities }
         do! State.put (main, game)

@@ -12,15 +12,6 @@ type RebornState =
     }
     member this.Reborn = this.ReadyRound <= 0 && this.RebornRound > 0
 
-type ThreatenType =
-    | QueuedDeath
-    | DayVote of target : PlayerId * force : bool
-
-type ThreatenState = {
-    Type : ThreatenType
-    Source : PlayerId
-}
-
 type NightRecord<'T> =
     {
         Tonight : 'T
@@ -78,7 +69,7 @@ type EntityState =
         Potion : int list // 法猫
         XianSong : int // 闲松球
         Kidnapped : PlayerId list // 实物
-        Threaten : ThreatenState option // myz
+        Threaten : bool option // myz
         QueuedBomb : int // creeper
         Bomb: int
         Milk : MilkState

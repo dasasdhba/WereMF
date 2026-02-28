@@ -21,6 +21,7 @@ type JiangXianRole =
         }
     interface IRoleUpdateOnVoteEnd with
         member this.Update entity game = monad {
+            if entity |> Entity.isDayBlocked then this else
             let! day = State.get
             
             if entity.State |> EntityState.isDead |> not then
