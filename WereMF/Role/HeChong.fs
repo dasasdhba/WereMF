@@ -33,6 +33,14 @@ type HeChongRole =
                let sub = this.GetSubHandler ()
                sub.Bind (role |> getQueriedHandler random)
             | None -> IdHandler
+    interface IRoleValidHandlers with
+        member this.Get () =
+            match this.CopiedRole with
+                | Some role ->
+                    let sub = this.GetSubHandler ()
+                    let subList = role |> getValidHandlers |> List.map (fun h -> sub.Bind h)
+                    IdHandler :: subList
+                | None -> [IdHandler]
     interface IRoleGetDayStartDeadRequest with
         member this.Get () =
             if this.CopiedRole.IsNone then [] else
