@@ -64,7 +64,7 @@ type RabiSkill =
 
             if drink then
                 if this.MilkType = Fresh then
-                    let handlers = getValidHandlers tEntity.Role
+                    let handlers = getPendingHandlers tEntity.Player tEntity.Role
                     let handler = handlers |> List.randomChoiceWith main.Rng
                     let chara = getHandlerCharaType handler tEntity
                     if chara = Rabi then this else
