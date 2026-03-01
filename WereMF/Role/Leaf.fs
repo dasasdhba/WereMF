@@ -41,12 +41,6 @@ type LeafRole =
                            (fun v k ->
                  { k with Roles = k.Roles |> List.updateAt idx v })
         sub |> CommonHandler
-    interface IRoleQueriedHandler with
-        member this.Get (random : Random) =
-            let idx = if this.Fury then random.Next this.Roles.Length else 0
-            let role = this.Roles[idx]
-            let sub = this.GetSubHandler idx
-            sub.Bind (role |> getQueriedHandler random)
     member private this.GetHandlersWith func =
         if this.Fury |> not then
             let role = this.Roles[0]
@@ -63,6 +57,9 @@ type LeafRole =
             result
     member this.GetQueriedHandlers (random : Random) =
         this.GetHandlersWith (fun h -> [getQueriedHandler random h])
+    interface IRoleQueriedHandler with
+        member this.Get (random : Random) =
+            this.GetQueriedHandlers random |> List.randomChoiceWith random
     interface IRolePendingHandlers with
         member this.Get player =
             this.GetHandlersWith (getPendingHandlers player)
@@ -83,11 +80,11 @@ type LeafRole =
             this.UpdateRolesWith (updateOnDead dead)
     member private this.GetDeadRequestWith func =
         if this.Fury |> not then
-                let role = this.Roles[0]
-                role |> func
-            else
-                this.Roles[1..] |> List.map (fun role ->
-                    role |> func) |> List.concat
+            let role = this.Roles[0]
+            role |> func
+        else
+            this.Roles[1..] |> List.map (fun role ->
+                role |> func) |> List.concat
     interface IRoleGetNightStartDeadRequest with
         member this.Get () =
             this.GetDeadRequestWith getNightStartDeadRequest

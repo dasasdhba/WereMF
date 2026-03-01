@@ -60,7 +60,6 @@ type KirbyRole =
     interface IRoleUpdateOnNightInit with
         member this.Update () =
             this.UpdateCopiedRoleWith updateOnNightInit
-    
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             this.UpdateCopiedRoleWith updateOnNightStart
