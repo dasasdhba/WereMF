@@ -25,7 +25,9 @@ type DogeSkill =
             let handler = sending |> getHandler
             let target = sending |> getRealTarget
             let entity = entity |> updateRoleWithHandler
-                             (fun (d: DogeRole) -> { d with LastSelected = d.LastSelected.Add target })
+                             (fun (d: DogeRole) -> { d with LastSelected = d.LastSelected.Add target
+                                                            SelfSelected = d.SelfSelected || target = source
+                                                      })
                              handler
             let game = entity |> game.UpdateEntity
             do! State.put ((main, game), night)
@@ -72,13 +74,6 @@ type DogeSkill =
             }
         }
 
-// 获取上一晚保护过的玩家列表
-let getLastNightProtected (handler: RoleHandler) (entity: Entity) : PlayerId list =
-    match handler.GetFromEntity entity with
-    | :? DogeRole as dogeRole ->
-        dogeRole.LastSelected.Selected
-    | _ -> []
-
 // 解析 Doge 的输入，格式: "玩家ID [b]"
 // 返回 (目标玩家ID, 是否自爆)
 let parseDogeInput (input: string) : Result<PlayerId * bool, string> =
@@ -101,7 +96,12 @@ let parseDogeInput (input: string) : Result<PlayerId * bool, string> =
 // Doge 技能发送
 let dogeSendSkill ps (game: GameContext) =
     let entity = game.GetEntity ps.Source
-    let lastNightList = getLastNightProtected ps.Handler entity
+    let handler = ps.Handler
+    let lastNightList, selfProtected =
+        match handler.GetFromEntity entity with
+        | :? DogeRole as dogeRole ->
+            dogeRole.LastSelected.Selected, dogeRole.SelfSelected
+        | _ -> [], false
     
     let title = "输入要保护的玩家编号（输入 0 放弃），结尾加 b 表示自爆；输入 0 放弃"
     
@@ -110,6 +110,8 @@ let dogeSendSkill ps (game: GameContext) =
                     >> filterSelectable ps.Source game
                     >> filterKidnapped ps
                     >> filterExceptIndexList lastNightList "不能连续保护同一个玩家"
+                    >> (if selfProtected then filterExceptIndex ps.Source "你保护过自己了" else id)
+                    
     let filter = giveUpOrFilterWith filter
     let def () =
         let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择是否自爆（1：是；0：否）" }

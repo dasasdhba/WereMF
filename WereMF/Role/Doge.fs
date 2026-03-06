@@ -6,8 +6,9 @@ open WereMF.Module.Role
 type DogeRole =
     {
         LastSelected : SelectionState
+        SelfSelected : bool
     }
-    static member New () = { LastSelected = SelectionState.New () }
+    static member New () = { LastSelected = SelectionState.New () ; SelfSelected = false }
     interface IRole with
         member this.Base = {
             CharaType = Doge
