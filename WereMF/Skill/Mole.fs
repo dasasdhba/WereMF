@@ -9,8 +9,6 @@ open WereMF.Module.Skill
 open WereMF.Module.Cli
 open WereMF.Role.Mole
 
-let private roll : int list = [ 0; 0; 1; 1; 1; 2 ]
-
 type MoleSkill =
     {
         Success : bool
@@ -27,11 +25,12 @@ type MoleSkill =
             let handler = sending |> getHandler
             let player = entity.Player
             
-            let red = entity |> getFromRoleWithHandler
-                        (fun m -> m.RedGround)
-                        handler
+            let roll, red =
+                entity |> getFromRoleWithHandler
+                    (fun m -> m.Roll, m.RedGround)
+                    handler
             
-            let r = roll |> List.randomChoiceWith main.Rng
+            let i, r = roll |> List.indexed |> List.randomChoiceWith main.Rng
             let game, night, skill, success =
                 match r with
                 | 1 ->
@@ -54,6 +53,11 @@ type MoleSkill =
                     sendMessage { Type = ToPlayer player; Content = "红土地，你死了" }
                     game, night, { this with Dead = true }, false
                 | _ ->
+                    let roll = roll |> List.updateAt i 1
+                    let entity = entity |> updateRoleWithHandler
+                                    (fun m -> { m with Roll = roll })
+                                    handler
+                    let game = game.UpdateEntity entity
                     sendMessage { Type = ToPlayer player; Content = "失败" }
                     game, night, this, false
             
