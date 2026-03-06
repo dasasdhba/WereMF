@@ -44,4 +44,4 @@ let sendSkill game (ps: PendingSkill) =
     | XianSong -> xianSongSendSkill ps game
     | JiangXian -> jiangXianSendSkill ps game
     | Myz -> myzSendSkill ps game
-    | value -> failwith $"{value.ToString}不应该发送技能"
+    | value -> failwith $"{value.ToString()}不应该发送技能"
