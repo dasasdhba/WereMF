@@ -53,11 +53,9 @@ type FaMaoSkill =
             sendMessage { Type = Public ; Content = $"{recv}被丢了药水" }
 
             if reversed then
-                if entity.Role |> getCharaType = Leaf then
-                    Some {
-                        Target = entity
-                        Request = DeadRequest.New Sudden
-                    }
+                if target = (sending |> getSource) then
+                    sendMessage { Type = Public ; Content = "但是什么也没有发生" }
+                    None
                 else
                     sendMessage { Type = Public ; Content = $"{recv}的阵营反转了！" }
                     let entity = { entity with State.Reversed = entity.State.Reversed |> not }
@@ -99,7 +97,6 @@ let faMaoSendSkill ps (game: GameContext) =
     
     let filter = filterNonExists game
                 >> filterDead game
-                >> filterExceptIndex ps.Source "你不能给自己丢药水"
                 >> filterSelectable ps.Source game
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
