@@ -49,13 +49,15 @@ module EntityState =
         let entity = { entity with XianSong = 0 }
         entity
         
+    let getDayMark entity =
+        if entity.Threaten.IsSome then "\u274c" else ""
+        
     let getTopMark entity =
         let voteBlock = if entity.JiaoHuaVoteBlocked then "\u2716" else ""
-        let dayBlock = if entity.Threaten.IsSome then "\u274c" else ""
         let protect = if entity.JiaoHuaProtected then "\U0001F6E1" else ""
         let roleBlock = if entity.JiaoHuaBlocked > 0 then "\u274c" else ""
         let leafBlock = if entity.LeafProtected.IsSome then "\u274e" else ""
-        voteBlock + dayBlock + protect + roleBlock + leafBlock
+        voteBlock + protect + roleBlock + leafBlock
         
     let getBuffMark (entity : EntityState)=
         let repeat n s =
@@ -164,14 +166,14 @@ module Entity =
             $"{entity.Player.Id.ToCircleString()}【{entity.State.Dead.Name}】"
         else
             $"{entity.Player.Id.ToCircleString()}{getInGameName entity}" +
-            $"{entity.State |> EntityState.getTopMark} {entity.State |> EntityState.getBuffMark}"
+            $"{entity.State |> EntityState.getTopMark}{entity.State |> EntityState.getBuffMark}"
 
     let getDaySummary entity =
         if entity.State.Dead.Name <> "" then
             $"{entity.Player.Id.ToCircleString()}【{entity.State.Dead.Name}】"
         else
             $"{entity.Player.Id.ToCircleString()}{getInGameName entity}" +
-            $"{entity.State |> EntityState.getTopMark}"
+            $"{EntityState.getDayMark}{entity.State |> EntityState.getTopMark}"
         
     let getSummary (entity: Entity) =
         entity.Player.ToInGameString () + ": " + getSummaryName entity
