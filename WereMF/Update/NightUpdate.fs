@@ -153,9 +153,17 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
         else
             sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
             sendMessage { Type = ToPlayer kEntity.Player ; Content = chara.ToString () }
+            let role = createRole main.Roll chara;
             let kEntity = kEntity |> updateRoleWithHandler
-                             (fun (k: KirbyRole) -> { k with CopiedRole = Some (createRole main.Roll chara) })
+                             (fun (k: KirbyRole) -> { k with CopiedRole = Some role })
                              handler
+            let sub = kEntity |> getFromRoleWithHandler
+                            (fun (k: KirbyRole) -> k.GetSubHandler ())
+                            handler
+            let hs = role |> getPendingHandlers kEntity.Player
+            let handlers = hs |> List.map (fun h -> handler.Bind ( sub.Bind h) )
+            let ps = handlers |> List.map (fun h -> createPendingSkill h kEntity)
+            let night = { night with PendingSkills = ps @ night.PendingSkills }
             let game = game.UpdateEntity kEntity
             let context = (main, game), night
             context, true
