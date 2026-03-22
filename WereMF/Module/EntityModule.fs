@@ -49,7 +49,7 @@ module EntityState =
         let entity = { entity with XianSong = 0 }
         entity
         
-    let getDayMark entity =
+    let getDayMark (entity: EntityState) =
         if entity.Threaten.IsSome then "\u274c" else ""
         
     let getTopMark entity =
@@ -173,7 +173,7 @@ module Entity =
             $"{entity.Player.Id.ToCircleString()}【{entity.State.Dead.Name}】"
         else
             $"{entity.Player.Id.ToCircleString()}{getInGameName entity}" +
-            $"{EntityState.getDayMark}{entity.State |> EntityState.getTopMark}"
+            $"{entity.State |> EntityState.getDayMark}{entity.State |> EntityState.getTopMark}"
         
     let getSummary (entity: Entity) =
         entity.Player.ToInGameString () + ": " + getSummaryName entity
