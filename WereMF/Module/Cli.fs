@@ -1,6 +1,7 @@
 module WereMF.Module.Cli
 
 open System
+open System.IO
 open System.Text.RegularExpressions
 open FSharpPlus
 open WereMF.Common
@@ -9,6 +10,7 @@ type private CliOptions = {
     Help: bool
     Api: bool
     Config: string option
+    Seed: int option
 }
 
 let private args = Environment.GetCommandLineArgs() |> Array.skip 1 |> Array.toList
@@ -19,22 +21,27 @@ let rec private parseArgs args acc =
     | "--help" :: rest -> parseArgs rest { acc with Help = true }
     | "--api" :: rest -> parseArgs rest { acc with Api = true }
     | "--config" :: path :: rest -> parseArgs rest { acc with Config = Some path }
+    | "--seed" :: seed :: rest -> parseArgs rest { acc with Seed = Int32.Parse seed |> Some }
     | [ "--config" ] -> failwith "--config requires a path"
+    | [ "--seed" ] -> failwith "--seed requires a int number"
     | unknown :: _ -> failwith $"Unknown argument: {unknown}"
 
-let private options = parseArgs args { Help = false; Api = false; Config = None }
+let private options = parseArgs args { Help = false; Api = false; Config = None ; Seed = None }
 
 if options.Help then
-    printfn "Usage: WereMF [--help] [--api] [--config <path>]"
+    printfn "Usage: WereMF [--help] [--api] [--config <path>] [--seed <int>]"
     exit 0
 
 let cliConfig = defaultArg options.Config "config.json"
 let cliApi = options.Api
+let cliSeed = options.Seed
 
 let mutable cliUndo : string list = []
 let mutable cliRedo : string list = []
 let mutable cliReplay : string list = []
 let mutable cliSilent : bool = false
+let mutable cliLogName : string = ""
+let mutable cliLog : bool = false
 
 type MessageType =
     | Internal
@@ -53,6 +60,9 @@ type Message =
         | ToPlayer p -> $"[ToPlayer {p.ToCliString()}] {this.Content}"
 
 let sendMessage (message : Message) =
+    if cliLog then
+        File.AppendAllText(cliLogName, message.ToString() + "\n", System.Text.Encoding.UTF8)
+    
     if cliSilent then
         ()
     else
@@ -69,6 +79,7 @@ type CommandType =
     | VoteSummary
     | Summary
     | Rename of int * string
+    | Log
 
 exception CommandEx of CommandType
 
@@ -234,6 +245,7 @@ let parseCommand (input : string) =
         | _ ->
             sendMessage { Type = Internal ; Content = "请输入要重命名的玩家编号和新的玩家名" }
             Error true
+    | "\\log" -> Ok Log
     | "\\night" -> Ok NightSummary
     | "\\day" -> Ok DaySummary
     | "\\summary" -> Ok Summary
@@ -244,6 +256,7 @@ let parseCommand (input : string) =
 let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =
     let rec loop () =
         let input = if cliReplay |> List.isEmpty then
+                        cliLog <- false
                         cliSilent <- false
                         Console.WriteLine msg
                         Console.ReadLine()
@@ -259,6 +272,8 @@ let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =
                     cliUndo <- cliUndo @ [input]
                     cliRedo <- []
                 else
+                    if cliLog then
+                        File.AppendAllText(cliLogName, msg + "\n" + cliReplay.Head + "\n", System.Text.Encoding.UTF8)
                     cliReplay <- cliReplay.Tail
                 result
             | Error msg -> 

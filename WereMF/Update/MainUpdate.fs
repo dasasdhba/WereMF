@@ -1,6 +1,7 @@
 module WereMF.Update.Main
 
 open System
+open System.IO
 open FSharpPlus.Data
 open WereMF.Module
 open WereMF.Module.Cli
@@ -9,7 +10,14 @@ open WereMF.Update.Game
 open WereMF.Update.Init
 open WereMF.Update.Roll
 
-let mutable private seed = DateTime.UtcNow.Ticks.GetHashCode()
+let mutable private seed = defaultArg cliSeed (DateTime.UtcNow.Ticks.GetHashCode())
+
+let private tryGetSummaryWith (main: MainState) printer =
+    match main.Status with
+    | Game game ->
+        let context = game.Context
+        Entity.printSummaryWith printer context.Entities
+    | _ -> ""
 
 let private tryPrintWith (main: MainState) printer =
     match main.Status with
@@ -54,18 +62,20 @@ let rec private updateMain main : MainState =
             cliSilent <- true
             updateMain (MainState.New seed)
         | Reboot ->
+            seed <- DateTime.UtcNow.Ticks.GetHashCode()
+            sendMessage { Type = Internal ; Content = $"游戏种子：{seed}" }
             cliUndo <- []
             cliRedo <- []
             cliReplay <- []
             cliSilent <- false
-            seed <- DateTime.UtcNow.Ticks.GetHashCode()
             updateMain (MainState.New seed)
         | Restart ->
+            seed <- DateTime.UtcNow.Ticks.GetHashCode()
+            sendMessage { Type = Internal ; Content = $"游戏种子：{seed}" }
             cliUndo <- [cliUndo.Head]
             cliRedo <- []
             cliReplay <- cliUndo
             cliSilent <- false
-            seed <- DateTime.UtcNow.Ticks.GetHashCode()
             updateMain (MainState.New seed)
         | NightSummary ->
             tryPrintWith main Entity.getNightSummary
@@ -98,6 +108,18 @@ let rec private updateMain main : MainState =
             cliReplay <- cliUndo
             cliSilent <- true
             updateMain (MainState.New seed)
+        | Log ->
+            let text = $"游戏种子：{seed}\n玩家：\n"
+            let summary = tryGetSummaryWith main Entity.getSummary
+            let now = DateTime.Now.ToString("yyMMdd_HHmmss")
+            let log = $"WereMF_{now}.log"
+            File.AppendAllText(log, text + summary + "\n\n", System.Text.Encoding.UTF8)
+            
+            cliLogName <- log
+            cliLog <- true
+            cliReplay <- cliUndo
+            cliSilent <- true
+            updateMain (MainState.New seed)
         | Exit ->
             main
     | ex ->
@@ -105,5 +127,6 @@ let rec private updateMain main : MainState =
         reraise()
 
 let launchMain () =
+    sendMessage { Type = Internal ; Content = $"游戏种子：{seed}" }
     updateMain (MainState.New seed)
 
