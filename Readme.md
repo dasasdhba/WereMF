@@ -17,8 +17,8 @@ MF 杀是由 [Mario Forever 社区](https://www.marioforever.net) 的大爷、xf
 * `\restart`: 重开一局（使用当前玩家列表）
 * `\reboot`: 重启程序
 * `\exit`: 退出
-* '\log`: 保存当前对局作为日志
-* `\rename <idx> <newName>`：将第 `idx` 个玩家重命名为 `newName`，这里的 `idx` 以输入玩家列表的顺序为准，不以第一晚匿名模式打乱的顺序为准
+* `\log`: 保存当前对局作为日志
+* `\rename <idx> <newName>`: 将第 `idx` 个玩家重命名为 `newName`，这里的 `idx` 以输入玩家列表的顺序为准，不以第一晚匿名模式打乱的顺序为准
 * `\night`: 打印晚上的总结
 * `\day`: 打印白天的总结
 * `\vote`: 打印投票的总结
