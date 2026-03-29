@@ -36,13 +36,13 @@ let private updateStateIfBug (night: NightContext) entity =
     
 let updateBugOnNight (night: NightContext) entity =
     if entity.State.Bug = None then night, entity else
-    let night = night.AddMessage $"{entity.Player.Name}身上多了一只虫子"
+    let night = night.AddMessage $"{entity.Player.BaseName}身上多了一只虫子"
     let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 1) }
     updateStateIfBug night entity
     
 let updateSpringBugOnNight (night: NightContext) entity =
     if entity.State.Bug = None then night, entity else
-    let night = night.AddMessage $"{entity.Player.Name}身上多了无数只虫子"
+    let night = night.AddMessage $"{entity.Player.BaseName}身上多了无数只虫子"
     let entity = { entity with State.Bug = entity.State.Bug |> Option.map (fun b -> b + 3) }
     updateStateIfBug night entity
 
@@ -60,7 +60,7 @@ let private addBugWithMsg (night: NightContext)  entity=
         match bug with
         | None -> Some 0, night
         | Some b ->
-            let msg = $"{entity.Player.Name}身上多了一只虫子"
+            let msg = $"{entity.Player.BaseName}身上多了一只虫子"
             Some (b + 1), night.AddMessage msg
     night, { entity with State.Bug = bug }
 
