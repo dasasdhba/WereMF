@@ -35,7 +35,7 @@ type HuiKaSkill =
 
             let! (main, game), night = State.get
             let target = this.Success.Value
-            let recv = target |> getPlayerName game
+            let recv = target |> getPlayerNameAnonymous game
             let tEntity = target |> game.GetEntity
             sendMessage { Type = Public ; Content = $"{recv}被烟雾弥漫！" }
             let tEntity = { tEntity with State = tEntity.State |> EntityState.addSmog }

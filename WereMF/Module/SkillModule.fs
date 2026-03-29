@@ -1,12 +1,10 @@
 module WereMF.Module.Skill
 
-open System
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Cli
 open WereMF.Module.Entity
-open WereMF.Module.EntityState
 open WereMF.State
 
 // ------------------------------------------------------------------
@@ -67,7 +65,7 @@ let private getThreatenResult filter (creator: unit -> ISkill)
         else
             
         let msg = if target <= PlayerId 0 then "不发技能"
-                  else $"技能发给 {(target |> game.GetEntity).Player.ToCliString ()}"
+                  else $"技能发给 {(target |> game.GetEntity).Player.ToInGameString ()}"
         
         if threaten.Force then
             sendMessage { Type = ToPlayer entity.Player
@@ -211,6 +209,10 @@ let getSenderName (game: GameContext) (skill :SendingSkill) =
     getHandlerName handler entity
     
 let getPlayerName (game: GameContext) (player : PlayerId)=
+    let entity = game.GetEntity player
+    entity.Player.BaseName
+    
+let getPlayerNameAnonymous (game: GameContext) (player : PlayerId)=
     let entity = game.GetEntity player
     entity.Player.Name
     

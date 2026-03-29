@@ -39,8 +39,8 @@ type ShiWuSkill =
             let! (main, game), night = State.get
             let target = sending |> getRealTarget
             let sender = sending |> getSenderName game
-            let recv = target |> getPlayerName game
             if target |> isDoged night then
+                let recv = target |> getPlayerName game
                 let night = night.AddMessage $"{sender}想绑架{recv}，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
@@ -48,7 +48,8 @@ type ShiWuSkill =
 
             let source = sending |> getSource
             let tEntity = target |> game.GetEntity
-            sendMessage { Type = Public ; Content = $"{recv}被{sender}绑架了！" }
+            let aRecv = target |> getPlayerNameAnonymous game
+            sendMessage { Type = Public ; Content = $"{aRecv}被{sender}绑架了！" }
             let game =
                 if this.Broadcast |> not then game else
                 let h = tEntity |> Entity.getQueriedHandler main.Rng
@@ -62,8 +63,8 @@ type ShiWuSkill =
                     let tEntity = tEntity |> exposeIfShiWu h
                     let game = game.UpdateEntity tEntity
                     let name = tEntity |> Entity.getHandlerName h
-                    sendMessage { Type = Public; Content = $"{sender}公开了{recv}的身份！" }
-                    sendMessage { Type = Public; Content = $"{recv}是{name}" }
+                    sendMessage { Type = Public; Content = $"{sender}公开了{aRecv}的身份！" }
+                    sendMessage { Type = Public; Content = $"{aRecv}是{name}" }
                     game
 
             let tEntity = { tEntity with State.Kidnapped = source :: tEntity.State.Kidnapped }
@@ -74,6 +75,8 @@ type ShiWuSkill =
                 if idx.IsEmpty then night else
                 let i, ps = idx |> List.randomChoiceWith main.Rng
                 let ps = { ps with Kidnapped = true }
+                let p = (game.GetEntity ps.Source).Player
+                sendMessage { Type = ToPlayer p ; Content = $"你的{ps.Type}技能被绑架禁用" }
                 let pending = pending |> List.updateAt i ps
                 let night = { night with PendingSkills = pending }
                 night

@@ -238,7 +238,7 @@ let private createPendingSkills (entities: Entity list) (rng : Random) =
         if remaining = 0 || list.Length = 0 then list else
         let list = list |> List.randomShuffleWith rng
         let blocked = list.Head
-        sendMessage { Type = ToPlayer player; Content = $"你的{blocked.Type.ToString()}被禁用" }
+        sendMessage { Type = ToPlayer player; Content = $"你的{blocked.Type.ToString()}技能被脚滑人禁用" }
         jiaoHuaBlock (remaining - 1) list.Tail player
     let mutable result = []
     for e in entities do
@@ -356,11 +356,18 @@ let rec private involveIfDogeSummary (target: Entity) (context: SkillContext) (l
     c, l
 
 let nightSummary (night: NightContext) = monad {
+    let! (main: MainContext, game : GameContext) = State.get
+    
+    let players = main.Players |> List.map (fun p -> { p with Anonymous = false })
+    let main = { main with Players = players }
+    let entities = game.Entities |> List.map (fun e ->
+        let p = e.Player
+        { e with Player = { p with Anonymous = false } })
+    let game = { game with Entities = entities }
+    
     sendMessage { Type = Public; Content = "今晚" }
     for msg in night.Messages do
         sendMessage { Type = Public ; Content = msg }
-    
-    let! (main: MainContext, game : GameContext) = State.get
     
     // 虫子
     

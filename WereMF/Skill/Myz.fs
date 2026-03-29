@@ -28,7 +28,7 @@ type MyzSkill =
             let game = entity |> game.UpdateEntity
             let sender = sending |> getSenderName game
             sendMessage { Type = Public; Content = $"{sender}自爆了身份！" }
-            sendMessage { Type = Public; Content = $"{entity.Player.Name}是{sender}" }
+            sendMessage { Type = Public; Content = $"{source |> getPlayerNameAnonymous game}是{sender}" }
             sendMessage { Type = Public; Content = $"{sender}今晚的威胁将强制生效！" }
             do! State.put ((main, game), night)
             this

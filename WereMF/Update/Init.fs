@@ -25,7 +25,7 @@ let initPlayers () =
         }
         let players = requestInputWithMessage inputMsg parser
         let pList = [1..players.Length]
-                    |> List.map (fun i -> { Id = PlayerId i ; Name = players[i - 1] })
+                    |> List.map (fun i -> Player.New (PlayerId i)  players[i - 1])
         let main = { main with Players = pList }
         do! State.put main
         let pMessage = pList |> List.map (fun p -> p.ToInGameString() + "\n") |> List.reduce (+)

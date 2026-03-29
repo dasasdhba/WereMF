@@ -32,8 +32,29 @@ let rollAskLeaf () =
     requestInputWithMessage msg parseBool
 
 let rollDraw (r :RollResult) = monad { 
-    let! main = Reader.ask
+    let! main = State.get
     let rng = main.Rng
+    
+    let msg = {
+        Type = Internal
+        Content = "第一晚是否匿名？(1: 是；0: 否)"
+    }
+    let anonymous = requestInputWithMessage msg parseBool
+    
+    let main =
+        if anonymous |> not then
+            let players =
+                main.Players |> List.map (fun p -> { p with Anonymous = false })
+            { main with Players = players }
+        else
+        
+        let idp =
+            main.Players |> List.randomShuffleWith rng |> List.indexed
+        let players =
+            idp |> List.map (fun (i, p) -> { p with Id = PlayerId (i + 1) ; Anonymous = true })
+        { main with Players = players }
+    do! State.put main
+    
     let count = main.Players.Length
     let leaf = if count <= minPlayer then false
                 elif count >= maxPlayer then true
@@ -94,7 +115,7 @@ let rollReset (roll : RollResult) = monad {
         let newRolls = r.Rolls |> List.map (fun s ->
             if s = p then newP else s
         )
-        loop {r with Rolls = newRolls }
+        loop { r with Rolls = newRolls }
         
     loop roll
 }
@@ -145,10 +166,9 @@ let createEntities (r : RollResult) =
 let rollUpdate () = monad {
     let! main = State.get
     let roll = main.Roll
-    let run f = Reader.run f main
-    let r = run (rollDraw roll)
-    let r = run (rollReset r)
-    let r = run (rollSetLeaf r)
+    let r, main = State.run (rollDraw roll) main
+    let r = Reader.run (rollReset r) main
+    let r = Reader.run (rollSetLeaf r) main
     let main = { main with Roll = r }
     do! State.put main
     let entities = createEntities r

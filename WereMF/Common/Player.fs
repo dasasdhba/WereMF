@@ -20,9 +20,14 @@ type PlayerId =
 type Player =
     {
         Id : PlayerId
-        Name : string
+        BaseName : string
+        Anonymous : bool
     }
+    static member New id name =
+        { Id = id ; BaseName = name ; Anonymous = false }
+    member this.Name =
+        if this.Anonymous then $"玩家{this.Id}" else this.BaseName
     member this.ToCliString() =
-        $"{this.Id.ToString()}: {this.Name}"
+        $"{this.Id.ToString()}: {this.BaseName}"
     member this.ToInGameString() =
         $"{this.Id.ToCircleString()}{this.Name}"
