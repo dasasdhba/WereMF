@@ -18,6 +18,6 @@ type MoleRole =
             Priority = 0
             SummaryName = Mole.ToString ()
         }
-    interface IRoleUpdateOnNightStart with
+    interface IRoleUpdateOnNightInit with
         member this.Update () =
             { this with RedGround = false }
