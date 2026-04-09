@@ -392,7 +392,6 @@ module Entity =
             { entity with State.PaoXianParty = members |> List.map (fun m -> m.Player.Id) }
         
     let updateOnNightInit entity =
-        if entity.State |> EntityState.isDead then entity else
         { entity with Role = entity.Role |> Role.updateOnNightInit }
     
     let updateOnNightStart main entity =

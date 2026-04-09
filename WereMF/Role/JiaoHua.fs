@@ -31,7 +31,7 @@ type JiaoHuaRole =
             Priority = 5
             SummaryName = JiaoHua.ToString ()
         }
-    interface IRoleUpdateOnNightStart with
+    interface IRoleUpdateOnNightInit with
         member this.Update () =
             { this with VoteBlock = false }
     interface IRoleUpdateOnDead with
