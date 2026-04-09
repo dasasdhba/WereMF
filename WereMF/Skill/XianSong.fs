@@ -92,6 +92,7 @@ type XianSongSkill =
                 else
 
                 let th = th.Value
+                let tEntity = target |> game.GetEntity
                 let tEntity = tEntity |> exposeIfShiWu th
                 let game = game.UpdateEntity tEntity
                 do! State.put ((main, game), night)

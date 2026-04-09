@@ -46,7 +46,6 @@ type FenXiaSkill =
             let entity = source |> game.GetEntity
             let handler = sending |> getHandler
             let target = sending |> getRealTarget
-            let tEntity = target |> game.GetEntity
             let remain = entity |> getFromRoleWithHandler
                             (fun f -> f.FenCount)
                             handler
@@ -66,6 +65,7 @@ type FenXiaSkill =
                 do! State.put ((main, game), night)
                 skill
             else
+                let tEntity = target |> game.GetEntity
                 if tEntity.State |> EntityState.isDead && tEntity.State.Dead.Name = "???" then
                     sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
                     skill
@@ -91,6 +91,7 @@ type FenXiaSkill =
 
                 sendMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () }
                 let role = createRole main.Roll chara
+                let entity = source |> game.GetEntity
                 let entity = entity |> updateRoleWithHandler
                                  (fun (f: FenXiaRole) -> { f with CopiedRoles = f.CopiedRoles @ [role] })
                                  handler
