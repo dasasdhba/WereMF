@@ -17,7 +17,7 @@ type ShiWuRole =
             Priority = 7
             SummaryName = ShiWu.ToString ()
         }
-    interface IRoleUpdateOnNightStart with
+    interface IRoleUpdateOnNightInit with
         member this.Update () =
             { this with Exposed = false }
     interface IRoleUpdateOnDayStart with
