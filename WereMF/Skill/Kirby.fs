@@ -32,7 +32,7 @@ type KirbySkill =
             let source = sending |> getSource
             let entity = source |> game.GetEntity
             if sending.Spring.IsSome then
-                sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } "kirby_skill_fail_by_spring_notify"
                 this
             else
 
@@ -40,7 +40,7 @@ type KirbySkill =
             let sender = sending |> getSenderName game
             let recv = target |> getPlayerName game
             if target |> isDoged night then
-                sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } "kirby_skill_fail_by_doge_notify"
                 let night = night.AddMessage $"{sender}想吸入{recv}，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
@@ -71,10 +71,10 @@ type KirbySkill =
                 let th = tEntity.Role |> getQueriedHandler main.Rng
                 let chara = tEntity |> getHandlerCharaType th
                 if chara = Kirby || chara = Leaf then
-                    sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
+                    sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } "kirby_skill_fail_by_invalid_chara_notify"
                     None
                 else
-                    sendMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () }
+                    sendRawMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () } "kirby_skill_success_chara_notify"
                     let role = chara |> createRole main.Roll
                     let handler = sending |> getHandler
                     let entity = entity |> updateRoleWithHandler
@@ -98,4 +98,4 @@ let kirbySendSkill ps game =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r KirbySkill |> Some ])
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_kirby_skill" filter parser def

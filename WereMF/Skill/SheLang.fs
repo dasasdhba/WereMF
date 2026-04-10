@@ -74,4 +74,4 @@ let sheLangSendSkill ps (game: GameContext) =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r (SheLangSkill.New ()) |> Some ])
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_shelang_skill" filter parser def

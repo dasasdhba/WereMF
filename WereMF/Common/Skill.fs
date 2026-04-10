@@ -1,5 +1,8 @@
 namespace WereMF.Common
 
+open System
+open FSharp.Data
+
 type RoleFunctor =
     {
         /// OwnerRole -> Role
@@ -50,14 +53,30 @@ type ThreatenSkill = {
     Force : bool
 }
 
-type PendingSkill = {
-    Handler : RoleHandler
-    Type : CharaType
-    Source : PlayerId
-    Priority : int
-    Threaten : ThreatenSkill option
-    Kidnapped : bool
-}
+type PendingSkill =
+    {
+        Id : Guid
+        Handler : RoleHandler
+        Type : CharaType
+        Source : PlayerId
+        Priority : int
+        Threaten : ThreatenSkill option
+        Kidnapped : bool
+    }
+    member this.ToJsonValue () = JsonValue.Record [|
+        "id", JsonValue.String (this.Id.ToString("N"))
+        "type", this.Type.ToJsonValue ()
+        "source_player_id", this.Source.ToJsonValue ()
+        "priority", JsonValue.Number (decimal this.Priority)
+        "kidnapped", JsonValue.Boolean this.Kidnapped
+        "threaten", (match this.Threaten with
+                     | Some threaten ->
+                         JsonValue.Record [|
+                             "target", threaten.Target.ToJsonValue ()
+                             "force", JsonValue.Boolean threaten.Force
+                         |]
+                     | None -> JsonValue.Null)
+    |]
 
 type SpringType =
     | Normal

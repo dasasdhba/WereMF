@@ -34,7 +34,7 @@ type MoleSkill =
             let game, night, skill, success =
                 match r with
                 | 1 ->
-                    sendMessage { Type = ToPlayer player; Content = "成功" }
+                    sendRawMessage { Type = ToPlayer player; Content = "成功" } "mole_skill_success_notify"
                     game, night, this, true
                 | 2 when red |> not ->
                     let entity = entity |> updateRoleWithHandler
@@ -42,7 +42,7 @@ type MoleSkill =
                                     handler
                     let game = game.UpdateEntity entity
                     let msg = { Type = ToPlayer player; Content = "红土地，要再突击一次吗？（1：突击；0：放弃）" }
-                    let yes = requestInputWithMessage msg parseBool
+                    let yes = requestInputWithRawMessage msg "request_mole_red_ground" parseBool
                     if yes then
                         let ps = createPendingSkill handler entity
                         let night = { night with PendingSkills = ps :: night.PendingSkills }
@@ -50,7 +50,7 @@ type MoleSkill =
                     else
                         game, night, this, true
                 | 2 when red ->
-                    sendMessage { Type = ToPlayer player; Content = "红土地，你死了" }
+                    sendRawMessage { Type = ToPlayer player; Content = "红土地，你死了" } "mole_red_twice_notify"
                     game, night, { this with Dead = true }, false
                 | _ ->
                     let roll = roll |> List.updateAt i 1
@@ -58,7 +58,7 @@ type MoleSkill =
                                     (fun m -> { m with Roll = roll })
                                     handler
                     let game = game.UpdateEntity entity
-                    sendMessage { Type = ToPlayer player; Content = "失败" }
+                    sendRawMessage { Type = ToPlayer player; Content = "失败" } "mole_skill_fail_notify"
                     game, night, this, false
             
             if success |> not then
@@ -90,7 +90,7 @@ type MoleSkill =
             let sender = sending |> getSenderName game
             
             if this.Dead then
-                sendMessage { Type = Public ; Content = $"{sender}两次冲到了红土地上！" }
+                sendRawMessage { Type = Public ; Content = $"{sender}两次冲到了红土地上！" } "mole_red_twice_broadcast"
                 Some {
                     Target = entity
                     Request = DeadRequest.FromSelf sender Kill
@@ -103,13 +103,13 @@ type MoleSkill =
             let target = sending |> getRealTarget
             let tEntity = target |> game.GetEntity
             if sending.Spring.IsNone then
-                sendMessage { Type = Public; Content = $"{recv}被{sender}突击了！" }
+                sendRawMessage { Type = Public; Content = $"{recv}被{sender}突击了！" } "mole_kill_broadcast"
                 Some {
                     Target = tEntity
                     Request = DeadRequest.New Kill
                 }
             else
-                sendMessage { Type = Public; Content = $"{sender}想突击{recv}，被弹簧弹回！" }
+                sendRawMessage { Type = Public; Content = $"{sender}想突击{recv}，被弹簧弹回！" } "mole_kill_spring_broadcast"
                 Some {
                     Target = tEntity
                     Request = DeadRequest.FromSelf sender Kill
@@ -128,4 +128,4 @@ let moleSendSkill ps game =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r (MoleSkill.New ()) |> Some ])
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_mole_skill" filter parser def

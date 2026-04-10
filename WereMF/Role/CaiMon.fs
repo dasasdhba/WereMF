@@ -46,7 +46,7 @@ type CaiMonRole =
             
             let! entity, bind = State.get
             let msg = { Type = ToPlayer entity.Player ; Content = "用一根彩条复活吗？（1：是；0：否）" }
-            let yes = requestInputWithMessage msg parseBool
+            let yes = requestInputWithRawMessage msg "request_caimon_reborn" parseBool
             if yes |> not then None else
             
             let role = { this with RebornRound = Some 1 ; CaiCount = this.CaiCount - 1 }

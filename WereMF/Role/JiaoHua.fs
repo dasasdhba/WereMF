@@ -7,6 +7,7 @@ open WereMF.Common
 open WereMF.Module
 open WereMF.Module.Cli
 open WereMF.Module.Role
+open WereMF.Module.Skill
 open WereMF.State
 
 let private voteJiaoHuaFilter (game: GameContext) = function
@@ -46,13 +47,19 @@ type JiaoHuaRole =
             
             if entity.State |> EntityState.isDead |> not || this.VoteBlock |> not then this else
             let game =
+                let filter p = p |> voteJiaoHuaFilter game
                 if game.Entities |> List.exists (fun p ->
-                    Ok p.Player.Id |> voteJiaoHuaFilter game |> Result.isOk ) |> not then game else
+                    Ok p.Player.Id |> filter |> Result.isOk) |> not then game else
                 
                 let parser input =
                     input |> parsePlayerId |> voteJiaoHuaFilter game
-                sendMessage { Type = Public ; Content = $"{player.Name}可以禁票一人" }
-                let msg = { Type = ToPlayer player ; Content = "输入要禁票的玩家编号，输入 0 放弃" }
+                sendRawMessage { Type = Public ; Content = $"{player.Name}可以禁票一人" } "jiaohua_vote_block_broadcast"
+                let msg = {
+                    Type = ToPlayer player
+                    Content = "输入要禁票的玩家编号，输入 0 放弃"
+                    Api = "request_jiaohua_vote_block"
+                    Data = game.Entities |> createInvalidChoiceArray filter
+                }
                 let r = requestInputWithMessage msg parser
                 if r <= PlayerId 0 then game else
                 let e = game.GetEntity r

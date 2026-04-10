@@ -111,7 +111,7 @@ type FenXiaRole =
             if dead = Force || this.RebornRound.IsSome || this.FenCount <= 1 then None else
             let entity, bind = context
             let msg = { Type = ToPlayer entity.Player ; Content = "用一根粉条复活吗？（1：是；0：否）" }
-            let yes = requestInputWithMessage msg parseBool
+            let yes = requestInputWithRawMessage msg "request_fenxia_reborn" parseBool
             if yes |> not then None else
             
             let role = { this with RebornRound = Some 1 ; FenCount = this.FenCount - 1 }

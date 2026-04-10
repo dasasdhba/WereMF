@@ -8,6 +8,7 @@ open WereMF.Module
 open WereMF.Module.Cli
 open WereMF.Module.Entity
 open WereMF.Module.Role
+open WereMF.Module.Skill
 
 type JiangXianRole =
     {
@@ -29,7 +30,13 @@ type JiangXianRole =
             let! day = State.get
             
             if entity.State |> EntityState.isDead |> not then
-                let msg = { Type = ToPlayer entity.Player; Content = "输入你真正想投的票" }
+                let filter p = voteTargetFilter entity.Player.Id game p
+                let msg = {
+                    Type = ToPlayer entity.Player
+                    Content = "输入你真正想投的票"
+                    Api = "request_jiangxian_real_vote"
+                    Data = game.Entities |> createInvalidChoiceArray filter
+                }
                 let parser = parsePlayerId >> (voteTargetFilter entity.Player.Id game)
                 let result = requestInputWithMessage msg parser
                 let state = day.GetPlayerVote entity.Player.Id
@@ -37,15 +44,22 @@ type JiangXianRole =
                 let day = day.SetPlayerVote state
                 do! State.put day
                 this
-            elif this.DeadVoted then this else
-            
-            let msg = { Type = ToPlayer entity.Player; Content = "你有一次死亡后投票的机会，输入你想投票的玩家，输入 0 放弃" }
-            let parser = parsePlayerId >> (voteTargetFilter entity.Player.Id game)
-            let result = requestInputWithMessage msg parser
-            if result <= PlayerId 0 then this else
-            let state = day.GetPlayerVote entity.Player.Id
-            let state = { state with Target = Some result }
-            let day = day.SetPlayerVote state
-            do! State.put day
-            { this with DeadVoted = true }
+            elif this.DeadVoted then
+                this
+            else
+                let filter p = voteTargetFilter entity.Player.Id game p
+                let msg = {
+                    Type = ToPlayer entity.Player
+                    Content = "你有一次死亡后投票的机会，输入你想投票的玩家，输入 0 放弃"
+                    Api = "request_jiangxian_dead_vote"
+                    Data = game.Entities |> createInvalidChoiceArray filter
+                }
+                let parser = parsePlayerId >> (voteTargetFilter entity.Player.Id game)
+                let result = requestInputWithMessage msg parser
+                if result <= PlayerId 0 then this else
+                let state = day.GetPlayerVote entity.Player.Id
+                let state = { state with Target = Some result }
+                let day = day.SetPlayerVote state
+                do! State.put day
+                { this with DeadVoted = true }
         }

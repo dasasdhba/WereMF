@@ -3,6 +3,7 @@ module WereMF.Module.Cli
 open System
 open System.IO
 open System.Text.RegularExpressions
+open FSharp.Data
 open FSharpPlus
 open WereMF.Common
 
@@ -52,12 +53,27 @@ type Message =
     {
         Type : MessageType
         Content : string
+        Api : string
+        Data : JsonValue
     }
     override this.ToString() =
         match this.Type with
         | Internal -> $"[Internal] {this.Content}"
         | Public -> $"[Public] {this.Content}"
         | ToPlayer p -> $"[ToPlayer {p.ToCliString()}] {this.Content}"
+    member this.ToJsonValue () = JsonValue.Record [|
+        "api", JsonValue.String this.Api
+        "message_type", (match this.Type with
+                         | Internal -> JsonValue.String "internal"
+                         | Public -> JsonValue.String "public"
+                         | ToPlayer p -> JsonValue.String $"player_{p.Id}"
+                         )
+        "message_content", JsonValue.String this.Content
+        "data", this.Data
+    |]
+
+let sendApi (message: Message) =
+    if cliApi then Console.WriteLine (message.ToJsonValue().ToString())
 
 let sendMessage (message : Message) =
     if cliLog then
@@ -66,7 +82,23 @@ let sendMessage (message : Message) =
     if cliSilent then
         ()
     else
-        Console.WriteLine message
+        Console.WriteLine (if cliApi then message.ToJsonValue().ToString() else message.ToString())
+
+type RawMessage =
+    {
+        Type : MessageType
+        Content : string
+    }
+    member this.ToMessage api = {
+        Type = this.Type
+        Content = this.Content
+        Api = api
+        Data = JsonValue.Null
+    }
+        
+let sendRawMessage (raw : RawMessage) api =
+    let message = raw.ToMessage api
+    sendMessage message
 
 type CommandType =
     | Undo
@@ -204,31 +236,31 @@ let parseCommand (input : string) =
     match input with
     | "\\undo" ->
         if cliUndo |> List.isEmpty then
-            sendMessage { Type = Internal ; Content = "撤销列表为空" }
+            sendRawMessage { Type = Internal ; Content = "撤销列表为空" } "command_error"
             Error true
         else
             Ok Undo
     | "\\redo" ->
         if cliRedo |> List.isEmpty then
-            sendMessage { Type = Internal ; Content = "重做列表为空" }
+            sendRawMessage { Type = Internal ; Content = "重做列表为空" } "command_error"
             Error true
         else
             Ok Redo
     | "\\reboot" ->
         if cliUndo |> List.isEmpty then
-            sendMessage { Type = Internal ; Content = "游戏还没开始" }
+            sendRawMessage { Type = Internal ; Content = "游戏还没开始" } "command_error"
             Error true
         else
             Ok Reboot
     | "\\restart" ->
         if cliUndo |> List.isEmpty  then
-            sendMessage { Type = Internal ; Content = "请先输入玩家" }
+            sendRawMessage { Type = Internal ; Content = "请先输入玩家" } "command_error"
             Error true
         else
             Ok Restart
     | s when s.StartsWith "\\rename" ->
         if cliUndo |> List.isEmpty  then
-            sendMessage { Type = Internal ; Content = "请先输入玩家" }
+            sendRawMessage { Type = Internal ; Content = "请先输入玩家" } "command_error"
             Error true
         else
         
@@ -238,12 +270,12 @@ let parseCommand (input : string) =
             let id = parseInt id
             match id with
             | Error e ->
-                sendMessage { Type = Internal ; Content = e }
+                sendRawMessage { Type = Internal ; Content = e } "command_error"
                 Error true
             | Ok id ->
                 Ok (Rename (id, name))
         | _ ->
-            sendMessage { Type = Internal ; Content = "请输入要重命名的玩家编号和新的玩家名" }
+            sendRawMessage { Type = Internal ; Content = "请输入要重命名的玩家编号和新的玩家名" } "command_error"
             Error true
     | "\\log" -> Ok Log
     | "\\night" -> Ok NightSummary
@@ -252,13 +284,13 @@ let parseCommand (input : string) =
     | "\\vote" -> Ok VoteSummary
     | "\\exit" -> Ok Exit
     | _ -> Error false
-
-let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =
+    
+let requestInputWithMessage (message : Message) (parser : string -> Result<'a, string>) =
     let rec loop () =
         let input = if cliReplay |> List.isEmpty then
                         cliLog <- false
                         cliSilent <- false
-                        Console.WriteLine msg
+                        sendMessage message
                         Console.ReadLine()
                     else cliReplay.Head
         let command = parseCommand input
@@ -273,19 +305,14 @@ let requestInputWith (msg : string) (parser : string -> Result<'a, string>) =
                     cliRedo <- []
                 else
                     if cliLog then
-                        File.AppendAllText(cliLogName, msg + "\n" + cliReplay.Head + "\n", System.Text.Encoding.UTF8)
+                        File.AppendAllText(cliLogName, message.ToString() + "\n" + cliReplay.Head + "\n", System.Text.Encoding.UTF8)
                     cliReplay <- cliReplay.Tail
                 result
-            | Error msg -> 
-                Console.WriteLine msg
+            | Error msg ->
+                sendRawMessage { Type = message.Type ; Content = msg } $"{message.Api}_parse_error"
                 loop ()
     loop ()
     
-let requestInputWithMessage (message : Message) (parser : string -> Result<'a, string>) =
-    let mParser = fun s ->
-        match parser s with
-        | Ok result -> Ok result
-        | Error msg ->
-            let errMsg = { Type = message.Type ; Content = msg }
-            Error (errMsg.ToString())
-    requestInputWith (message.ToString()) mParser
+let requestInputWithRawMessage (raw : RawMessage) (api : string) (parser : string -> Result<'a, string>) =
+    let message = raw.ToMessage api
+    requestInputWithMessage message parser

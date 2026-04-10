@@ -21,7 +21,7 @@ type JiaoHuaSkill =
             
             // 烟雾
             if handler.IsNone then
-                sendMessage { Type = ToPlayer player; Content = "失败" }
+                sendRawMessage { Type = ToPlayer player; Content = "失败" } "jiaohua_skill_failed_by_smog"
                 this
             else
             
@@ -32,7 +32,7 @@ type JiaoHuaSkill =
             do! State.put ((main, game), night)
             
             let name = entity |> getHandlerName handler
-            sendMessage { Type = ToPlayer player; Content = name }
+            sendRawMessage { Type = ToPlayer player; Content = name } "jiaohua_skill_result_notify"
             this
         }
 
@@ -48,5 +48,5 @@ let jiaoHuaSendSkill ps game =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ (Skill.New ps r JiaoHuaSkill) |> Some ])
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_jiaohua_skill" filter parser def
 

@@ -67,7 +67,7 @@ type DogeSkill =
             let! (main, game), night = State.get
             let source = sending |> getSource
             let entity = source |> game.GetEntity
-            sendMessage { Type = Public ; Content = $"{entity.Player.Name}自爆了！" }
+            sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}自爆了！" } "doge_suicide_broadcast"
             Some {
                 Target = entity
                 Request = DeadRequest.New Force
@@ -115,7 +115,7 @@ let dogeSendSkill ps (game: GameContext) =
     let filter = giveUpOrFilterWith filter
     let def () =
         let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择是否自爆（1：是；0：否）" }
-        let yes = requestInputWithMessage msg parseBool
+        let yes = requestInputWithRawMessage msg "request_doge_skill_force_threaten" parseBool
         { IsSuicide = yes ; Success = None } :> ISkill
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! target, isSuicide = parseDogeInput input
@@ -125,4 +125,4 @@ let dogeSendSkill ps (game: GameContext) =
         [ dogeSkill |> Some ]
     }
     
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_doge_skill" filter parser def

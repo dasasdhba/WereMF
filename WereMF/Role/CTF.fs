@@ -39,7 +39,7 @@ type CTFRole =
             if totalBug <= 0 then None else
             
             let msg = { Type = ToPlayer entity.Player ; Content = "移动一只 bug 到自己身上并复活吗？（1：是；0：否）" }
-            let yes = requestInputWithMessage msg parseBool
+            let yes = requestInputWithRawMessage msg "request_ctf_reborn" parseBool
             if yes |> not then None else
                 
             let bugPlayer = game.Entities |> List.filter (

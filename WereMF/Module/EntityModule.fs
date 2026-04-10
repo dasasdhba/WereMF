@@ -227,7 +227,7 @@ module Entity =
                      | Sudden -> "暴毙了"
                      | Force -> "暴毙了"
                      | Vote -> "出局"
-        sendMessage { Type = Public ; Content = $"{header}{reason}" }
+        sendRawMessage { Type = Public ; Content = $"{header}{reason}" } "player_dead_broadcast"
         let context, result = entity.Role |> tryPreventDead request.DeadType context
         if result.IsSome then
             let value = result.Value
@@ -238,7 +238,7 @@ module Entity =
                                            |> EntityState.updateOnDeadButReborn
                                            |> value.StateSetter }
             let game = game.UpdateEntity entity
-            sendMessage { Type = Public ; Content = $"但是{header}复活了" }
+            sendRawMessage { Type = Public ; Content = $"但是{header}复活了" } "player_dead_reborn_broadcast"
             entity, (main, game)
         else
             let revealNormal () =
@@ -246,7 +246,7 @@ module Entity =
                 let h = entity |> getQueriedHandler main.Rng
                 let name = entity |> getDeadName h
                 let reveal = entity |> request.GetReveal name
-                sendMessage { Type = Public ; Content = reveal }
+                sendRawMessage { Type = Public ; Content = reveal } "player_dead_reveal_broadcast"
                 let entity = { entity with State.Dead = { Dead = true ; Name = name } } |> updateOnDead request.DeadType
                 let game = game.UpdateEntity entity
                 entity, (main, game)
@@ -254,7 +254,7 @@ module Entity =
             | :? IRoleLeaf as leaf when leaf.Fury |> not ->
                 let context = revealNormal ()
                 let entity, (main, game) = context
-                sendMessage { Type = Public ; Content = $"{entity.Player.Name}是叶子" }
+                sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}是叶子" } "leaf_dead_p1_broadcast"
                 let entity = { entity with
                                    State.Dead.Dead = false
                                    State.Dead.Name = ""
@@ -263,7 +263,7 @@ module Entity =
                 let game = game.UpdateEntity entity
                 entity, (main, game)
             | :? IRoleLeaf ->
-                sendMessage { Type = Public ; Content = "叶子是叶子" }
+                sendRawMessage { Type = Public ; Content = "叶子是叶子" } "leaf_dead_p2_broadcast"
                 let entity, (main, game) = context
                 let entity = { entity with State.Dead = { Dead = true ; Name = "叶子" } } |> updateOnDead request.DeadType
                 let game = game.UpdateEntity entity
@@ -296,7 +296,7 @@ module Entity =
         let state = { entity.State with Reborn = updateRebornState entity.State.Reborn }
         let state =
             if state |> EntityState.isDead && state.Reborn.IsSome && state.Reborn.Value.Reborn then
-                sendMessage { Type = ToPlayer entity.Player ; Content = "你复活了" }
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "你复活了" } "player_reborn_notify"
                 { state with Dead.Dead = false }
             else
                 state
@@ -318,14 +318,14 @@ module Entity =
         let e, _ = context
         if e.State.Bomb <= 0 then context else
             
-        sendMessage { Type = Public ; Content = $"{e.Player.Name}身上的炸药爆炸了！" }
+        sendRawMessage { Type = Public ; Content = $"{e.Player.Name}身上的炸药爆炸了！" } "tnt_boom_broadcast"
         requestDead (DeadRequest.New Kill) context
     
     let private updateOnNightStartXianSong (context : DeadContext) =
         let e, _ = context
         if e.State.XianSong <= 0 then context else
             
-        sendMessage { Type = Public ; Content = $"{e.Player.Name}身上的咸松球爆炸了！" }
+        sendRawMessage { Type = Public ; Content = $"{e.Player.Name}身上的咸松球爆炸了！" } "xiansong_boom_broadcast"
         requestDead (DeadRequest.New Sudden) context
     
     let private updateOnNightStartMyz (context : DeadContext) =
@@ -334,7 +334,7 @@ module Entity =
             context
         else
         
-        sendMessage { Type = Public ; Content = $"{entity.Player.Name}无视了威胁！" }
+        sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}无视了威胁！" } "myz_ignore_broadcast"
         requestDead (DeadRequest.New Kill) context
     
     let updateOnNightStartRequestDead (context: DeadContext) =
@@ -382,14 +382,16 @@ module Entity =
             )
         if roll.Rolls.Length = 7 then
             let m = members |> List.randomChoiceWith main.Rng
-            sendMessage { Type = ToPlayer entity.Player
-                          Content = $"队友：{(m.PlayerId |> main.GetPlayer).ToInGameString ()}" }
+            sendRawMessage
+                { Type = ToPlayer entity.Player
+                  Content = $"队友：{(m.PlayerId |> main.GetPlayer).ToInGameString ()}" }
+                "paoxian_party_notify"
             { entity with State.PaoXianParty = m.PlayerId :: party }
         else
             let msg = members
                       |> List.map (fun m -> (m.PlayerId |> main.GetPlayer).ToInGameString ())
                       |> String.concat "，"
-            sendMessage { Type = ToPlayer entity.Player ; Content = $"队友：{msg}" }
+            sendRawMessage { Type = ToPlayer entity.Player ; Content = $"队友：{msg}" } "paoxian_party_notify"
             { entity with State.PaoXianParty = members |> List.map (fun m -> m.PlayerId) }
         
     let updateOnNightInit entity =
@@ -436,7 +438,7 @@ module Entity =
         
     let private updateThreatenOnVoteStart (game: GameContext) (day: DayContext) (entity: Entity) =
         if entity.State.Threaten.IsNone then () else
-        sendMessage { Type = Public ; Content = $"{entity.Player.Name}昨晚被威胁，白天无法行动" }
+        sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}昨晚被威胁，白天无法行动" } "myz_threaten_block_broadcast"
     
     let private updateBombOnVoteEnd (entity : Entity) (day: DayContext) (game : GameContext)  =
         let t = (day.GetPlayerVote entity.Player.Id).GetTarget()
@@ -478,7 +480,8 @@ module Entity =
 
     let createPendingSkill (handler: RoleHandler) (entity: Entity) =
         let role = handler.GetFromEntity entity
-        {
+        let skill = {
+            Id = Guid.NewGuid ()
             Handler = handler
             Type = role |> Role.getCharaType
             Source = entity.Player.Id
@@ -486,6 +489,13 @@ module Entity =
             Threaten = None
             Kidnapped = entity.State.Kidnapped.Length > 0
         }
+        sendApi {
+            Type = Internal
+            Content = ""
+            Api = "pending_skill_created"
+            Data = skill.ToJsonValue ()
+        }
+        skill
     
     let getValidCharaTypes entity =
         let handlers = entity.Role |> getValidHandlers

@@ -53,6 +53,11 @@ type KirbyRole =
                 let msg = {
                     Type = ToPlayer player
                     Content = $"是否使用复制技能（{chara.ToString()}）？（1：使用；0：放弃并使用吸入技能）"
+                    Api = "request_kirby_using_copy_skill"
+                    Data = JsonValue.Record [|
+                        "chara_type", chara.ToJsonValue ()
+                        "data", role.ToJsonValue ()
+                    |]
                 }
 
                 let yes = requestInputWithMessage msg parseBool

@@ -97,6 +97,7 @@ type EntityState =
         JsonValue.Record [|
             "is_bar_leader", JsonValue.Boolean this.BarLeader.IsSome
             "is_dead", JsonValue.Boolean this.Dead.Dead
+            "is_dead_public", JsonValue.Boolean (this.Dead.Name <> "")
             "dead_showing_name", JsonValue.String this.Dead.Name
             "reversed", JsonValue.Boolean this.Reversed
             "smog_count", JsonValue.Number (decimal this.SmogCount)

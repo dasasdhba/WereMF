@@ -1,5 +1,7 @@
 module WereMF.Module.Skill
 
+open System.Text.Json.Nodes
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -59,8 +61,8 @@ let private getThreatenResult filter (creator: unit -> ISkill)
     ps.Threaten |> Option.bind (fun threaten ->
         let target = threaten.Target
         if Ok target |> filter |> Result.isError then
-            sendMessage { Type = ToPlayer (threaten.Source |> game.GetEntity).Player
-                          Content = "威胁失败" }
+            sendRawMessage { Type = ToPlayer (threaten.Source |> game.GetEntity).Player
+                             Content = "威胁失败" } "myz_threat_failed_notify"
             None
         else
             
@@ -68,14 +70,14 @@ let private getThreatenResult filter (creator: unit -> ISkill)
                   else $"技能发给 {(target |> game.GetEntity).Player.ToInGameString ()}"
         
         if threaten.Force then
-            sendMessage { Type = ToPlayer entity.Player
-                          Content = $"你被强制威胁{msg}" }
+            sendRawMessage { Type = ToPlayer entity.Player
+                             Content = $"你被强制威胁{msg}" } "myz_threaten_force_notify"
             Some (Ok (if target > PlayerId 0 then
                           Skill.New ps target (creator()) |> Some
                       else None))
         else
-            sendMessage { Type = ToPlayer entity.Player
-                          Content = $"你被威胁{msg}" }
+            sendRawMessage { Type = ToPlayer entity.Player
+                             Content = $"你被威胁{msg}" } "myz_threaten_notify"
             Some (Error threaten.Target)
     )
     
@@ -85,8 +87,26 @@ let private updateThreatenIfViolate targets result entity =
         if targets |> List.contains target then entity
         else { entity with Entity.State.Threaten = Some true }
     | _ -> entity
+
+let createInvalidChoiceArray filter entities =
+    entities |> List.choose (fun e ->
+        match Ok e.Player.Id |> filter with
+        | Ok _ -> None
+        | Error m ->
+            JsonValue.Record [|
+                "id", e.Player.Id.ToJsonValue ()
+                "reason", JsonValue.String m
+            |] |> Some
+    ) |> List.toArray |> JsonValue.Array
+
+let createPendingSkillApi ps filter (game: GameContext) =
+    let entity = game.GetEntity ps.Source
+    JsonValue.Record [|
+        "invalid_choice", game.Entities |> createInvalidChoiceArray filter
+        "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+    |]
     
-let sendSkillWith title filter
+let sendSkillWith title api filter
     (parser: string -> Result<Skill option list, string>) creator ps = monad {
     let! (game: GameContext, night: NightContext) = State.get
     let entity = game.GetEntity ps.Source
@@ -95,8 +115,12 @@ let sendSkillWith title filter
     if game.Entities |> List.exists (fun e ->
         Ok e.Player.Id |> filter |> Result.isOk) |> not then
         let name = entity |> Entity.getHandlerName ps.Handler
-        sendMessage { Type = ToPlayer entity.Player
-                      Content = $"你的{name}技能不可用" }
+        sendMessage {
+            Type = ToPlayer entity.Player
+            Content = $"你的{name}技能不可用"
+            Api = "invalid_pending_skill_notify"
+            Data = ps.ToJsonValue ()
+        }
         ()
     else
     
@@ -107,7 +131,12 @@ let sendSkillWith title filter
         do! State.put (game, night)
         ()
     | _ ->
-        let msg = { Type = ToPlayer entity.Player; Content = title }
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = title
+            Api = api
+            Data = createPendingSkillApi ps filter game
+        }
         let results = requestInputWithMessage msg parser
         let targets = results |> List.map (function
             | Some skill -> skill.Sending.Target
@@ -236,7 +265,7 @@ let involveIfDoge (target: Entity) (context: SkillContext)=
         let entity = game.GetEntity ps.Id
         let name = entity.Player.Name
         let msg = $"{target.Player.Name}保护了{name}"
-        sendMessage { Type = Public ; Content = msg }
+        sendRawMessage { Type = Public ; Content = msg } "doge_involve_broadcast"
         let request = DeadRequest.New Kill
         let dead = entity, (main, game)
         let entity, (main, game) = requestDead request dead

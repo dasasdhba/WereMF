@@ -57,7 +57,7 @@ type DoctorSkill =
             let target = sending |> getRealTarget
             let entity = game.GetEntity target
             let recv = target |> getPlayerName game
-            sendMessage { Type = Public ; Content = $"{recv}被扎了一针" }
+            sendRawMessage { Type = Public ; Content = $"{recv}被扎了一针" } "doctor_skill_broadcast"
             
             let entity = { entity with State = entity.State |> EntityState.addCapsule }
             let game = game.UpdateEntity entity
@@ -78,7 +78,7 @@ type DoctorSkill =
         member this.CanHeal () =
             this.Healed |> not
         member this.Heal target =
-            sendMessage { Type = Public ; Content = $"但是{target}被救活了" }
+            sendRawMessage { Type = Public ; Content = $"但是{target}被救活了" } "doctor_save_broadcast"
             { this with Healed = true }
             
 
@@ -110,4 +110,4 @@ let doctorSendSkill ps (game: GameContext) =
     let def () = DoctorSkill.New () :> ISkill
     let createSkill id = Skill.New ps id (DoctorSkill.New ())
     let parser = parseMultiSkill config filter createSkill
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_doctor_skill" filter parser def
