@@ -1,5 +1,6 @@
 module WereMF.Role.CaiMon
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -19,6 +20,10 @@ type CaiMonRole =
             Priority = 99
             SummaryName = CaiMon.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "cai_count", decimal this.CaiCount |> JsonValue.Number
+            "reborn_list", this.RebornList |> List.mapJson (fun p -> p.ToJsonValue())
+        |]
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             match this.RebornRound with

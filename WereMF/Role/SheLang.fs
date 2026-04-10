@@ -1,5 +1,6 @@
 module WereMF.Role.SheLang
 
+open FSharp.Data
 open WereMF.Common
 open WereMF.Module.Role
 
@@ -14,6 +15,10 @@ type SheLangRole =
             Priority = 4
             SummaryName = SheLang.ToString ()
         }
+        member this.ToJsonValue () =
+            JsonValue.Record [|
+                "last_selected", this.LastSelected.ToJsonValue ()
+            |]
     interface IRoleUpdateOnDayStart with
         member this.Update () =
             { this with LastSelected = this.LastSelected.UpdateOnDayStart () }

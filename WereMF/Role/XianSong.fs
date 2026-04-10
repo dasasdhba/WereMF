@@ -1,7 +1,7 @@
 module WereMF.Role.XianSong
 
+open FSharp.Data
 open FSharpPlus
-open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 
@@ -24,6 +24,12 @@ type XianSongRole =
             Priority = 1
             SummaryName = XianSong.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "mfa_list", this.MfaList |> List.mapJson (fun p -> p.ToJsonValue())
+            "can_reborn", (this.Reborn.IsNone && this.CanReborn) |> JsonValue.Boolean
+            "can_force_choice", this.IsRebornChoice () |> JsonValue.Boolean
+            "disabled", this.IsDisabled () |> JsonValue.Boolean
+        |]
     interface IRoleUpdateOnNightInit with
         member this.Update () =
             { this with CanReborn = false }

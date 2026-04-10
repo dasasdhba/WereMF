@@ -1,5 +1,6 @@
 module WereMF.Role.Rabi
 
+open FSharp.Data
 open WereMF.Common
 open WereMF.Module.Role
 
@@ -14,6 +15,10 @@ type RabiRole =
             Priority = 0
             SummaryName = Rabi.ToString ()
         }
+        member this.ToJsonValue () =
+            JsonValue.Record [|
+                "round", decimal this.Round |> JsonValue.Number
+            |]
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             { this with Round = this.Round + 1 }

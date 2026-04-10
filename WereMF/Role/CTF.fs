@@ -1,5 +1,6 @@
 module WereMF.Role.CTF
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -19,6 +20,10 @@ type CTFRole =
             Priority = 3
             SummaryName = CTF.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "bug_count", decimal this.BugCount |> JsonValue.Number
+            "reborn", JsonValue.Boolean this.Reborn
+        |]
     interface IRolePreventDead with
         member this.Prevent dead = monad {
             if this.Reborn || dead = Force then None else

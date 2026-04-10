@@ -1,5 +1,6 @@
 module WereMF.Role.HuiKa
 
+open FSharp.Data
 open WereMF.Common
 open WereMF.Module.Role
 
@@ -14,6 +15,9 @@ type HuiKaRole =
             Priority = 8
             SummaryName = HuiKa.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "first_round", JsonValue.Boolean this.FirstRound
+        |]
     interface IRoleUpdateOnDayStart with
         member this.Update () =
             { this with FirstRound = true }

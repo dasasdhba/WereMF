@@ -1,5 +1,6 @@
 module WereMF.Role.Kirby
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -21,6 +22,17 @@ type KirbyRole =
             Priority = 9
             SummaryName = Kirby.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "copied_role", (
+                match this.CopiedRole with
+                | Some role ->
+                    JsonValue.Record [|
+                        "chara_type", (role |> getCharaType).ToJsonValue ()
+                        "data", role.ToJsonValue ()
+                    |]
+                | None -> JsonValue.Null
+            )
+        |]
     member this.GetSubHandler () =
         let sub = createSubFunctor
                    (fun k -> k.CopiedRole.Value)

@@ -1,5 +1,6 @@
 module WereMF.Role.FenXia
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -27,6 +28,15 @@ type FenXiaRole =
             Priority = 100
             SummaryName = this.SummaryName
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "fen_count", decimal this.FenCount |> JsonValue.Number
+            "copied_roles", (this.CopiedRoles |> List.mapJson (fun r ->
+                JsonValue.Record [|
+                    "chara_type", (r |> getCharaType).ToJsonValue ()
+                    "data", r.ToJsonValue ()
+                |]
+            ))
+        |]
     member this.GetSubHandler idx =
         let sub = createSubFunctor
                            (fun k -> k.CopiedRoles[idx])

@@ -1,5 +1,6 @@
 module WereMF.Role.Creeper
 
+open FSharp.Data
 open WereMF.Common
 
 type CreeperRole =
@@ -14,3 +15,7 @@ type CreeperRole =
             Priority = 0
             SummaryName = Creeper.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "bomb_count", decimal this.BombCount |> JsonValue.Number
+            "placed_list", this.PlacedList |> List.mapJson (fun p -> p.ToJsonValue())
+        |]

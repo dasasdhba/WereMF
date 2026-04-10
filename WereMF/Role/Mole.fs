@@ -1,5 +1,6 @@
 module WereMF.Role.Mole
 
+open FSharp.Data
 open WereMF.Common
 open WereMF.Module.Role
 
@@ -18,6 +19,11 @@ type MoleRole =
             Priority = 0
             SummaryName = Mole.ToString ()
         }
+        member this.ToJsonValue () =
+            JsonValue.Record [|
+                "red_ground", JsonValue.Boolean this.RedGround
+                "ground_pool", this.Roll |> List.mapJson (fun i -> decimal i |> JsonValue.Number)
+            |]
     interface IRoleUpdateOnNightInit with
         member this.Update () =
             { this with RedGround = false }

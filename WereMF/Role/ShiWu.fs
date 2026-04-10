@@ -1,5 +1,6 @@
 module WereMF.Role.ShiWu
 
+open FSharp.Data
 open WereMF.Common
 open WereMF.Module
 open WereMF.Module.Role
@@ -17,6 +18,10 @@ type ShiWuRole =
             Priority = 7
             SummaryName = ShiWu.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "last_selected", this.LastSelected.ToJsonValue ()
+            "broadcasted", JsonValue.Boolean this.Broadcasted
+        |]
     interface IRoleUpdateOnNightInit with
         member this.Update () =
             { this with Exposed = false }

@@ -1,5 +1,6 @@
 module WereMF.Role.Myz
 
+open FSharp.Data
 open WereMF.Common
 
 type MyzRole =
@@ -13,3 +14,6 @@ type MyzRole =
             Priority = 11
             SummaryName = Myz.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "revealed", JsonValue.Boolean this.Revealed
+        |]

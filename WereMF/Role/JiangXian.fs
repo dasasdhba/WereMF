@@ -1,5 +1,6 @@
 module WereMF.Role.JiangXian
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -19,6 +20,9 @@ type JiangXianRole =
             Priority = 0
             SummaryName = JiangXian.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "dead_voted", JsonValue.Boolean this.DeadVoted 
+        |]
     interface IRoleUpdateOnVoteEnd with
         member this.Update entity game = monad {
             if entity |> Entity.isDayBlocked then this else
