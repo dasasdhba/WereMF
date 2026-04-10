@@ -14,6 +14,8 @@ type MainContext =
         Players : Player list
         Roll : RollResult
     }
+    member this.GetPlayer id =
+        this.Players |> List.find (fun p -> p.Id = id)
     
 type MainState =
     {

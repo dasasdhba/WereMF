@@ -378,18 +378,19 @@ module Entity =
         let party = entity.State.PaoXianParty
         let members = roll.Rolls |> List.filter (fun r ->
             r.Type <> PaoXian && r.Type.GetCamp () = Boom
-            && party |> List.contains r.Player.Id |> not
+            && party |> List.contains r.PlayerId |> not
             )
         if roll.Rolls.Length = 7 then
             let m = members |> List.randomChoiceWith main.Rng
-            sendMessage { Type = ToPlayer entity.Player ; Content = $"队友：{m.Player.ToInGameString ()}" }
-            { entity with State.PaoXianParty = m.Player.Id :: party }
+            sendMessage { Type = ToPlayer entity.Player
+                          Content = $"队友：{(m.PlayerId |> main.GetPlayer).ToInGameString ()}" }
+            { entity with State.PaoXianParty = m.PlayerId :: party }
         else
             let msg = members
-                      |> List.map (fun m -> m.Player.ToInGameString ())
+                      |> List.map (fun m -> (m.PlayerId |> main.GetPlayer).ToInGameString ())
                       |> String.concat "，"
             sendMessage { Type = ToPlayer entity.Player ; Content = $"队友：{msg}" }
-            { entity with State.PaoXianParty = members |> List.map (fun m -> m.Player.Id) }
+            { entity with State.PaoXianParty = members |> List.map (fun m -> m.PlayerId) }
         
     let updateOnNightInit entity =
         { entity with Role = entity.Role |> Role.updateOnNightInit }

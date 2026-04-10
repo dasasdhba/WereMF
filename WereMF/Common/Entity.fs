@@ -1,5 +1,7 @@
 namespace WereMF.Common
 
+open FSharp.Data
+
 type DeadState = {
     Dead : bool
     Name : string
@@ -39,6 +41,13 @@ type SelectionState =
         match this with
         | SelectionState { Tonight = t } ->
             SelectionState { Tonight = [] ; LastNight = t }
+    member this.ToJsonValue () =
+        match this with
+        | SelectionState { Tonight = t ; LastNight = l } ->
+            JsonValue.Record [|
+                "tonight", t |> List.mapJson (fun p -> p.ToJsonValue())
+                "last_night", l |> List.mapJson (fun p -> p.ToJsonValue())
+            |]
 
 type MilkState =
     | MilkState of NightRecord<bool>
@@ -84,6 +93,23 @@ type EntityState =
     member this.CapsuleCount = this.Capsule.Length
     member this.PotionCount = this.Potion.Length
     member this.BugCount = if this.Bug.IsSome then this.Bug.Value else 0
+    member this.ToJsonValue () =
+        JsonValue.Record [|
+            "is_bar_leader", JsonValue.Boolean this.BarLeader.IsSome
+            "is_dead", JsonValue.Boolean this.Dead.Dead
+            "dead_showing_name", JsonValue.String this.Dead.Name
+            "reversed", JsonValue.Boolean this.Reversed
+            "smog_count", JsonValue.Number (decimal this.SmogCount)
+            "capsule_count", JsonValue.Number (decimal this.CapsuleCount)
+            "potion_count", JsonValue.Number (decimal this.PotionCount)
+            "xian_song_count", JsonValue.Number (decimal this.XianSong)
+            "bug_count", JsonValue.Number (decimal this.BugCount)
+            "myz_threaten", JsonValue.Boolean this.Threaten.IsSome
+            "jiaohua_vote_blocked", JsonValue.Boolean this.JiaoHuaVoteBlocked
+            "jiaohua_protected", JsonValue.Boolean this.JiaoHuaProtected
+            "jiaohua_blocked", JsonValue.Number (decimal this.JiaoHuaBlocked)
+            "leaf_protected", JsonValue.Boolean this.LeafProtected.IsSome
+        |]
     static member New () =
         {
             BarLeader = None
@@ -113,6 +139,16 @@ type Entity =
         Role : IRole
         State : EntityState
     }
+    member this.ToJsonValue () =
+        JsonValue.Record [|
+            "player", this.Player.ToJsonValue ()
+            "role", JsonValue.Record [|
+                "chara_type", this.Role.Base.CharaType.ToJsonValue ()
+                "summary_name", JsonValue.String this.Role.Base.SummaryName
+                "data", this.Role.ToJsonValue ()
+            |]
+            "state", this.State.ToJsonValue ()
+        |]
     
 type DeadType =
     | Kill

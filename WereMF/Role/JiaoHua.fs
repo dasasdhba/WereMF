@@ -1,5 +1,6 @@
 module WereMF.Role.JiaoHua
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -31,6 +32,7 @@ type JiaoHuaRole =
             Priority = 5
             SummaryName = JiaoHua.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Null
     interface IRoleUpdateOnNightInit with
         member this.Update () =
             { this with VoteBlock = false }
