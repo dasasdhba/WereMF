@@ -478,10 +478,14 @@ module Entity =
     
     // utils
 
-    let createPendingSkill (handler: RoleHandler) (entity: Entity) =
+    let createPendingSkill (rng: Random) (handler: RoleHandler) (entity: Entity) =
+        let bytes = Array.zeroCreate<byte> 16
+        rng.NextBytes(bytes)
+        let id = Guid(bytes)
+        
         let role = handler.GetFromEntity entity
         let skill = {
-            Id = Guid.NewGuid ()
+            Id = id
             Handler = handler
             Type = role |> Role.getCharaType
             Source = entity.Player.Id

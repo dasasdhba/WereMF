@@ -1,6 +1,7 @@
 namespace WereMF.State
 
 open System
+open FSharp.Data
 open WereMF.Common
 
 type MainStatus =
@@ -16,6 +17,10 @@ type MainContext =
     }
     member this.GetPlayer id =
         this.Players |> List.find (fun p -> p.Id = id)
+    member this.ToJsonValue () = JsonValue.Record [|
+        "players", this.Players |> List.mapJson (fun p -> p.ToJsonValue ())
+        "roll", this.Roll.ToJsonValue ()
+    |]
     
 type MainState =
     {

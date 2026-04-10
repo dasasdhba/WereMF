@@ -27,9 +27,9 @@ type MyzSkill =
                              handler
             let game = entity |> game.UpdateEntity
             let sender = sending |> getSenderName game
-            sendMessage { Type = Public; Content = $"{sender}自爆了身份！" }
-            sendMessage { Type = Public; Content = $"{source |> getPlayerNameAnonymous game}是{sender}" }
-            sendMessage { Type = Public; Content = $"{sender}今晚的威胁将强制生效！" }
+            sendRawMessage { Type = Public; Content = $"{sender}自爆了身份！" } "myz_self_reveal_broadcast"
+            sendRawMessage { Type = Public; Content = $"{source |> getPlayerNameAnonymous game}是{sender}" } "myz_self_reveal_broadcast"
+            sendRawMessage { Type = Public; Content = $"{sender}今晚的威胁将强制生效！" } "myz_self_reveal_broadcast"
             do! State.put ((main, game), night)
             this
         }
@@ -49,7 +49,7 @@ type MyzSkill =
             let entity = source |> game.GetEntity
             let tEntity = target |> game.GetEntity
             if tEntity.State.Threaten |> Option.isSome then
-                sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player; Content = "失败" } "myz_threat_failed_by_already_notify"
                 this
             else
             
@@ -59,7 +59,7 @@ type MyzSkill =
             let idx = pending |> List.indexed |> List.filter (fun (i, p) -> p.Source = target && p.Threaten = None)
             let night =
                 if idx.IsEmpty then
-                    sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                    sendRawMessage { Type = ToPlayer entity.Player; Content = "失败" } "myz_threat_failed_by_no_skill_notify"
                     night
                 else
                     let i, ps = idx |> List.randomChoiceWith main.Rng
@@ -128,7 +128,7 @@ let myzSendSkill ps (game: GameContext) =
             targetId, isForce
         }
         let msg = { Type = ToPlayer entity.Player ; Content = title }
-        let targetId, isForce = requestInputWithMessage msg parser
+        let targetId, isForce = requestInputWithRawMessage msg "request_myz_skill_force_threaten" parser
         { Threaten = { Source = ps.Source; Target = targetId; Force = isForce } } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> =
@@ -147,4 +147,4 @@ let myzSendSkill ps (game: GameContext) =
             [ skill |> Some ]
         }
         
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_myz_skill" filter parser def

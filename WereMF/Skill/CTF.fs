@@ -107,9 +107,10 @@ type CTFSkill =
             else
 
             let target = sending |> getRealTarget
+            let sender = sending |> getSenderName game
+            let recv = target |> getPlayerName game
             if target |> isDoged night then
-                let sender = sending |> getSenderName game
-                let recv = target |> getPlayerName game
+                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } "ctf_skill_fail_by_doge_notify"
                 let night = night.AddMessage $"{sender}想给{recv}丢虫子，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
@@ -144,4 +145,4 @@ let ctfSendSkill ps (game: GameContext) =
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r CTFSkill |> Some ])
     
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_ctf_skill" filter parser def

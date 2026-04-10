@@ -1,5 +1,6 @@
 module WereMF.Update.Roll
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -29,7 +30,7 @@ let rollAskLeaf () =
         Type = Internal
         Content = "是否为叶子局？(1: 是；0: 否)"
     }
-    requestInputWithMessage msg parseBool
+    requestInputWithRawMessage msg "request_leaf_game" parseBool
 
 let rollDraw () = monad { 
     let! main = Reader.ask
@@ -39,7 +40,7 @@ let rollDraw () = monad {
         Type = Internal
         Content = "第一晚是否匿名？(1: 是；0: 否)"
     }
-    let anonymous = requestInputWithMessage msg parseBool
+    let anonymous = requestInputWithRawMessage msg "request_anonymous_game" parseBool
     
     let main =
         if anonymous |> not then
@@ -62,7 +63,7 @@ let rollDraw () = monad {
     let rolls = [0..(count-1)] |> List.map (fun i ->
         let player = main.Players[i]
         let chara = result[i]
-        sendMessage { Type = ToPlayer player ; Content = chara.ToString() }
+        sendRawMessage { Type = ToPlayer player ; Content = chara.ToString() } "player_notify_chara"
         {
             PlayerId = player.Id
             Type = chara
@@ -82,12 +83,8 @@ let rollReset () = monad {
         let resetRolls = getResetRolls (remainingBar.Length > 0) (remainingBoom.Length > 0) r
         
         if resetRolls.Length = 0 then r else
-
-        let msg = {
-            Type = Internal
-            Content = "输入需要重抽身份的玩家，输入 0 以继续"
-        }
-        let parser = parseInt >> (function
+        
+        let filter = function
            | Ok i when i <= 0 -> Ok i
            | Ok i ->
                 let pId = PlayerId i
@@ -100,8 +97,21 @@ let rollReset () = monad {
                         Error $"玩家 {player.ToCliString()} 无法重抽身份"
                 | None -> Error $"玩家 {pId} 不存在"
            | value -> value
-        )
-
+        let msg = {
+            Type = Internal
+            Content = "输入需要重抽身份的玩家，输入 0 以继续"
+            Api = "request_reroll_player"
+            Data =
+                [1..main.Players.Length]
+                |> List.choose (fun i ->
+                    match Ok i |> filter with
+                    | Ok i -> Some (decimal i |> JsonValue.Number)
+                    | Error _ -> None
+                    )
+                |> List.toArray
+                |> JsonValue.Array
+        }
+        let parser = parseInt >> filter
         let result = requestInputWithMessage msg parser
         if result <= 0 then r else
         
@@ -112,7 +122,7 @@ let rollReset () = monad {
                    else remainingBoom
         let newChara = pool |> List.randomChoiceWith rng
         let player = main.GetPlayer p.PlayerId
-        sendMessage { Type = ToPlayer player ; Content = newChara.ToString() }
+        sendRawMessage { Type = ToPlayer player ; Content = newChara.ToString() } "player_notify_chara_reset"
         let newP = { p with Type = newChara ; Reset = true }
         let newRolls = r.Rolls |> List.map (fun s ->
             if s = p then newP else s
@@ -136,7 +146,7 @@ let rollInputLeaf (player: Player)=
             Error "必须同时包含吧方和爆方身份"
         | value -> value
     )
-    requestInputWithMessage msg parser
+    requestInputWithRawMessage msg "request_leaf_charas" parser
 
 let rollSetLeaf () = monad {
     let! main = Reader.ask
@@ -150,17 +160,17 @@ let rollSetLeaf () = monad {
             let player = main.GetPlayer leaf.PlayerId
             let result = rollInputLeaf player
             let result = result |> List.randomShuffleWith rng
-            sendMessage { Type = ToPlayer player ; Content = $"第一身份：{result.Head}" }
+            sendRawMessage { Type = ToPlayer player ; Content = $"第一身份：{result.Head}" } "leaf_notify_first_chara"
             let r = { r with LeafRolls = result }
             
             let msg = { Type = ToPlayer player ; Content = "是否重抽第一身份？（1：重抽；0：放弃）" }
-            let result = requestInputWithMessage msg parseBool
+            let result = requestInputWithRawMessage msg "request_leaf_chara_reroll" parseBool
             if not result then r else
             
             let head = r.LeafRolls.Head
             let remaining = r.LeafRolls.Tail
             let list = (remaining |> List.randomShuffleWith rng) @ [head]
-            sendMessage { Type = ToPlayer player ; Content = $"第一身份：{list.Head}" }
+            sendRawMessage { Type = ToPlayer player ; Content = $"第一身份：{list.Head}" } "leaf_notify_first_chara_reroll"
             { r with LeafRolls = list }
     { main with Roll = r }
 }

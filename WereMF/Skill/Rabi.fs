@@ -68,7 +68,7 @@ type RabiSkill =
                     let handler = handlers |> List.randomChoiceWith main.Rng
                     let chara = getHandlerCharaType handler tEntity
                     if chara = Rabi then this else
-                    let ps = createPendingSkill handler tEntity
+                    let ps = createPendingSkill main.Rng handler tEntity
                     let night = { night with PendingSkills = ps :: night.PendingSkills }
                     do! State.put ((main, game), night)
                     this

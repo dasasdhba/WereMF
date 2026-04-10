@@ -3,6 +3,7 @@ module WereMF.Skill.Creeper
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
@@ -34,9 +35,10 @@ type CreeperSkill =
             let! (main, game), night = State.get
 
             let target = sending |> getRealTarget
+            let sender = sending |> getSenderName game
+            let recv = target |> getPlayerName game
             if target |> isDoged night then
-                let sender = sending |> getSenderName game
-                let recv = target |> getPlayerName game
+                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } "creeper_skill_fail_by_doge_notify"
                 let night = night.AddMessage $"{sender}想给{recv}埋炸弹，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
@@ -70,4 +72,4 @@ let creeperSendSkill ps (game: GameContext) =
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r CreeperSkill |> Some ])
     
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_creeper_skill" filter parser def

@@ -20,4 +20,4 @@ let jiangXianSendSkill ps game =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r JiangXianSkill |> Some ])
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title "request_jiangxian_skill" filter parser def

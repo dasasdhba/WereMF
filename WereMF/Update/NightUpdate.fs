@@ -17,7 +17,7 @@ open WereMF.Module
 
 let nightStart () = monad {
     let! (main: MainContext, game : GameContext) = State.get
-    sendMessage { Type = Public ; Content = "晚上开始" }
+    sendRawMessage { Type = Public ; Content = "晚上开始" } "night_start_broadcast"
     
     let entities = game.Entities |> List.map Entity.updateOnNightInit
     let game = { game with Entities = entities }
@@ -31,7 +31,12 @@ let nightStart () = monad {
     
     let entities = game.Entities |> List.map (Entity.updateOnNightStart main)
     let game = { game with Entities = entities }
-    sendMessage { Type = Public ; Content = "\n" + (printNightSummary game.Entities) }
+    sendMessage {
+        Type = Public
+        Content = "\n" + (printNightSummary game.Entities)
+        Api = "game_update_night"
+        Data = game.ToJsonValue ()
+    }
     do! State.put (main, game)
 }
 
@@ -49,8 +54,13 @@ let getGameWinString (game: GameContext) : string =
         ""
 
 let sendGameWinMessage (game: GameContext) (str: string) =
-    sendMessage { Type = Public ; Content = str }
-    sendMessage { Type = Public ; Content = $"\n{printSummary game.Entities}" }
+    sendRawMessage { Type = Public ; Content = str } "game_win_broadcast"
+    sendMessage {
+        Type = Public
+        Content = $"\n{printSummary game.Entities}"
+        Api = "game_win_summary"
+        Data = game.ToJsonValue ()
+    } 
 
 let gameWin (game: GameContext) : bool =
     let result = getGameWinString game
@@ -93,12 +103,12 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
     let sEntity = game.GetEntity source
     let blocked = (night.GetPlayerState source).Blocked
     if blocked || sEntity |> Entity.getState |> EntityState.isDead then
-        sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+        sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_fail_by_sudden_death_notify"
         context, None
     else
     
     if skill.Sending.Target <= PlayerId 0 then
-        sendMessage { Type = Internal ; Content = $"无效的技能：{skill.Sending.Pending.Type}，请检查输入处理是否正确" }
+        sendRawMessage { Type = Internal ; Content = $"无效的技能：{skill.Sending.Pending.Type}，请检查输入处理是否正确" } "skill_fail_by_unexpected_behavior"
         context, None
     else
     
@@ -124,7 +134,7 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
         lEntity |> isLeafProtectedFresh
     
     if success then
-        sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+        sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_fail_by_leaf_protected_notify"
         let (main, game), night = context
         let night, sEntity = updateBugOnNight night sEntity
         let game = game.UpdateEntity sEntity
@@ -147,12 +157,12 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
         let kEntity = game.GetEntity kirby
         let chara = skill.Sending.Pending.Type
         if chara = Kirby then
-            sendMessage { Type = ToPlayer kEntity.Player ; Content = "失败" }
-            sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+            sendRawMessage { Type = ToPlayer kEntity.Player ; Content = "失败" } "skill_fail_by_kirby_notify"
+            sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_fail_by_kirby_notify"
             context, true
         else
-            sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
-            sendMessage { Type = ToPlayer kEntity.Player ; Content = chara.ToString () }
+            sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_fail_by_kirby_notify"
+            sendRawMessage { Type = ToPlayer kEntity.Player ; Content = chara.ToString () } "kirby_get_skill_notify"
             let role = createRole main.Roll chara;
             let kEntity = kEntity |> updateRoleWithHandler
                              (fun (k: KirbyRole) -> { k with CopiedRole = Some role })
@@ -162,7 +172,7 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
                             handler
             let hs = role |> getPendingHandlers kEntity.Player
             let handlers = hs |> List.map (fun h -> handler.Bind ( sub.Bind h) )
-            let ps = handlers |> List.map (fun h -> createPendingSkill h kEntity)
+            let ps = handlers |> List.map (fun h -> createPendingSkill main.Rng h kEntity)
             let night = { night with PendingSkills = ps @ night.PendingSkills }
             let game = game.UpdateEntity kEntity
             let context = (main, game), night
@@ -177,7 +187,7 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
                 if skill |> canExecute context then
                     State.run (exe.Execute skill.Sending) context
                 else
-                    sendMessage { Type = ToPlayer sEntity.Player ; Content = "失败" }
+                    sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_execute_fail_notify"
                     skill.Actor, context
             let skill = { skill with Actor = actor }
             context, Some skill
@@ -238,12 +248,17 @@ let private createPendingSkills (entities: Entity list) (rng : Random) =
         if remaining = 0 || list.Length = 0 then list else
         let list = list |> List.randomShuffleWith rng
         let blocked = list.Head
-        sendMessage { Type = ToPlayer player; Content = $"你的{blocked.Type.ToString()}技能被脚滑人禁用" }
+        sendMessage {
+            Type = ToPlayer player
+            Content = $"你的{blocked.Type.ToString()}技能被脚滑人禁用"
+            Api = "skill_blocked_by_jiaohua_notify"
+            Data = blocked.ToJsonValue ()
+        }
         jiaoHuaBlock (remaining - 1) list.Tail player
     let mutable result = []
     for e in entities do
         let h = getPendingHandlers e.Player e.Role
-        let s = h |> List.map (fun u -> e |> Entity.createPendingSkill u)
+        let s = h |> List.map (fun u -> e |> Entity.createPendingSkill rng u)
         let s = jiaoHuaBlock e.State.JiaoHuaBlocked s e.Player
         result <- result @ s
     result
@@ -342,7 +357,7 @@ let rec private involveIfDogeSummary (target: Entity) (context: SkillContext) (l
         let entity = game.GetEntity ps.Id
         let name = entity.Player.Name
         let msg = $"{target.Player.Name}保护了{name}"
-        sendMessage { Type = Public ; Content = msg }
+        sendRawMessage { Type = Public ; Content = msg } "doge_involve_broadcast"
         let request = DeadRequest.New Kill
         let sk, heal = tryHeal l request entity
         if heal then
@@ -365,9 +380,9 @@ let nightSummary (night: NightContext) = monad {
         { e with Player = { p with Anonymous = false } })
     let game = { game with Entities = entities }
     
-    sendMessage { Type = Public; Content = "今晚" }
+    sendRawMessage { Type = Public; Content = "今晚" } "night_summary_broadcast"
     for msg in night.Messages do
-        sendMessage { Type = Public ; Content = msg }
+        sendRawMessage { Type = Public ; Content = msg } "night_summary_queued_broadcast"
     
     // 虫子
     
@@ -383,7 +398,7 @@ let nightSummary (night: NightContext) = monad {
             updateBugs context skills remain
         else
         
-        sendMessage { Type = Public ; Content = $"{entity.Player.Name}的虫子数量过多！" }
+        sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}的虫子数量过多！" } "bug_kill_broadcast"
         let entity = { entity with State.Bug = None }
         let game = game.UpdateEntity entity
         let context = (main, game), night

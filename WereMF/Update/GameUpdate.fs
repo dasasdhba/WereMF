@@ -26,7 +26,7 @@ let gameInit (main : MainContext) (game: GameContext) =
             $"你是吧主，脚滑人是 {v.Player.ToInGameString ()}"
         | None ->
             "你是吧主，本局没有脚滑人"
-    sendMessage { Type = ToPlayer barLeader.Player ; Content = message }
+    sendRawMessage { Type = ToPlayer barLeader.Player ; Content = message } "barleader_notify"
     
     // 脚滑人知道一组身份
     
@@ -37,7 +37,7 @@ let gameInit (main : MainContext) (game: GameContext) =
         let bar = bars |> List.randomChoiceWith rng
         let boom = booms |> List.randomChoiceWith rng
         let msg = $"本局有{(bar |> Entity.getCharaType).ToString()}和{(boom |> Entity.getCharaType).ToString()}"
-        sendMessage { Type = ToPlayer hua.Player ; Content = msg }
+        sendRawMessage { Type = ToPlayer hua.Player ; Content = msg } "jiaohua_start_notify"
     } |> ignore
     
     // 贤松知道炮仙
@@ -50,7 +50,7 @@ let gameInit (main : MainContext) (game: GameContext) =
                 $"炮仙是 {pao.Player.ToInGameString()}"
             | None ->
                 "本局没有炮仙"
-       sendMessage { Type = ToPlayer xian.Player ; Content = msg }
+       sendRawMessage { Type = ToPlayer xian.Player ; Content = msg } "xiansong_start_notify"
     } |> ignore
     
     game
@@ -67,7 +67,7 @@ let gameUpdate (game: GameState) = monad {
         | Day day -> State.run (dayUpdate day) (main, game.Context)
         | End ->
             let msg = { Type = Internal ; Content = "开启下一局？（1：是；0：否）" }
-            let result = requestInputWithMessage msg parseBool
+            let result = requestInputWithRawMessage msg "request_for_next_game" parseBool
             if result then
                 raise (Restart |> CommandEx)
             else

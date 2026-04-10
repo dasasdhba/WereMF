@@ -44,7 +44,7 @@ type MoleSkill =
                     let msg = { Type = ToPlayer player; Content = "红土地，要再突击一次吗？（1：突击；0：放弃）" }
                     let yes = requestInputWithRawMessage msg "request_mole_red_ground" parseBool
                     if yes then
-                        let ps = createPendingSkill handler entity
+                        let ps = createPendingSkill main.Rng handler entity
                         let night = { night with PendingSkills = ps :: night.PendingSkills }
                         game, night, this, true
                     else

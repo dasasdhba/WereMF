@@ -23,7 +23,7 @@ let private tryPrintWith (main: MainState) printer =
     match main.Status with
     | Game game ->
         let context = game.Context
-        sendMessage { Type = Public ; Content = $"\n{Entity.printSummaryWith printer context.Entities}" }
+        sendRawMessage { Type = Public ; Content = $"\n{Entity.printSummaryWith printer context.Entities}" } "cli_night_summary"
     | _ -> ()
 
 let rec private tryPrintVote (main: MainState) =
@@ -31,7 +31,7 @@ let rec private tryPrintVote (main: MainState) =
     | Game game ->
         match game.Status with
         | Day day ->
-            sendMessage { Type = Public ; Content = $"\n{Day.printVoteSummary game.Context day}" }
+            sendRawMessage { Type = Public ; Content = $"\n{Day.printVoteSummary game.Context day}" } "cli_day_summary"
         | _ -> ()
     | _ -> ()
 
@@ -63,7 +63,7 @@ let rec private updateMain main : MainState =
             updateMain (MainState.New seed)
         | Reboot ->
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
-            sendMessage { Type = Internal ; Content = $"游戏种子：{seed}" }
+            sendRawMessage { Type = Internal ; Content = $"游戏种子：{seed}" } "cli_game_seed"
             cliUndo <- []
             cliRedo <- []
             cliReplay <- []
@@ -71,7 +71,7 @@ let rec private updateMain main : MainState =
             updateMain (MainState.New seed)
         | Restart ->
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
-            sendMessage { Type = Internal ; Content = $"游戏种子：{seed}" }
+            sendRawMessage { Type = Internal ; Content = $"游戏种子：{seed}" } "cli_game_seed"
             cliUndo <- [cliUndo.Head]
             cliRedo <- []
             cliReplay <- cliUndo
@@ -127,6 +127,6 @@ let rec private updateMain main : MainState =
         reraise()
 
 let launchMain () =
-    sendMessage { Type = Internal ; Content = $"游戏种子：{seed}" }
+    sendRawMessage { Type = Internal ; Content = $"游戏种子：{seed}" } "cli_game_seed"
     updateMain (MainState.New seed)
 
