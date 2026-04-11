@@ -63,7 +63,7 @@ type Message =
         | Public -> $"[Public] {this.Content}"
         | ToPlayer p -> $"[ToPlayer {p.ToCliString()}] {this.Content}"
     member this.ToJsonValue () = JsonValue.Record [|
-        "api", JsonValue.String (this.Api.ToString())
+        "api", JsonValue.String (this.Api.ToSnakeString())
         "message_type", (match this.Type with
                          | Internal -> JsonValue.String "internal"
                          | Public -> JsonValue.String "public"

@@ -6,6 +6,7 @@ open System.Text
 open System.Text.Json
 open FSharpPlus
 open WereMF.Common
+open WereMF.Module.Api
 open WereMF.Module.Cli
 
 type private CharaRoll = {
@@ -40,7 +41,7 @@ let private jsonRolls = monad {
                let result = CharaType.Create jr.Chara
                match result with
                | Error msg ->
-                   Console.WriteLine $"[Init] Config: {msg}"
+                   sendRawMessage { Type = Internal ; Content = $"Config: {msg}" } ApiType.RollInitError
                    r
                | Ok value -> { Type = value; Prob = jr.Prob } :: r
            ) []
@@ -77,12 +78,12 @@ let private barPool =
     | Ok pool ->
         let bar = pool |> List.filter (fun x -> x.Type.GetCamp() = Bar && x.Prob > 0)
         if bar.Length < 4 then
-            Console.WriteLine "[Init] 吧方角色不足, 使用默认配置"
+            sendRawMessage { Type = Internal ; Content = "吧方角色不足, 使用默认配置" } ApiType.RollBarNotEnough
             barPoolDefault
         else
             bar
     | Error e ->
-        Console.WriteLine $"[Init] {e}, 吧方使用默认配置"
+        sendRawMessage { Type = Internal ; Content = $"{e}, 吧方使用默认配置" } ApiType.RollBarError
         barPoolDefault
 
 let private boomPool =
@@ -90,12 +91,12 @@ let private boomPool =
     | Ok pool ->
         let boom = pool |> List.filter (fun x -> x.Type.GetCamp() = Boom && x.Prob > 0)
         if boom.Length < 3 then
-            Console.WriteLine "[Init] 爆方角色不足，使用默认配置"
+            sendRawMessage { Type = Internal ; Content = "爆方角色不足, 使用默认配置" } ApiType.RollBoomNotEnough
             boomPoolDefault
         else
             boom
     | Error e ->
-        Console.WriteLine $"[Init] {e}, 爆方使用默认配置"
+        sendRawMessage { Type = Internal ; Content = $"{e}, 爆方使用默认配置" } ApiType.RollBoomError
         boomPoolDefault
         
 let barCharaPool =

@@ -7,6 +7,11 @@ let private toSnakeCase (s: string) =
 
 type ApiType =
     | CommandError
+    | RollInitError
+    | RollBarNotEnough
+    | RollBarError
+    | RollBoomNotEnough
+    | RollBoomError
     | PlayerDeadBroadcast
     | PlayerDeadRebornBroadcast
     | PlayerDeadRevealBroadcast
@@ -168,7 +173,7 @@ type ApiType =
     | CliDaySummary
     | CliGameSeed
     | ParseError of ApiType
-    override this.ToString () =
+    member this.ToSnakeString () =
         match this with
-        | ParseError t -> $"{t.ToString () |> toSnakeCase }_parse_error"
+        | ParseError t -> $"{t.ToString() |> toSnakeCase }_parse_error"
         | value -> value.ToString () |> toSnakeCase
