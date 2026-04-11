@@ -1,6 +1,7 @@
 module WereMF.Update.Night
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -41,21 +42,27 @@ let nightStart () = monad {
     do! State.put (main, game)
 }
 
-let getGameWinString (game: GameContext) : string =
+let getGameWinString (game: GameContext) : (string * CharaCamp option) option =
     let alive = game.Entities |> List.filter (fun e -> e.State |> EntityState.isDead |> not)
     if alive.Length = 0 then
-        "游戏结束，无人生还"
+        Some ("游戏结束，无人生还", None)
     elif alive |> List.forall (fun e -> e |> getCamp = Bar) then
-        "游戏结束，吧方获胜"
+        Some ("游戏结束，吧方获胜", Some Bar)
     elif alive |> List.forall (fun e -> e |> getCamp = Boom) then
-        "游戏结束，爆方获胜"
+        Some ("游戏结束，爆方获胜", Some Boom)
     elif alive |> List.forall (fun e -> e |> getCamp = Yezi) then
-        "游戏结束，叶子获胜"
+        Some ("游戏结束，叶子获胜", Some Yezi)
     else
-        ""
+        None
 
-let sendGameWinMessage (game: GameContext) (str: string) =
-    sendRawMessage { Type = Public ; Content = str } ApiType.GameWinBroadcast
+let sendGameWinMessage (game: GameContext) (result: string * CharaCamp option) =
+    let str, camp = result
+    sendMessage {
+        Type = Public
+        Content = str
+        Api = ApiType.GameWinBroadcast
+        Data = if camp.IsSome then camp.Value.ToJsonValue () else JsonValue.Null
+    }
     sendMessage {
         Type = Public
         Content = $"\n{printSummary game.Entities}"
@@ -66,8 +73,8 @@ let sendGameWinMessage (game: GameContext) (str: string) =
 let gameWin (game: GameContext) : bool =
     let result = getGameWinString game
     
-    if result <> "" then
-        sendGameWinMessage game result
+    if result.IsSome then
+        sendGameWinMessage game result.Value
         true
     else
         false
@@ -334,7 +341,7 @@ let rec private pendingSkills (context: SkillContext) =
     let context = executeQueuedSkills context
     let (main, game), night = context
     let win = getGameWinString game 
-    if win <> "" then Error (context, win) else
+    if win.IsSome then Error (context, win.Value) else
     pendingSkills context
 
 let nightAction night = monad {

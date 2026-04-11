@@ -375,6 +375,11 @@ null
 | API | 说明 |
 |-----|------|
 | `command_error` | `\rename` 等 cli 命令错误提示 |
+| `roll_init_error` | 身份池初始化错误信息 |
+| `roll_bar_not_enough` | 身份池的吧方角色不足 |
+| `roll_bar_error` | 身份池的吧方错误信息 |
+| `roll_boom_not_enough` | 身份池的爆方角色不足 |
+| `roll_boom_error` | 身份池的爆方错误信息 |
 | `cli_night_summary` | 夜晚总结 |
 | `cli_day_summary` | 白天总结 |
 | `cli_game_seed` | 游戏种子 |
@@ -572,8 +577,8 @@ null
 
 #### 游戏流程类
 
-| API | 说明 | 举例 |
-|-----|------|------|
+| API | 说明 | 举例 | Data |
+|-----|------|------|------|
 | `player_init` | 打印本局玩家 |
 | `player_notify_chara` | 通知玩家抽到的身份 |
 | `player_notify_chara_reset` | 通知玩家重抽的身份 |
@@ -590,13 +595,13 @@ null
 | `vote_start_broadcast` | 投票开始广播 | 投票开始 |
 | `vote_end_broadcast` | 投票结束广播 | 投票结束 |
 | `jiaohua_suicide_broadcast` | 脚滑人自爆广播 | xxx 自爆了 |
-| `vote_result_broadcast` | 投票结果广播 | xxx 出局 |
+| `vote_result_broadcast` | 投票结果广播 | 投票结果是 |
 | `vote_tie_broadcast` | 平票广播 | 平票 |
 | `baidu_broadcast` | 度娘广播 | 半数玩家都弃票了！度娘要抽贴了！ |
 | `baidu_result_broadcast` | 度娘结果广播 | xxx 被抽帖了 |
 | `vote_baidu_fail_broadcast` | 度娘与投票结果重合广播 | 由于 xxx 被抽帖，本轮投票没有其他玩家出局 |
-| `game_win_broadcast` | 游戏胜利广播 | 游戏结束，无人生还 |
-| `game_win_summary` | 游戏总结 |
+| `game_win_broadcast` | 游戏胜利广播 | 游戏结束，无人生还 | 获胜方阵营 或 null |
+| `game_win_summary` | 游戏总结 | `Game` |
 
 #### 错误处理类
 
