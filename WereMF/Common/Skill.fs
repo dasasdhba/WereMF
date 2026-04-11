@@ -63,8 +63,10 @@ type PendingSkill =
         Threaten : ThreatenSkill option
         Kidnapped : bool
     }
+    member this.GetIdJson () =
+        JsonValue.String (this.Id.ToString("N"))
     member this.ToJsonValue () = JsonValue.Record [|
-        "id", JsonValue.String (this.Id.ToString("N"))
+        "id", this.GetIdJson ()
         "type", this.Type.ToJsonValue ()
         "source_player_id", this.Source.ToJsonValue ()
         "priority", JsonValue.Number (decimal this.Priority)

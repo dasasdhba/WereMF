@@ -102,11 +102,12 @@ let createInvalidChoiceArray filter entities =
 let createPendingSkillApi ps filter (game: GameContext) =
     let entity = game.GetEntity ps.Source
     JsonValue.Record [|
+        "skill_id", ps.GetIdJson ()
         "invalid_choice", game.Entities |> createInvalidChoiceArray filter
         "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
     |]
     
-let sendSkillWith title (api : ApiType) filter
+let sendSkillWithData title (api : ApiType) (data) filter
     (parser: string -> Result<Skill option list, string>) creator ps = monad {
     let! (game: GameContext, night: NightContext) = State.get
     let entity = game.GetEntity ps.Source
@@ -119,7 +120,7 @@ let sendSkillWith title (api : ApiType) filter
             Type = ToPlayer entity.Player
             Content = $"你的{name}技能不可用"
             Api = ApiType.InvalidPendingSkillNotify
-            Data = ps.ToJsonValue ()
+            Data = ps.GetIdJson ()
         }
         ()
     else
@@ -135,7 +136,7 @@ let sendSkillWith title (api : ApiType) filter
             Type = ToPlayer entity.Player
             Content = title
             Api = api
-            Data = createPendingSkillApi ps filter game
+            Data = data
         }
         let results = requestInputWithMessage msg parser
         let targets = results |> List.map (function
@@ -147,6 +148,16 @@ let sendSkillWith title (api : ApiType) filter
         let night = { night with Skills = skills @ night.Skills }
         do! State.put (game, night)
         ()
+}
+    
+let sendSkillWith title (api : ApiType) filter
+    (parser: string -> Result<Skill option list, string>) creator ps = monad {
+    let! (game: GameContext, night: NightContext) = State.get
+    let _, (game, night) =
+        State.run (
+            sendSkillWithData title api (createPendingSkillApi ps filter game) filter parser creator ps
+        ) (game, night)
+    do! State.put (game, night)
 }
 
 // ------------------------------------------------------------------

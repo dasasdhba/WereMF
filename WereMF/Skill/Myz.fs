@@ -1,6 +1,7 @@
 module WereMF.Skill.Myz
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -128,8 +129,17 @@ let myzSendSkill ps (game: GameContext) =
             let! targetId = Ok targetId |> targetFilter
             targetId, isForce
         }
-        let msg = { Type = ToPlayer entity.Player ; Content = title }
-        let targetId, isForce = requestInputWithRawMessage msg ApiType.RequestMyzSkillForceThreaten parser
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = title
+            Api = ApiType.RequestMyzSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "invalid_target_choice", game.Entities |> createInvalidChoiceArray targetFilter
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
+        let targetId, isForce = requestInputWithMessage msg parser
         { Threaten = { Source = ps.Source; Target = targetId; Force = isForce } } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> =
@@ -147,5 +157,12 @@ let myzSendSkill ps (game: GameContext) =
             let skill = Skill.New ps playerId { Threaten = { Source = ps.Source; Target = targetId; Force = isForce } }
             [ skill |> Some ]
         }
-        
-    ps |> sendSkillWith title ApiType.RequestMyzSkill filter parser def
+    
+    let data = JsonValue.Record [|
+        "skill_id", ps.ToJsonValue ()
+        "invalid_choice", game.Entities |> createInvalidChoiceArray filter
+        "invalid_target_choice", game.Entities |> createInvalidChoiceArray targetFilter
+        "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+    |]
+    
+    ps |> sendSkillWithData title ApiType.RequestMyzSkill data filter parser def

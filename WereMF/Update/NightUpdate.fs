@@ -104,12 +104,22 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
     let sEntity = game.GetEntity source
     let blocked = (night.GetPlayerState source).Blocked
     if blocked || sEntity |> Entity.getState |> EntityState.isDead then
-        sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillFailBySuddenDeathNotify
+        sendMessage {
+            Type = ToPlayer sEntity.Player
+            Content = "失败"
+            Api = ApiType.SkillFailBySuddenDeathNotify
+            Data = skill.Sending.Pending.GetIdJson ()
+        }
         context, None
     else
     
     if skill.Sending.Target <= PlayerId 0 then
-        sendRawMessage { Type = Internal ; Content = $"无效的技能：{skill.Sending.Pending.Type}，请检查输入处理是否正确" } ApiType.SkillFailByUnexpectedBehavior
+        sendMessage {
+            Type = Internal
+            Content = $"无效的技能：{skill.Sending.Pending.Type}，请检查输入处理是否正确"
+            Api = ApiType.SkillFailByUnexpectedBehavior
+            Data = skill.Sending.Pending.GetIdJson ()
+        }
         context, None
     else
     
@@ -135,7 +145,12 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
         lEntity |> isLeafProtectedFresh
     
     if success then
-        sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillFailByLeafProtectedNotify
+        sendMessage {
+            Type = ToPlayer sEntity.Player
+            Content = "失败"
+            Api = ApiType.SkillFailByLeafProtectedNotify
+            Data = skill.Sending.Pending.GetIdJson ()
+        }
         let (main, game), night = context
         let night, sEntity = updateBugOnNight night sEntity
         let game = game.UpdateEntity sEntity
@@ -150,7 +165,8 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
         let state = night.GetPlayerState target
         if state.Kirby.IsNone then context, false else
         
-        let kirby, handler = state.Kirby.Value
+        let kPending = state.Kirby.Value
+        let kirby, handler = kPending.Source, kPending.Handler
         let state = { state with Kirby = None }
         let night = night.SetPlayerState state
         let context = (main, game), night
@@ -158,11 +174,26 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
         let kEntity = game.GetEntity kirby
         let chara = skill.Sending.Pending.Type
         if chara = Kirby then
-            sendRawMessage { Type = ToPlayer kEntity.Player ; Content = "失败" } ApiType.SkillFailByKirbyNotify
-            sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillFailByKirbyNotify
+            sendMessage {
+                Type = ToPlayer kEntity.Player
+                Content = "失败"
+                Api = ApiType.SkillFailByKirbyNotify
+                Data = kPending.GetIdJson ()
+            }
+            sendMessage {
+                Type = ToPlayer sEntity.Player
+                Content = "失败"
+                Api = ApiType.SkillFailByKirbyNotify
+                Data = skill.Sending.Pending.GetIdJson ()
+            }
             context, true
         else
-            sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillFailByKirbyNotify
+            sendMessage {
+                Type = ToPlayer sEntity.Player
+                Content = "失败"
+                Api = ApiType.SkillFailByKirbyNotify
+                Data = skill.Sending.Pending.GetIdJson ()
+            }
             sendRawMessage { Type = ToPlayer kEntity.Player ; Content = chara.ToString () } ApiType.KirbyGetSkillNotify
             let role = createRole main.Roll chara;
             let kEntity = kEntity |> updateRoleWithHandler
@@ -188,7 +219,12 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
                 if skill |> canExecute context then
                     State.run (exe.Execute skill.Sending) context
                 else
-                    sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillExecuteFailNotify
+                    sendMessage {
+                        Type = ToPlayer sEntity.Player
+                        Content = "失败"
+                        Api = ApiType.SkillExecuteFailNotify
+                        Data = skill.Sending.Pending.GetIdJson ()
+                    }
                     skill.Actor, context
             let skill = { skill with Actor = actor }
             context, Some skill

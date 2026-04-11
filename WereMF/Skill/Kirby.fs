@@ -48,7 +48,7 @@ type KirbySkill =
             else
                 let handler = sending |> getHandler
                 let state = night.GetPlayerState target
-                let state = { state with Kirby = Some (source, handler) }
+                let state = { state with Kirby = Some sending.Pending }
                 let night = night.SetPlayerState state
                 do! State.put ((main, game), night)
                 this
@@ -68,7 +68,7 @@ type KirbySkill =
             let state = night.GetPlayerState target
             let kirby = state.Kirby
             match kirby with
-            | Some (s, _) when s = source ->
+            | Some pending when pending.Id = sending.Pending.Id ->
                 let th = tEntity.Role |> getQueriedHandler main.Rng
                 let chara = tEntity |> getHandlerCharaType th
                 if chara = Kirby || chara = Leaf then

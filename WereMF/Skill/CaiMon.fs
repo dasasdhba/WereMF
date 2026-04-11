@@ -1,6 +1,7 @@
 module WereMF.Skill.CaiMon
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -140,8 +141,16 @@ let caiMonSendSkill ps (game: GameContext) =
     let filter = giveUpOrFilterWith filter
     let def () =
         if caiCount <= 1 then { Double = false ; Dead = false } :> ISkill else
-        let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择用一根还是两根彩条（1：两根；0：一根）" }
-        let yes = requestInputWithRawMessage msg ApiType.RequestCaimonSkillForceThreaten parseBool
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = "你可以选择用一根还是两根彩条（1：两根；0：一根）"
+            Api = ApiType.RequestCaimonSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
+        let yes = requestInputWithMessage msg parseBool
         { Double = yes ; Dead = false } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {

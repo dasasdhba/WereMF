@@ -85,7 +85,8 @@ let private getValidVoteChoice (game: GameContext) (day: DayContext) =
         JsonValue.Record [|
             "id", e.Player.Id.ToJsonValue ()
             "can_vote", (
-                    e |> isDayBlocked |> not && Ok e.Player.Id |> (voteSourceFilter game) |> Result.isOk
+                    e |> isDayBlocked |> not && (e.Player.Id |> day.GetPlayerVote).Confirmed |> not
+                    && Ok e.Player.Id |> (voteSourceFilter game) |> Result.isOk
                 ) |> JsonValue.Boolean
             "can_suicide", (e |> Entity.getValidCharaTypes |> List.contains JiaoHua) |> JsonValue.Boolean
             "invalid_vote", createInvalidChoiceArray (voteTargetFilter e.Player.Id game) game.Entities

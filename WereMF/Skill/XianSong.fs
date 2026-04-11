@@ -1,6 +1,7 @@
 module WereMF.Skill.XianSong
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -191,14 +192,22 @@ let xianSongSendSkill ps (game: GameContext) =
     let filter = giveUpOrFilterWith filter
     let def () =
         if isRebornChoice |> not then XianSongSkill.New None :> ISkill else
-        let msg = { Type = ToPlayer entity.Player ; Content = "你可以输入 m 或者 x 表示强制要 mfa 或丢咸松球，输入 0 放弃" }
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = "你可以输入 m 或者 x 表示强制要 mfa 或丢咸松球，输入 0 放弃"
+            Api = ApiType.RequestXiansongSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
         let parser (input: string) =
             match input.Trim().ToLower() with
             | "m" -> Some true |> Ok
             | "x" -> Some false |> Ok
             | "0" -> Ok None
             | _ -> Error "未知格式"
-        let yes = requestInputWithRawMessage msg ApiType.RequestXiansongSkillForceThreaten parser
+        let yes = requestInputWithMessage msg parser
         XianSongSkill.New yes :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {

@@ -1,6 +1,7 @@
 module WereMF.Skill.ShiWu
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -153,7 +154,20 @@ let shiWuSendSkill ps (game: GameContext) =
                 >> filterKidnapped ps
                 >> filterExceptIndexList lastSelected "你不能连续绑架同一个玩家"
     let filter = giveUpOrFilterWith filter
-    let def () = (ShiWuSkill.New ()) :> ISkill
+    let def () =
+        if broadcasted then (ShiWuSkill.New ()) :> ISkill else
+        
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = "你可以选择是否公开被绑架者的身份（1：是；0：否）"
+            Api = ApiType.RequestDogeSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
+        let yes = requestInputWithMessage msg parseBool
+        { Success = false; Broadcast = yes } :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! target, broadcast = parseShiWuInput input

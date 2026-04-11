@@ -91,6 +91,7 @@ type ApiType =
     | ShiwuBroadcastResultBroadcast
     | ShiwuKidnappedSkillDisabledNotify
     | ShiwuExposedKillBroadcast
+    | RequestShiwuSkillForceThreaten
     | RequestShiwuSkill
     | HuikaSkillFailByDogeNotify
     | HuikaSmogBroadcast

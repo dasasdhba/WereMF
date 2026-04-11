@@ -1,6 +1,7 @@
 module WereMF.Skill.Rabi
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -127,8 +128,16 @@ let rabbitSendSkill ps (game: GameContext) =
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
     let def () =
-        let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择给鲜奶还是毒奶（1：鲜奶；0：毒奶）" }
-        let yes = requestInputWithRawMessage msg ApiType.RequestRabiSkillForceThreaten parseBool
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = "你可以选择给鲜奶还是毒奶（1：鲜奶；0：毒奶）"
+            Api = ApiType.RequestRabiSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
+        let yes = requestInputWithMessage msg parseBool
         let t = if yes then Fresh else Dry
         { MilkType = t; Poison = false } :> ISkill
     

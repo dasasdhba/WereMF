@@ -1,6 +1,7 @@
 module WereMF.Skill.Doge
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -115,8 +116,16 @@ let dogeSendSkill ps (game: GameContext) =
                     
     let filter = giveUpOrFilterWith filter
     let def () =
-        let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择是否自爆（1：是；0：否）" }
-        let yes = requestInputWithRawMessage msg ApiType.RequestDogeSkillForceThreaten parseBool
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = "你可以选择是否自爆（1：是；0：否）"
+            Api = ApiType.RequestDogeSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
+        let yes = requestInputWithMessage msg parseBool
         { IsSuicide = yes ; Success = None } :> ISkill
     let parser (input: string) : Result<Skill option list, string> = monad {
         let! target, isSuicide = parseDogeInput input

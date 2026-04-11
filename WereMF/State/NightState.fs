@@ -6,7 +6,7 @@ type PlayerNightState =
     {
         Id : PlayerId
         Doge : PlayerId list
-        Kirby : (PlayerId * RoleHandler) option
+        Kirby : PendingSkill option
         Spring : bool
         Blocked : bool
     }
