@@ -505,7 +505,7 @@ null
 | `request_player_list` | 输入玩家列表（X~Y 人） | - |
 | `request_leaf_game` | 是否为叶子局？(1: 是；0: 否) | - |
 | `request_anonymous_game` | 第一晚是否匿名？(1: 是；0: 否) | - |
-| `request_reroll_player` | 输入需要重抽身份的玩家，输入 0 以继续 | - |
+| `request_reroll_player` | 输入需要重抽身份的玩家，输入 0 以继续 | 可重抽身份的玩家 id 列表 |
 | `request_leaf_charas` | 输入叶子的四个身份 | - |
 | `request_leaf_chara_reroll` | 是否重抽第一身份？（1：重抽；0：放弃） | - |
 | `request_jiaohua_skill` | 输入一名玩家的编号查询其身份，输入 0 以放弃 | 技能类 |
@@ -579,7 +579,7 @@ null
 
 | API | 说明 | 举例 | Data |
 |-----|------|------|------|
-| `player_init` | 打印本局玩家 |
+| `player_init` | 打印本局玩家 | - | `main` |
 | `player_notify_chara` | 通知玩家抽到的身份 |
 | `player_notify_chara_reset` | 通知玩家重抽的身份 |
 | `leaf_notify_first_chara` | 通知叶子的第一身份 |
