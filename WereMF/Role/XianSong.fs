@@ -4,6 +4,7 @@ open FSharp.Data
 open FSharpPlus
 open WereMF.Common
 open WereMF.Module.Role
+open WereMF.Module.Api
 
 type XianSongRole =
     {

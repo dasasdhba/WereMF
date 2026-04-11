@@ -23,6 +23,7 @@
         <Compile Include="State\DayState.fs" />
         <Compile Include="State\GameState.fs" />
         <Compile Include="State\MainState.fs" />
+        <Compile Include="Module\Api.fs" />
         <Compile Include="Module\Cli.fs" />
         <Compile Include="Module\RollModule.fs" />
         <Compile Include="Module\RoleModule.fs" />

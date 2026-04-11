@@ -6,6 +6,7 @@ open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
+open WereMF.Module.Api
 
 type LeafRole =
     {

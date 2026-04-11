@@ -1,5 +1,6 @@
 module WereMF.Role.Creeper
 
+open WereMF.Module.Api
 open FSharp.Data
 open WereMF.Common
 

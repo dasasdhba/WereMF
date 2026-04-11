@@ -9,6 +9,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.Role.ShiWu
 open WereMF.State
 open WereMF.Role.XianSong
@@ -65,7 +66,7 @@ type XianSongSkill =
                 let recv = target |> getPlayerName game
                 let msg = if forceBall then $"{sender}想给{recv}丢咸松球，被Doge挡了"
                           else $"{sender}想找{recv}要mfa，被Doge挡了"
-                sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } "xiansong_skill_fail_by_doge_notify"
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } ApiType.XiansongSkillFailByDogeNotify
                 let night = night.AddMessage msg
                 do! State.put ((main, game), night)
                 this
@@ -76,7 +77,7 @@ type XianSongSkill =
                 elif this.ForceMfa.IsSome && this.ForceMfa.Value then true
                 else
                     let msg = { Type = ToPlayer tEntity.Player; Content = "你被要mfa了，给吗？（1：给；0：不给）" }
-                    requestInputWithRawMessage msg "request_xiansong_give_mfa" parseBool
+                    requestInputWithRawMessage msg ApiType.RequestXiansongGiveMfa parseBool
             
             if mfa then
                 let entity = entity |> updateRoleWithHandler
@@ -88,7 +89,7 @@ type XianSongSkill =
                 let th = tEntity |> Entity.getQueriedHandler main.Rng
 
                 if th.IsNone then
-                    sendRawMessage { Type = ToPlayer entity.Player; Content = "你要到mfa了，但是对面的身份不明" } "xiansong_get_mfa_smog_notify"
+                    sendRawMessage { Type = ToPlayer entity.Player; Content = "你要到mfa了，但是对面的身份不明" } ApiType.XiansongGetMfaSmogNotify
                     do! State.put ((main, game), night)
                     this
                 else
@@ -100,11 +101,11 @@ type XianSongSkill =
                 do! State.put ((main, game), night)
 
                 let name = tEntity |> Entity.getHandlerName th
-                sendRawMessage { Type = ToPlayer entity.Player; Content = $"你要到mfa了，对面的身份是{name}" } "xiansong_get_mfa_notify"
+                sendRawMessage { Type = ToPlayer entity.Player; Content = $"你要到mfa了，对面的身份是{name}" } ApiType.XiansongGetMfaNotify
                 this
             else
                 if forceBall |> not then
-                    sendRawMessage { Type = ToPlayer entity.Player; Content = "你没有要到mfa" } "xiansong_get_mfa_fail_notify"
+                    sendRawMessage { Type = ToPlayer entity.Player; Content = "你没有要到mfa" } ApiType.XiansongGetMfaFailNotify
                 { this with Ball = Some target }
         }
     interface ISkillExecuteQueued with
@@ -142,7 +143,7 @@ type XianSongSkill =
             let game = game.UpdateEntity entity
             do! State.put ((main, game), night)
             
-            sendRawMessage { Type = Public; Content = $"{recv}身上的咸松球爆炸了！" } "xiansong_boom_broadcast"
+            sendRawMessage { Type = Public; Content = $"{recv}身上的咸松球爆炸了！" } ApiType.XiansongBoomBroadcast
             Some {
                 Target = entity
                 Request = DeadRequest.New Sudden
@@ -197,7 +198,7 @@ let xianSongSendSkill ps (game: GameContext) =
             | "x" -> Some false |> Ok
             | "0" -> Ok None
             | _ -> Error "未知格式"
-        let yes = requestInputWithRawMessage msg "request_xiansong_skill_force_threaten" parser
+        let yes = requestInputWithRawMessage msg ApiType.RequestXiansongSkillForceThreaten parser
         XianSongSkill.New yes :> ISkill
     
     let parser (input: string) : Result<Skill option list, string> = monad {
@@ -214,4 +215,4 @@ let xianSongSendSkill ps (game: GameContext) =
             [ skill |> Some ]
     }
     
-    ps |> sendSkillWith title "request_xiansong_skill" filter parser def
+    ps |> sendSkillWith title ApiType.RequestXiansongSkill filter parser def

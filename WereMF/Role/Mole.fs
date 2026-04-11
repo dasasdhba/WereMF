@@ -3,6 +3,7 @@ module WereMF.Role.Mole
 open FSharp.Data
 open WereMF.Common
 open WereMF.Module.Role
+open WereMF.Module.Api
 
 // 0: 花岗岩；1：土地；2：红土地
 let private moleRollDefault : int list = [ 0; 0; 1; 1; 1; 2 ]

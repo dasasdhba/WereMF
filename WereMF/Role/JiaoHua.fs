@@ -8,6 +8,7 @@ open WereMF.Module
 open WereMF.Module.Cli
 open WereMF.Module.Role
 open WereMF.Module.Skill
+open WereMF.Module.Api
 open WereMF.State
 
 let private voteJiaoHuaFilter (game: GameContext) = function
@@ -53,11 +54,11 @@ type JiaoHuaRole =
                 
                 let parser input =
                     input |> parsePlayerId |> voteJiaoHuaFilter game
-                sendRawMessage { Type = Public ; Content = $"{player.Name}可以禁票一人" } "jiaohua_vote_block_broadcast"
+                sendRawMessage { Type = Public ; Content = $"{player.Name}可以禁票一人" } ApiType.JiaohuaVoteBlockBroadcast
                 let msg = {
                     Type = ToPlayer player
                     Content = "输入要禁票的玩家编号，输入 0 放弃"
-                    Api = "request_jiaohua_vote_block"
+                    Api = ApiType.RequestJiaohuaVoteBlock
                     Data = game.Entities |> createInvalidChoiceArray filter
                 }
                 let r = requestInputWithMessage msg parser

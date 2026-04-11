@@ -11,12 +11,13 @@ open WereMF.Module.Cli
 open WereMF.Module.Entity
 open WereMF.Module.EntityState
 open WereMF.Module.Skill
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Update.Night
 
 let dayStart (day: DayContext) = monad {
     let! (main: MainContext, game : GameContext) = State.get
-    sendRawMessage { Type = Public ; Content = "白天开始" } "day_start_broadcast"
+    sendRawMessage { Type = Public ; Content = "白天开始" } ApiType.DayStartBroadcast
     
     let main, game =
         [0..(game.Entities.Length - 1)] |> List.fold (fun (m, g) i ->
@@ -30,7 +31,7 @@ let dayStart (day: DayContext) = monad {
     sendMessage {
         Type = Public
         Content = "\n" + (printNightSummary entities)
-        Api = "game_update_day"
+        Api = ApiType.GameUpdateDay
         Data = game.ToJsonValue ()
     }
     
@@ -153,11 +154,11 @@ let private updateIfJiaoHuaOut (entity : Entity) (game: GameContext) =
     
     sendRawMessage { Type = Public
                      Content = $"{entity.Player.Name}可以取消一人下一个晚上的一次行动，或令一人不可被其他人的技能选中" }
-                  "jiaohua_dead_skill_broadcast"
+                  ApiType.JiaohuaDeadSkillBroadcast
     let msg = {
         Type = ToPlayer entity.Player
         Content = "输入玩家编号和行动类型（x=封住行动，p=保护玩家），输入 0 放弃"
-        Api = "request_jiaohua_dead_skill"
+        Api = ApiType.RequestJiaohuaDeadSkill
         Data = game.Entities |> createInvalidChoiceArray (voteTargetFilter entity.Player.Id game)
     }
     let target, action = requestInputWithMessage msg (parseJiaoHuaInput entity.Player.Id game)
@@ -181,7 +182,7 @@ let private updateIfShiWuOut (entity : Entity) (bind: BindContext) =
         let k = g.GetEntity kids.Head
         sendRawMessage { Type = Public
                          Content = $"由于{entity.Player.Name}绑架了{k.Player.Name}" }
-                        "shiwu_involve_broadcast"
+                        ApiType.ShiwuInvolveBroadcast
         let request = DeadRequest.New Kill
         let k, (m, g) = requestDead request (k, r)
         let g = updateIfJiaoHuaOut k g
@@ -212,10 +213,10 @@ let VoteOutIfTooManyGiveUp (day: DayContext) (bind: BindContext) =
         && v.GetTarget () = PlayerId 0)
     if giveUp.Length < half then bind else
     
-     sendRawMessage { Type = Public; Content = "半数玩家都弃票了！度娘要抽贴了！" } "baidu_broadcast"
+     sendRawMessage { Type = Public; Content = "半数玩家都弃票了！度娘要抽贴了！" } ApiType.BaiduBroadcast
      let r = giveUp |> List.randomChoiceWith main.Rng
      let rEntity = game.GetEntity r.Id
-     sendRawMessage { Type = Public; Content = $"{rEntity.Player.Name}被抽贴了！" } "baidu_result_broadcast"
+     sendRawMessage { Type = Public; Content = $"{rEntity.Player.Name}被抽贴了！" } ApiType.BaiduResultBroadcast
      requestVoteOut rEntity bind
 
 let private getVoteOutPlayerWith (adder: PlayerVote -> int) (day : DayContext)=
@@ -265,12 +266,12 @@ let private updateContextOnVoteEnd game day =
 let dayVote (day : DayContext) = monad {
     let! (main :MainContext, game : GameContext) = State.get
     
-    sendRawMessage { Type = Public ; Content = "投票开始" } "vote_start_broadcast"
+    sendRawMessage { Type = Public ; Content = "投票开始" } ApiType.VoteStartBroadcast
     let game, day = updateContextOnVoteStart game day
     sendMessage {
         Type = Public
         Content = "\n" + (printVoteStartSummary game day)
-        Api = "game_update_vote"
+        Api = ApiType.GameUpdateVote
         Data = day.ToJsonValue ()
     }
     
@@ -278,7 +279,7 @@ let dayVote (day : DayContext) = monad {
         let msg = {
             Type = Internal
             Content = "输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节"
-            Api = "request_vote"
+            Api = ApiType.RequestVote
             Data = getValidVoteChoice game d
         }
         let vote = requestInputWithMessage msg (parseVote game d)
@@ -288,7 +289,7 @@ let dayVote (day : DayContext) = monad {
             sendMessage {
                 Type = Public
                 Content = $"\n{printVoteSummary game d}"
-                Api = "game_update_vote"
+                Api = ApiType.GameUpdateVote
                 Data = d.ToJsonValue ()
             }
             if canAnyoneVote game d then
@@ -298,11 +299,11 @@ let dayVote (day : DayContext) = monad {
         | v -> v, d
     
     let result, day = voteRec day
-    sendRawMessage { Type = Public ; Content = "投票结束" } "vote_end_broadcast"
+    sendRawMessage { Type = Public ; Content = "投票结束" } ApiType.VoteEndBroadcast
     match result with
     | Suicide x ->
         let xEntity = game.GetEntity x
-        sendRawMessage { Type = Public ; Content = $"{xEntity.Player.Name}自爆了" } "jiaohua_suicide_broadcast"
+        sendRawMessage { Type = Public ; Content = $"{xEntity.Player.Name}自爆了" } ApiType.JiaohuaSuicideBroadcast
         let main, game = requestVoteOut xEntity (main, game)
         let entities = game.Entities |> List.map (fun e ->
                 { e with State.Bomb = e.State.QueuedBomb ; State.QueuedBomb = 0 }
@@ -313,21 +314,21 @@ let dayVote (day : DayContext) = monad {
         sendMessage {
             Type = Public
             Content = $"\n{printVoteSummary game day}"
-            Api = "game_update_vote"
+            Api = ApiType.GameUpdateVote
             Data = day.ToJsonValue ()
         }
         let game, day = updateContextOnVoteEnd game day
         let main, game = VoteOutIfTooManyGiveUp day (main, game)
         let out, game, bar = getVoteOutPlayer day game
         if out <= PlayerId 0 then
-            sendRawMessage { Type = Public ; Content = "投票结果是" } "vote_result_broadcast"
-            sendRawMessage { Type = Public ; Content = "平票" } "vote_tie_broadcast"
+            sendRawMessage { Type = Public ; Content = "投票结果是" } ApiType.VoteResultBroadcast
+            sendRawMessage { Type = Public ; Content = "平票" } ApiType.VoteTieBroadcast
             do! State.put (main, game)
         else
         
         let o = game.GetEntity out
         if o.State |> isDead then
-            sendRawMessage { Type = Public ; Content = $"由于{o.Player.Name}被抽帖，本轮投票没有其他玩家出局" } "vote_baidu_fail_broadcast"
+            sendRawMessage { Type = Public ; Content = $"由于{o.Player.Name}被抽帖，本轮投票没有其他玩家出局" } ApiType.VoteBaiduFailBroadcast
             match bar with
             | None ->
                 do! State.put (main, game)
@@ -337,7 +338,7 @@ let dayVote (day : DayContext) = monad {
                 let game = game.UpdateEntity b
                 do! State.put (main, game)
         else
-            sendRawMessage { Type = Public ; Content = "投票结果是" } "vote_result_broadcast"
+            sendRawMessage { Type = Public ; Content = "投票结果是" } ApiType.VoteResultBroadcast
             let main, game = requestVoteOut o (main, game)
             do! State.put (main, game)
     ()

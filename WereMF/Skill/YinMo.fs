@@ -8,6 +8,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Role.YinMo
 
@@ -39,7 +40,7 @@ type YinMoSkill =
             let sender = sending |> getSenderName game
             let recv = target |> getPlayerName game
             if target |> isDoged night then
-                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } "yinmo_skill_fail_by_doge_notify"
+                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } ApiType.YinmoSkillFailByDogeNotify
                 let night = night.AddMessage $"{sender}想暴毙{recv}，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
@@ -82,13 +83,13 @@ type YinMoSkill =
             do! State.put ((main, game), night)
 
             if sending.Spring.IsNone then
-                sendRawMessage { Type = Public; Content = $"{sender}给{recv}发了唱片！" } "yinmo_kill_broadcast"
+                sendRawMessage { Type = Public; Content = $"{sender}给{recv}发了唱片！" } ApiType.YinmoKillBroadcast
                 Some {
                     Target = tEntity
                     Request = DeadRequest.New Sudden
                 }
             else
-                sendRawMessage { Type = Public; Content = $"{sender}想暴毙{recv}，被弹簧弹回！" } "yinmo_kill_spring_broadcast"
+                sendRawMessage { Type = Public; Content = $"{sender}想暴毙{recv}，被弹簧弹回！" } ApiType.YinmoKillSpringBroadcast
                 Some {
                     Target = tEntity
                     Request = DeadRequest.FromSelf sender Sudden
@@ -118,4 +119,4 @@ let yinMoSendSkill ps (game: GameContext) =
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r (YinMoSkill.New ())  |> Some ])
     
-    ps |> sendSkillWith title "request_yinmo_skill" filter parser def
+    ps |> sendSkillWith title ApiType.RequestYinmoSkill filter parser def

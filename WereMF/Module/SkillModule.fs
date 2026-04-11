@@ -1,10 +1,10 @@
 module WereMF.Module.Skill
 
-open System.Text.Json.Nodes
 open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module.Api
 open WereMF.Module.Cli
 open WereMF.Module.Entity
 open WereMF.State
@@ -62,23 +62,23 @@ let private getThreatenResult filter (creator: unit -> ISkill)
         let target = threaten.Target
         if Ok target |> filter |> Result.isError then
             sendRawMessage { Type = ToPlayer (threaten.Source |> game.GetEntity).Player
-                             Content = "威胁失败" } "myz_threat_failed_notify"
+                             Content = "威胁失败" } ApiType.MyzThreatFailedNotify
             None
         else
             
-        let msg = if target <= PlayerId 0 then "不发技能"
-                  else $"技能发给 {(target |> game.GetEntity).Player.ToInGameString ()}"
-        
-        if threaten.Force then
-            sendRawMessage { Type = ToPlayer entity.Player
-                             Content = $"你被强制威胁{msg}" } "myz_threaten_force_notify"
-            Some (Ok (if target > PlayerId 0 then
-                          Skill.New ps target (creator()) |> Some
-                      else None))
-        else
-            sendRawMessage { Type = ToPlayer entity.Player
-                             Content = $"你被威胁{msg}" } "myz_threaten_notify"
-            Some (Error threaten.Target)
+            let msg = if target <= PlayerId 0 then "不发技能"
+                      else $"技能发给 {(target |> game.GetEntity).Player.ToInGameString ()}"
+            
+            if threaten.Force then
+                sendRawMessage { Type = ToPlayer entity.Player
+                                 Content = $"你被强制威胁{msg}" } ApiType.MyzThreatenForceNotify
+                Some (Ok (if target > PlayerId 0 then
+                              Skill.New ps target (creator()) |> Some
+                          else None))
+            else
+                sendRawMessage { Type = ToPlayer entity.Player
+                                 Content = $"你被威胁{msg}" } ApiType.MyzThreatenNotify
+                Some (Error threaten.Target)
     )
     
 let private updateThreatenIfViolate targets result entity =
@@ -106,7 +106,7 @@ let createPendingSkillApi ps filter (game: GameContext) =
         "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
     |]
     
-let sendSkillWith title api filter
+let sendSkillWith title (api : ApiType) filter
     (parser: string -> Result<Skill option list, string>) creator ps = monad {
     let! (game: GameContext, night: NightContext) = State.get
     let entity = game.GetEntity ps.Source
@@ -118,7 +118,7 @@ let sendSkillWith title api filter
         sendMessage {
             Type = ToPlayer entity.Player
             Content = $"你的{name}技能不可用"
-            Api = "invalid_pending_skill_notify"
+            Api = ApiType.InvalidPendingSkillNotify
             Data = ps.ToJsonValue ()
         }
         ()
@@ -265,7 +265,7 @@ let involveIfDoge (target: Entity) (context: SkillContext)=
         let entity = game.GetEntity ps.Id
         let name = entity.Player.Name
         let msg = $"{target.Player.Name}保护了{name}"
-        sendRawMessage { Type = Public ; Content = msg } "doge_involve_broadcast"
+        sendRawMessage { Type = Public ; Content = msg } ApiType.DogeInvolveBroadcast
         let request = DeadRequest.New Kill
         let dead = entity, (main, game)
         let entity, (main, game) = requestDead request dead

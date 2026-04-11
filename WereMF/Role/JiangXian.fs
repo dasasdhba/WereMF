@@ -9,6 +9,7 @@ open WereMF.Module.Cli
 open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
+open WereMF.Module.Api
 
 type JiangXianRole =
     {
@@ -34,7 +35,7 @@ type JiangXianRole =
                 let msg = {
                     Type = ToPlayer entity.Player
                     Content = "输入你真正想投的票"
-                    Api = "request_jiangxian_real_vote"
+                    Api = ApiType.RequestJiangxianRealVote
                     Data = game.Entities |> createInvalidChoiceArray filter
                 }
                 let parser = parsePlayerId >> (voteTargetFilter entity.Player.Id game)
@@ -51,7 +52,7 @@ type JiangXianRole =
                 let msg = {
                     Type = ToPlayer entity.Player
                     Content = "你有一次死亡后投票的机会，输入你想投票的玩家，输入 0 放弃"
-                    Api = "request_jiangxian_dead_vote"
+                    Api = ApiType.RequestJiangxianDeadVote
                     Data = game.Entities |> createInvalidChoiceArray filter
                 }
                 let parser = parsePlayerId >> (voteTargetFilter entity.Player.Id game)

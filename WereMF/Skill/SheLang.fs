@@ -6,6 +6,7 @@ open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Role.SheLang
 
@@ -74,4 +75,4 @@ let sheLangSendSkill ps (game: GameContext) =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r (SheLangSkill.New ()) |> Some ])
-    ps |> sendSkillWith title "request_shelang_skill" filter parser def
+    ps |> sendSkillWith title ApiType.RequestShelangSkill filter parser def

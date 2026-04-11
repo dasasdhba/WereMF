@@ -2,6 +2,7 @@ namespace WereMF.Module
 
 open System
 open WereMF.Common
+open WereMF.Module.Api
 open WereMF.Module.Cli
 open WereMF.Module.Role
 open WereMF.State
@@ -227,7 +228,7 @@ module Entity =
                      | Sudden -> "暴毙了"
                      | Force -> "暴毙了"
                      | Vote -> "出局"
-        sendRawMessage { Type = Public ; Content = $"{header}{reason}" } "player_dead_broadcast"
+        sendRawMessage { Type = Public ; Content = $"{header}{reason}" } ApiType.PlayerDeadBroadcast
         let context, result = entity.Role |> tryPreventDead request.DeadType context
         if result.IsSome then
             let value = result.Value
@@ -238,7 +239,7 @@ module Entity =
                                            |> EntityState.updateOnDeadButReborn
                                            |> value.StateSetter }
             let game = game.UpdateEntity entity
-            sendRawMessage { Type = Public ; Content = $"但是{header}复活了" } "player_dead_reborn_broadcast"
+            sendRawMessage { Type = Public ; Content = $"但是{header}复活了" } ApiType.PlayerDeadRebornBroadcast
             entity, (main, game)
         else
             let revealNormal () =
@@ -246,7 +247,7 @@ module Entity =
                 let h = entity |> getQueriedHandler main.Rng
                 let name = entity |> getDeadName h
                 let reveal = entity |> request.GetReveal name
-                sendRawMessage { Type = Public ; Content = reveal } "player_dead_reveal_broadcast"
+                sendRawMessage { Type = Public ; Content = reveal } ApiType.PlayerDeadRevealBroadcast
                 let entity = { entity with State.Dead = { Dead = true ; Name = name } } |> updateOnDead request.DeadType
                 let game = game.UpdateEntity entity
                 entity, (main, game)
@@ -254,7 +255,7 @@ module Entity =
             | :? IRoleLeaf as leaf when leaf.Fury |> not ->
                 let context = revealNormal ()
                 let entity, (main, game) = context
-                sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}是叶子" } "leaf_dead_p1_broadcast"
+                sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}是叶子" } ApiType.LeafDeadP1Broadcast
                 let entity = { entity with
                                    State.Dead.Dead = false
                                    State.Dead.Name = ""
@@ -263,7 +264,7 @@ module Entity =
                 let game = game.UpdateEntity entity
                 entity, (main, game)
             | :? IRoleLeaf ->
-                sendRawMessage { Type = Public ; Content = "叶子是叶子" } "leaf_dead_p2_broadcast"
+                sendRawMessage { Type = Public ; Content = "叶子是叶子" } ApiType.LeafDeadP2Broadcast
                 let entity, (main, game) = context
                 let entity = { entity with State.Dead = { Dead = true ; Name = "叶子" } } |> updateOnDead request.DeadType
                 let game = game.UpdateEntity entity
@@ -296,7 +297,7 @@ module Entity =
         let state = { entity.State with Reborn = updateRebornState entity.State.Reborn }
         let state =
             if state |> EntityState.isDead && state.Reborn.IsSome && state.Reborn.Value.Reborn then
-                sendRawMessage { Type = ToPlayer entity.Player ; Content = "你复活了" } "player_reborn_notify"
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "你复活了" } ApiType.PlayerRebornNotify
                 { state with Dead.Dead = false }
             else
                 state
@@ -318,14 +319,14 @@ module Entity =
         let e, _ = context
         if e.State.Bomb <= 0 then context else
             
-        sendRawMessage { Type = Public ; Content = $"{e.Player.Name}身上的炸药爆炸了！" } "tnt_boom_broadcast"
+        sendRawMessage { Type = Public ; Content = $"{e.Player.Name}身上的炸药爆炸了！" } ApiType.TntBoomBroadcast
         requestDead (DeadRequest.New Kill) context
     
     let private updateOnNightStartXianSong (context : DeadContext) =
         let e, _ = context
         if e.State.XianSong <= 0 then context else
             
-        sendRawMessage { Type = Public ; Content = $"{e.Player.Name}身上的咸松球爆炸了！" } "xiansong_boom_broadcast"
+        sendRawMessage { Type = Public ; Content = $"{e.Player.Name}身上的咸松球爆炸了！" } ApiType.XiansongBoomBroadcast
         requestDead (DeadRequest.New Sudden) context
     
     let private updateOnNightStartMyz (context : DeadContext) =
@@ -334,7 +335,7 @@ module Entity =
             context
         else
         
-        sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}无视了威胁！" } "myz_ignore_broadcast"
+        sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}无视了威胁！" } ApiType.MyzIgnoreBroadcast
         requestDead (DeadRequest.New Kill) context
     
     let updateOnNightStartRequestDead (context: DeadContext) =
@@ -385,13 +386,13 @@ module Entity =
             sendRawMessage
                 { Type = ToPlayer entity.Player
                   Content = $"队友：{(m.PlayerId |> main.GetPlayer).ToInGameString ()}" }
-                "paoxian_party_notify"
+                ApiType.PaoxianPartyNotify
             { entity with State.PaoXianParty = m.PlayerId :: party }
         else
             let msg = members
                       |> List.map (fun m -> (m.PlayerId |> main.GetPlayer).ToInGameString ())
                       |> String.concat "，"
-            sendRawMessage { Type = ToPlayer entity.Player ; Content = $"队友：{msg}" } "paoxian_party_notify"
+            sendRawMessage { Type = ToPlayer entity.Player ; Content = $"队友：{msg}" } ApiType.PaoxianPartyNotify
             { entity with State.PaoXianParty = members |> List.map (fun m -> m.PlayerId) }
         
     let updateOnNightInit entity =
@@ -438,7 +439,7 @@ module Entity =
         
     let private updateThreatenOnVoteStart (game: GameContext) (day: DayContext) (entity: Entity) =
         if entity.State.Threaten.IsNone then () else
-        sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}昨晚被威胁，白天无法行动" } "myz_threaten_block_broadcast"
+        sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}昨晚被威胁，白天无法行动" } ApiType.MyzThreatenBlockBroadcast
     
     let private updateBombOnVoteEnd (entity : Entity) (day: DayContext) (game : GameContext)  =
         let t = (day.GetPlayerVote entity.Player.Id).GetTarget()
@@ -496,7 +497,7 @@ module Entity =
         sendApi {
             Type = Internal
             Content = ""
-            Api = "pending_skill_created"
+            Api = ApiType.PendingSkillCreated
             Data = skill.ToJsonValue ()
         }
         skill

@@ -1,5 +1,6 @@
 module WereMF.Role.PaoXian
 
+open WereMF.Module.Api
 open FSharp.Data
 open WereMF.Common
 

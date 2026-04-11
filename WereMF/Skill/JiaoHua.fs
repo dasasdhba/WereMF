@@ -6,6 +6,7 @@ open WereMF.Common
 open WereMF.Module.Cli
 open WereMF.Module.Entity
 open WereMF.Module.Skill
+open WereMF.Module.Api
 open WereMF.Role.ShiWu
 
 type JiaoHuaSkill =
@@ -21,7 +22,7 @@ type JiaoHuaSkill =
             
             // 烟雾
             if handler.IsNone then
-                sendRawMessage { Type = ToPlayer player; Content = "失败" } "jiaohua_skill_failed_by_smog"
+                sendRawMessage { Type = ToPlayer player; Content = "失败" } ApiType.JiaohuaSkillFailedBySmog
                 this
             else
             
@@ -32,7 +33,7 @@ type JiaoHuaSkill =
             do! State.put ((main, game), night)
             
             let name = entity |> getHandlerName handler
-            sendRawMessage { Type = ToPlayer player; Content = name } "jiaohua_skill_result_notify"
+            sendRawMessage { Type = ToPlayer player; Content = name } ApiType.JiaohuaSkillResultNotify
             this
         }
 
@@ -48,5 +49,5 @@ let jiaoHuaSendSkill ps game =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ (Skill.New ps r JiaoHuaSkill) |> Some ])
-    ps |> sendSkillWith title "request_jiaohua_skill" filter parser def
+    ps |> sendSkillWith title ApiType.RequestJiaohuaSkill filter parser def
 

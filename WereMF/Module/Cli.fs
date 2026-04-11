@@ -6,6 +6,7 @@ open System.Text.RegularExpressions
 open FSharp.Data
 open FSharpPlus
 open WereMF.Common
+open WereMF.Module.Api
 
 type private CliOptions = {
     Help: bool
@@ -53,7 +54,7 @@ type Message =
     {
         Type : MessageType
         Content : string
-        Api : string
+        Api : ApiType
         Data : JsonValue
     }
     override this.ToString() =
@@ -62,7 +63,7 @@ type Message =
         | Public -> $"[Public] {this.Content}"
         | ToPlayer p -> $"[ToPlayer {p.ToCliString()}] {this.Content}"
     member this.ToJsonValue () = JsonValue.Record [|
-        "api", JsonValue.String this.Api
+        "api", JsonValue.String (this.Api.ToString())
         "message_type", (match this.Type with
                          | Internal -> JsonValue.String "internal"
                          | Public -> JsonValue.String "public"
@@ -89,7 +90,7 @@ type RawMessage =
         Type : MessageType
         Content : string
     }
-    member this.ToMessage api = {
+    member this.ToMessage (api : ApiType) = {
         Type = this.Type
         Content = this.Content
         Api = api
@@ -236,31 +237,31 @@ let parseCommand (input : string) =
     match input with
     | "\\undo" ->
         if cliUndo |> List.isEmpty then
-            sendRawMessage { Type = Internal ; Content = "撤销列表为空" } "command_error"
+            sendRawMessage { Type = Internal ; Content = "撤销列表为空" } ApiType.CommandError
             Error true
         else
             Ok Undo
     | "\\redo" ->
         if cliRedo |> List.isEmpty then
-            sendRawMessage { Type = Internal ; Content = "重做列表为空" } "command_error"
+            sendRawMessage { Type = Internal ; Content = "重做列表为空" } ApiType.CommandError
             Error true
         else
             Ok Redo
     | "\\reboot" ->
         if cliUndo |> List.isEmpty then
-            sendRawMessage { Type = Internal ; Content = "游戏还没开始" } "command_error"
+            sendRawMessage { Type = Internal ; Content = "游戏还没开始" } ApiType.CommandError
             Error true
         else
             Ok Reboot
     | "\\restart" ->
         if cliUndo |> List.isEmpty  then
-            sendRawMessage { Type = Internal ; Content = "请先输入玩家" } "command_error"
+            sendRawMessage { Type = Internal ; Content = "请先输入玩家" } ApiType.CommandError
             Error true
         else
             Ok Restart
     | s when s.StartsWith "\\rename" ->
         if cliUndo |> List.isEmpty  then
-            sendRawMessage { Type = Internal ; Content = "请先输入玩家" } "command_error"
+            sendRawMessage { Type = Internal ; Content = "请先输入玩家" } ApiType.CommandError
             Error true
         else
         
@@ -270,12 +271,12 @@ let parseCommand (input : string) =
             let id = parseInt id
             match id with
             | Error e ->
-                sendRawMessage { Type = Internal ; Content = e } "command_error"
+                sendRawMessage { Type = Internal ; Content = e } ApiType.CommandError
                 Error true
             | Ok id ->
                 Ok (Rename (id, name))
         | _ ->
-            sendRawMessage { Type = Internal ; Content = "请输入要重命名的玩家编号和新的玩家名" } "command_error"
+            sendRawMessage { Type = Internal ; Content = "请输入要重命名的玩家编号和新的玩家名" } ApiType.CommandError
             Error true
     | "\\log" -> Ok Log
     | "\\night" -> Ok NightSummary
@@ -309,10 +310,10 @@ let requestInputWithMessage (message : Message) (parser : string -> Result<'a, s
                     cliReplay <- cliReplay.Tail
                 result
             | Error msg ->
-                sendRawMessage { Type = message.Type ; Content = msg } $"{message.Api}_parse_error"
+                sendRawMessage { Type = message.Type ; Content = msg } (ApiType.ParseError message.Api)
                 loop ()
     loop ()
     
-let requestInputWithRawMessage (raw : RawMessage) (api : string) (parser : string -> Result<'a, string>) =
+let requestInputWithRawMessage (raw : RawMessage) (api : ApiType) (parser : string -> Result<'a, string>) =
     let message = raw.ToMessage api
     requestInputWithMessage message parser

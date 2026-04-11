@@ -8,6 +8,7 @@ open WereMF.Module.Cli
 open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
+open WereMF.Module.Api
 open WereMF.Role.Bind
 open WereMF.Role.Kirby
 open WereMF.Skill.Bind
@@ -17,7 +18,7 @@ open WereMF.Module
 
 let nightStart () = monad {
     let! (main: MainContext, game : GameContext) = State.get
-    sendRawMessage { Type = Public ; Content = "晚上开始" } "night_start_broadcast"
+    sendRawMessage { Type = Public ; Content = "晚上开始" } ApiType.NightStartBroadcast
     
     let entities = game.Entities |> List.map Entity.updateOnNightInit
     let game = { game with Entities = entities }
@@ -34,7 +35,7 @@ let nightStart () = monad {
     sendMessage {
         Type = Public
         Content = "\n" + (printNightSummary game.Entities)
-        Api = "game_update_night"
+        Api = ApiType.GameUpdateNight
         Data = game.ToJsonValue ()
     }
     do! State.put (main, game)
@@ -54,11 +55,11 @@ let getGameWinString (game: GameContext) : string =
         ""
 
 let sendGameWinMessage (game: GameContext) (str: string) =
-    sendRawMessage { Type = Public ; Content = str } "game_win_broadcast"
+    sendRawMessage { Type = Public ; Content = str } ApiType.GameWinBroadcast
     sendMessage {
         Type = Public
         Content = $"\n{printSummary game.Entities}"
-        Api = "game_win_summary"
+        Api = ApiType.GameWinSummary
         Data = game.ToJsonValue ()
     } 
 
@@ -103,12 +104,12 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
     let sEntity = game.GetEntity source
     let blocked = (night.GetPlayerState source).Blocked
     if blocked || sEntity |> Entity.getState |> EntityState.isDead then
-        sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_fail_by_sudden_death_notify"
+        sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillFailBySuddenDeathNotify
         context, None
     else
     
     if skill.Sending.Target <= PlayerId 0 then
-        sendRawMessage { Type = Internal ; Content = $"无效的技能：{skill.Sending.Pending.Type}，请检查输入处理是否正确" } "skill_fail_by_unexpected_behavior"
+        sendRawMessage { Type = Internal ; Content = $"无效的技能：{skill.Sending.Pending.Type}，请检查输入处理是否正确" } ApiType.SkillFailByUnexpectedBehavior
         context, None
     else
     
@@ -134,7 +135,7 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
         lEntity |> isLeafProtectedFresh
     
     if success then
-        sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_fail_by_leaf_protected_notify"
+        sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillFailByLeafProtectedNotify
         let (main, game), night = context
         let night, sEntity = updateBugOnNight night sEntity
         let game = game.UpdateEntity sEntity
@@ -157,12 +158,12 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
         let kEntity = game.GetEntity kirby
         let chara = skill.Sending.Pending.Type
         if chara = Kirby then
-            sendRawMessage { Type = ToPlayer kEntity.Player ; Content = "失败" } "skill_fail_by_kirby_notify"
-            sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_fail_by_kirby_notify"
+            sendRawMessage { Type = ToPlayer kEntity.Player ; Content = "失败" } ApiType.SkillFailByKirbyNotify
+            sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillFailByKirbyNotify
             context, true
         else
-            sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_fail_by_kirby_notify"
-            sendRawMessage { Type = ToPlayer kEntity.Player ; Content = chara.ToString () } "kirby_get_skill_notify"
+            sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillFailByKirbyNotify
+            sendRawMessage { Type = ToPlayer kEntity.Player ; Content = chara.ToString () } ApiType.KirbyGetSkillNotify
             let role = createRole main.Roll chara;
             let kEntity = kEntity |> updateRoleWithHandler
                              (fun (k: KirbyRole) -> { k with CopiedRole = Some role })
@@ -187,7 +188,7 @@ let private executeSkill (context: SkillContext) (skill : Skill) =
                 if skill |> canExecute context then
                     State.run (exe.Execute skill.Sending) context
                 else
-                    sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } "skill_execute_fail_notify"
+                    sendRawMessage { Type = ToPlayer sEntity.Player ; Content = "失败" } ApiType.SkillExecuteFailNotify
                     skill.Actor, context
             let skill = { skill with Actor = actor }
             context, Some skill
@@ -251,7 +252,7 @@ let private createPendingSkills (entities: Entity list) (rng : Random) =
         sendMessage {
             Type = ToPlayer player
             Content = $"你的{blocked.Type.ToString()}技能被脚滑人禁用"
-            Api = "skill_blocked_by_jiaohua_notify"
+            Api = ApiType.SkillBlockedByJiaohuaNotify
             Data = blocked.ToJsonValue ()
         }
         jiaoHuaBlock (remaining - 1) list.Tail player
@@ -357,7 +358,7 @@ let rec private involveIfDogeSummary (target: Entity) (context: SkillContext) (l
         let entity = game.GetEntity ps.Id
         let name = entity.Player.Name
         let msg = $"{target.Player.Name}保护了{name}"
-        sendRawMessage { Type = Public ; Content = msg } "doge_involve_broadcast"
+        sendRawMessage { Type = Public ; Content = msg } ApiType.DogeInvolveBroadcast
         let request = DeadRequest.New Kill
         let sk, heal = tryHeal l request entity
         if heal then
@@ -380,9 +381,9 @@ let nightSummary (night: NightContext) = monad {
         { e with Player = { p with Anonymous = false } })
     let game = { game with Entities = entities }
     
-    sendRawMessage { Type = Public; Content = "今晚" } "night_summary_broadcast"
+    sendRawMessage { Type = Public; Content = "今晚" } ApiType.NightSummaryBroadcast
     for msg in night.Messages do
-        sendRawMessage { Type = Public ; Content = msg } "night_summary_queued_broadcast"
+        sendRawMessage { Type = Public ; Content = msg } ApiType.NightSummaryQueuedBroadcast
     
     // 虫子
     
@@ -398,7 +399,7 @@ let nightSummary (night: NightContext) = monad {
             updateBugs context skills remain
         else
         
-        sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}的虫子数量过多！" } "bug_kill_broadcast"
+        sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}的虫子数量过多！" } ApiType.BugKillBroadcast
         let entity = { entity with State.Bug = None }
         let game = game.UpdateEntity entity
         let context = (main, game), night

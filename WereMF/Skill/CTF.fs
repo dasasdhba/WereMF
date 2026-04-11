@@ -7,6 +7,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.Role.XianSong
 open WereMF.State
 open WereMF.Role.CTF
@@ -110,7 +111,7 @@ type CTFSkill =
             let sender = sending |> getSenderName game
             let recv = target |> getPlayerName game
             if target |> isDoged night then
-                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } "ctf_skill_fail_by_doge_notify"
+                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } ApiType.CtfSkillFailByDogeNotify
                 let night = night.AddMessage $"{sender}想给{recv}丢虫子，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
@@ -145,4 +146,4 @@ let ctfSendSkill ps (game: GameContext) =
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r CTFSkill |> Some ])
     
-    ps |> sendSkillWith title "request_ctf_skill" filter parser def
+    ps |> sendSkillWith title ApiType.RequestCtfSkill filter parser def

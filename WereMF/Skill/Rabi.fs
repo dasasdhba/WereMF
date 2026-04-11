@@ -8,6 +8,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.Role.Rabi
 open WereMF.State
 
@@ -53,13 +54,13 @@ type RabiSkill =
                             | Dry -> "毒奶"
             let drink =
                 if force then
-                    sendRawMessage { Type = ToPlayer tEntity.Player ; Content = $"你被喂{milkName}" } "rabi_milked_notify"
+                    sendRawMessage { Type = ToPlayer tEntity.Player ; Content = $"你被喂{milkName}" } ApiType.RabiMilkedNotify
                     true
                 else
                     let msg = { Type = ToPlayer tEntity.Player
                                 Content = "你被喂奶，要喝吗？（1：喝；0：不喝）" }
-                    let yes = requestInputWithRawMessage msg "request_drink_milk" parseBool
-                    if yes then sendRawMessage { Type = ToPlayer tEntity.Player; Content = milkName } "rabi_milk_type_notify"
+                    let yes = requestInputWithRawMessage msg ApiType.RequestDrinkMilk parseBool
+                    if yes then sendRawMessage { Type = ToPlayer tEntity.Player; Content = milkName } ApiType.RabiMilkTypeNotify
                     yes
 
             if drink then
@@ -90,7 +91,7 @@ type RabiSkill =
             let recv = sending.Target |> getPlayerName game
             let target = sending |> getRealTarget
             let tEntity = target |> game.GetEntity
-            sendRawMessage { Type = Public; Content = $"{recv}被喂了毒奶！" } "rabi_kill_broadcast"
+            sendRawMessage { Type = Public; Content = $"{recv}被喂了毒奶！" } ApiType.RabiKillBroadcast
             Some {
                 Target = tEntity
                 Request = DeadRequest.New Kill
@@ -127,7 +128,7 @@ let rabbitSendSkill ps (game: GameContext) =
     let filter = giveUpOrFilterWith filter
     let def () =
         let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择给鲜奶还是毒奶（1：鲜奶；0：毒奶）" }
-        let yes = requestInputWithRawMessage msg "request_rabi_skill_force_threaten" parseBool
+        let yes = requestInputWithRawMessage msg ApiType.RequestRabiSkillForceThreaten parseBool
         let t = if yes then Fresh else Dry
         { MilkType = t; Poison = false } :> ISkill
     
@@ -139,4 +140,4 @@ let rabbitSendSkill ps (game: GameContext) =
         [ rabiSkill |> Some ]
     }
     
-    ps |> sendSkillWith title "request_rabi_skill" filter parser def
+    ps |> sendSkillWith title ApiType.RequestRabiSkill filter parser def

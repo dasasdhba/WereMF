@@ -6,6 +6,7 @@ open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 
 type CTFRole =
@@ -39,7 +40,7 @@ type CTFRole =
             if totalBug <= 0 then None else
             
             let msg = { Type = ToPlayer entity.Player ; Content = "移动一只 bug 到自己身上并复活吗？（1：是；0：否）" }
-            let yes = requestInputWithRawMessage msg "request_ctf_reborn" parseBool
+            let yes = requestInputWithRawMessage msg ApiType.RequestCtfReborn parseBool
             if yes |> not then None else
                 
             let bugPlayer = game.Entities |> List.filter (

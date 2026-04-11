@@ -7,6 +7,7 @@ open WereMF.Module
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Role.Doctor
 
@@ -57,7 +58,7 @@ type DoctorSkill =
             let target = sending |> getRealTarget
             let entity = game.GetEntity target
             let recv = target |> getPlayerName game
-            sendRawMessage { Type = Public ; Content = $"{recv}被扎了一针" } "doctor_skill_broadcast"
+            sendRawMessage { Type = Public ; Content = $"{recv}被扎了一针" } ApiType.DoctorSkillBroadcast
             
             let entity = { entity with State = entity.State |> EntityState.addCapsule }
             let game = game.UpdateEntity entity
@@ -78,7 +79,7 @@ type DoctorSkill =
         member this.CanHeal () =
             this.Healed |> not
         member this.Heal target =
-            sendRawMessage { Type = Public ; Content = $"但是{target}被救活了" } "doctor_save_broadcast"
+            sendRawMessage { Type = Public ; Content = $"但是{target}被救活了" } ApiType.DoctorSaveBroadcast
             { this with Healed = true }
             
 
@@ -110,4 +111,4 @@ let doctorSendSkill ps (game: GameContext) =
     let def () = DoctorSkill.New () :> ISkill
     let createSkill id = Skill.New ps id (DoctorSkill.New ())
     let parser = parseMultiSkill config filter createSkill
-    ps |> sendSkillWith title "request_doctor_skill" filter parser def
+    ps |> sendSkillWith title ApiType.RequestDoctorSkill filter parser def

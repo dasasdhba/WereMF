@@ -3,6 +3,7 @@ module WereMF.Role.Doge
 open FSharp.Data
 open WereMF.Common
 open WereMF.Module.Role
+open WereMF.Module.Api
 
 type DogeRole =
     {

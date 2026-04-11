@@ -4,6 +4,7 @@ open FSharp.Data
 open WereMF.Common
 open WereMF.Module
 open WereMF.Module.Role
+open WereMF.Module.Api
 
 type ShiWuRole =
     {

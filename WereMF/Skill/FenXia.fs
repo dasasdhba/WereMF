@@ -8,6 +8,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.Role.Bind
 open WereMF.Role.ShiWu
 open WereMF.State
@@ -51,14 +52,14 @@ type FenXiaSkill =
                             handler
             let skill, night =
                 if remain > 0 then this, night else
-                sendRawMessage { Type = ToPlayer entity.Player ; Content = "你的粉条用完了" } "fenxia_skill_no_fen_notify"
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "你的粉条用完了" } ApiType.FenxiaSkillNoFenNotify
                 let state = night.GetPlayerState source
                 let state = { state with Blocked = true }
                 let night = night.SetPlayerState state
                 { this with Dead = true }, night
             do! State.put ((main, game), night)
             if target |> isDoged night then
-                sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } "fenxia_skill_failed_by_doge_notify"
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } ApiType.FenxiaSkillFailedByDogeNotify
                 let sender = sending |> getSenderName game
                 let recv = target |> getPlayerName game
                 let night = night.AddMessage $"{sender}想给{recv}发粉条，被Doge挡了"
@@ -67,14 +68,14 @@ type FenXiaSkill =
             else
                 let tEntity = target |> game.GetEntity
                 if tEntity.State |> EntityState.isDead && tEntity.State.Dead.Name = "???" then
-                    sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } "fenxia_skill_failed_by_unknown_dead_notify"
+                    sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } ApiType.FenxiaSkillFailedByUnknownDeadNotify
                     skill
                 else
 
                 let h = tEntity |> Entity.getQueriedHandler main.Rng
 
                 if h.IsNone then
-                    sendRawMessage { Type = ToPlayer entity.Player; Content = "失败" } "fenxia_skill_failed_by_smog_notify"
+                    sendRawMessage { Type = ToPlayer entity.Player; Content = "失败" } ApiType.FenxiaSkillFailedBySmogNotify
                     skill
                 else
 
@@ -85,11 +86,11 @@ type FenXiaSkill =
 
                 let chara = getHandlerCharaType h tEntity
                 if chara = FenXia || chara = Leaf then
-                    sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } "fenxia_skill_failed_by_invalid_chara_notify"
+                    sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } ApiType.FenxiaSkillFailedByInvalidCharaNotify
                     skill
                 else
 
-                sendRawMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () } "fenxia_skill_success_chara_notify"
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () } ApiType.FenxiaSkillSuccessCharaNotify
                 let role = createRole main.Roll chara
                 let entity = source |> game.GetEntity
                 let entity = entity |> updateRoleWithHandler
@@ -161,4 +162,4 @@ let fenXiaSendSkill ps (game: GameContext) =
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r (FenXiaSkill.New ()) |> Some ])
     
-    ps |> sendSkillWith title "request_fenxia_skill" filter parser def
+    ps |> sendSkillWith title ApiType.RequestFenxiaSkill filter parser def

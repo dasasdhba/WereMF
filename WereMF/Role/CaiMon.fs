@@ -6,6 +6,7 @@ open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
+open WereMF.Module.Api
 
 type CaiMonRole =
     {
@@ -46,7 +47,7 @@ type CaiMonRole =
             
             let! entity, bind = State.get
             let msg = { Type = ToPlayer entity.Player ; Content = "用一根彩条复活吗？（1：是；0：否）" }
-            let yes = requestInputWithRawMessage msg "request_caimon_reborn" parseBool
+            let yes = requestInputWithRawMessage msg ApiType.RequestCaimonReborn parseBool
             if yes |> not then None else
             
             let role = { this with RebornRound = Some 1 ; CaiCount = this.CaiCount - 1 }

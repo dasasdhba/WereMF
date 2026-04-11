@@ -9,6 +9,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Role.ShiWu
 
@@ -42,7 +43,7 @@ type ShiWuSkill =
             let sender = sending |> getSenderName game
             if target |> isDoged night then
                 let recv = target |> getPlayerName game
-                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } "shiwu_skill_fail_by_doge_notify"
+                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } ApiType.ShiwuSkillFailByDogeNotify
                 let night = night.AddMessage $"{sender}想绑架{recv}，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
@@ -51,22 +52,22 @@ type ShiWuSkill =
             let source = sending |> getSource
             let tEntity = target |> game.GetEntity
             let aRecv = target |> getPlayerNameAnonymous game
-            sendRawMessage { Type = Public ; Content = $"{aRecv}被{sender}绑架了！" } "shiwu_kidnap_broadcast"
+            sendRawMessage { Type = Public ; Content = $"{aRecv}被{sender}绑架了！" } ApiType.ShiwuKidnapBroadcast
             let game =
                 if this.Broadcast |> not then game else
                 let h = tEntity |> Entity.getQueriedHandler main.Rng
 
                 if h.IsNone then
                     let entity = source |> game.GetEntity
-                    sendRawMessage { Type = ToPlayer entity.Player; Content = "播报失败" } "shiwu_broadcast_failed_notify"
+                    sendRawMessage { Type = ToPlayer entity.Player; Content = "播报失败" } ApiType.ShiwuBroadcastFailedNotify
                     game
                 else
                     let h = h.Value
                     let tEntity = tEntity |> exposeIfShiWu h
                     let game = game.UpdateEntity tEntity
                     let name = tEntity |> Entity.getHandlerName h
-                    sendRawMessage { Type = Public; Content = $"{sender}公开了{aRecv}的身份！" } "shiwu_broadcast_chara_broadcast"
-                    sendRawMessage { Type = Public; Content = $"{aRecv}是{name}" } "shiwu_broadcast_result_broadcast"
+                    sendRawMessage { Type = Public; Content = $"{sender}公开了{aRecv}的身份！" } ApiType.ShiwuBroadcastCharaBroadcast
+                    sendRawMessage { Type = Public; Content = $"{aRecv}是{name}" } ApiType.ShiwuBroadcastResultBroadcast
                     game
 
             let tEntity = { tEntity with State.Kidnapped = source :: tEntity.State.Kidnapped }
@@ -81,7 +82,7 @@ type ShiWuSkill =
                 sendMessage {
                     Type = ToPlayer p
                     Content = $"你的{ps.Type}技能被绑架禁用"
-                    Api = "shiwu_kidnapped_skill_disabled_notify"
+                    Api = ApiType.ShiwuKidnappedSkillDisabledNotify
                     Data = ps.ToJsonValue ()
                 }
                 let pending = pending |> List.updateAt i ps
@@ -108,7 +109,7 @@ type ShiWuSkill =
             if exposed |> not then None else
 
             let sender = sending |> getSenderName game
-            sendRawMessage { Type = Public ; Content = $"{sender}被查出了身份，{sender}撕票了！" } "shiwu_exposed_kill_broadcast"
+            sendRawMessage { Type = Public ; Content = $"{sender}被查出了身份，{sender}撕票了！" } ApiType.ShiwuExposedKillBroadcast
             let target = sending |> getRealTarget
             let tEntity = target |> game.GetEntity
             Some {
@@ -163,4 +164,4 @@ let shiWuSendSkill ps (game: GameContext) =
         [ skill |> Some ]
     }
     
-    ps |> sendSkillWith title "request_shiwu_skill" filter parser def
+    ps |> sendSkillWith title ApiType.RequestShiwuSkill filter parser def
