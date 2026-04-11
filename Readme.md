@@ -601,7 +601,7 @@ null
 | `baidu_result_broadcast` | 度娘结果广播 | xxx 被抽帖了 |
 | `vote_baidu_fail_broadcast` | 度娘与投票结果重合广播 | 由于 xxx 被抽帖，本轮投票没有其他玩家出局 |
 | `game_win_broadcast` | 游戏胜利广播 | 游戏结束，无人生还 | 获胜方阵营 或 null |
-| `game_win_summary` | 游戏总结 | `Game` |
+| `game_win_summary` | 游戏总结 | - | `Game` |
 
 #### 错误处理类
 
