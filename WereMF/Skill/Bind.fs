@@ -1,5 +1,6 @@
 module WereMF.Skill.Bind
 
+open WereMF.Module.Api
 open WereMF.Common
 open WereMF.Skill.CaiMon
 open WereMF.Skill.Creeper

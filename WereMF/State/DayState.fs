@@ -1,5 +1,6 @@
 namespace WereMF.State
 
+open FSharp.Data
 open WereMF.Common
 
 type PlayerVote =
@@ -12,6 +13,11 @@ type PlayerVote =
         defaultArg this.Target (PlayerId 0)
     static member New id =
         { Id = id; Target = None; Confirmed = false }
+    member this.ToJsonValue () = JsonValue.Record [|
+        "id", this.Id.ToJsonValue ()
+        "target", match this.Target with | None -> JsonValue.Null | Some t -> t.ToJsonValue ()
+        "confirmed", JsonValue.Boolean this.Confirmed
+    |]
 
 type DayContext =
     {
@@ -25,3 +31,5 @@ type DayContext =
         {
             Votes = players |> List.map (fun p -> PlayerVote.New p)
         }
+    member this.ToJsonValue () =
+        this.Votes |> List.mapJson (fun v -> v.ToJsonValue ())

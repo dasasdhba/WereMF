@@ -7,6 +7,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.Role.Bind
 open WereMF.Role.Kirby
 
@@ -32,7 +33,7 @@ type KirbySkill =
             let source = sending |> getSource
             let entity = source |> game.GetEntity
             if sending.Spring.IsSome then
-                sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } ApiType.KirbySkillFailBySpringNotify
                 this
             else
 
@@ -40,14 +41,14 @@ type KirbySkill =
             let sender = sending |> getSenderName game
             let recv = target |> getPlayerName game
             if target |> isDoged night then
-                sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } ApiType.KirbySkillFailByDogeNotify
                 let night = night.AddMessage $"{sender}想吸入{recv}，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
             else
                 let handler = sending |> getHandler
                 let state = night.GetPlayerState target
-                let state = { state with Kirby = Some (source, handler) }
+                let state = { state with Kirby = Some sending.Pending }
                 let night = night.SetPlayerState state
                 do! State.put ((main, game), night)
                 this
@@ -67,14 +68,14 @@ type KirbySkill =
             let state = night.GetPlayerState target
             let kirby = state.Kirby
             match kirby with
-            | Some (s, _) when s = source ->
+            | Some pending when pending.Id = sending.Pending.Id ->
                 let th = tEntity.Role |> getQueriedHandler main.Rng
                 let chara = tEntity |> getHandlerCharaType th
                 if chara = Kirby || chara = Leaf then
-                    sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
+                    sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } ApiType.KirbySkillFailByInvalidCharaNotify
                     None
                 else
-                    sendMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () }
+                    sendRawMessage { Type = ToPlayer entity.Player ; Content = chara.ToString () } ApiType.KirbySkillSuccessCharaNotify
                     let role = chara |> createRole main.Roll
                     let handler = sending |> getHandler
                     let entity = entity |> updateRoleWithHandler
@@ -98,4 +99,4 @@ let kirbySendSkill ps game =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r KirbySkill |> Some ])
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title ApiType.RequestKirbySkill filter parser def

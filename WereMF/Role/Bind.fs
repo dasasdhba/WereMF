@@ -1,5 +1,6 @@
 module WereMF.Role.Bind
 
+open WereMF.Module.Api
 open WereMF.Common
 open WereMF.State
 open WereMF.Role.CaiMon

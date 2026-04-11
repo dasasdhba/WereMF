@@ -1,6 +1,7 @@
 module WereMF.Skill.CaiMon
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -9,6 +10,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Role.CaiMon
 
@@ -61,14 +63,14 @@ type CaiMonSkill =
                             handler
             let skill, night =
                 if remain > 0 then this, night else
-                sendMessage { Type = ToPlayer entity.Player ; Content = "你的彩条用完了" }
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "你的彩条用完了" } ApiType.CaimonSkillNoCaiNotify
                 let state = night.GetPlayerState source
                 let state = { state with Blocked = true }
                 let night = night.SetPlayerState state
                 { this with Dead = true }, night
             do! State.put ((main, game), night)
             if target |> isDoged night then
-                sendMessage { Type = ToPlayer entity.Player ; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player ; Content = "失败" } ApiType.CaimonSkillFailByDogeNotify
                 let sender = sending |> getSenderName game
                 let recv = target |> getPlayerName game
                 let night = night.AddMessage $"{sender}想给{recv}发彩条，被Doge挡了"
@@ -84,9 +86,9 @@ type CaiMonSkill =
                     let tEntity = { tEntity with State.Dead.Dead = false }
                     let game = game.UpdateEntity tEntity
                     let handlers = getPendingHandlers tEntity.Player tEntity.Role
-                    let ps = handlers |> List.map (fun h -> createPendingSkill h tEntity)
+                    let ps = handlers |> List.map (fun h -> createPendingSkill main.Rng h tEntity)
                     let night = { night with PendingSkills = ps @ night.PendingSkills }
-                    sendMessage { Type = ToPlayer tEntity.Player ; Content = "你复活了" }
+                    sendRawMessage { Type = ToPlayer tEntity.Player ; Content = "你复活了" } ApiType.PlayerRebornNotify
                     game, night
                 do! State.put ((main, game), night)
                 skill
@@ -139,7 +141,15 @@ let caiMonSendSkill ps (game: GameContext) =
     let filter = giveUpOrFilterWith filter
     let def () =
         if caiCount <= 1 then { Double = false ; Dead = false } :> ISkill else
-        let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择用一根还是两根彩条（1：两根；0：一根）" }
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = "你可以选择用一根还是两根彩条（1：两根；0：一根）"
+            Api = ApiType.RequestCaimonSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
         let yes = requestInputWithMessage msg parseBool
         { Double = yes ; Dead = false } :> ISkill
     
@@ -155,4 +165,4 @@ let caiMonSendSkill ps (game: GameContext) =
             [ skill |> Some ]
        }
     
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title ApiType.RequestCaimonSkill filter parser def

@@ -1,7 +1,9 @@
 module WereMF.Role.YinMo
 
+open FSharp.Data
 open WereMF.Common
 open WereMF.Module.Role
+open WereMF.Module.Api
 
 type YinMoRole =
     {
@@ -17,6 +19,10 @@ type YinMoRole =
             Priority = 2
             SummaryName = YinMo.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "disc_count", decimal this.DiscCount |> JsonValue.Number
+            "disabled", this.IsDisabled () |> JsonValue.Boolean
+        |]
     interface IRoleUpdateOnDayStart with
         member this.Update () =
             let disabled = updateNightOptionBool this.Disabled

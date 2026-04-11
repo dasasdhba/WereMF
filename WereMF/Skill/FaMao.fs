@@ -7,6 +7,7 @@ open WereMF.Module
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.Role.FaMao
 open WereMF.State
 
@@ -50,14 +51,14 @@ type FaMaoSkill =
             if this.Healed then None else
 
             let recv = target |> getPlayerName game
-            sendMessage { Type = Public ; Content = $"{recv}被丢了药水" }
+            sendRawMessage { Type = Public ; Content = $"{recv}被丢了药水" } ApiType.FamaoSkillBroadcast
 
             if reversed then
                 if target = (sending |> getSource) then
-                    sendMessage { Type = Public ; Content = "但是什么也没有发生" }
+                    sendRawMessage { Type = Public ; Content = "但是什么也没有发生" } ApiType.FamaoReverseFailedBroadcast
                     None
                 else
-                    sendMessage { Type = Public ; Content = $"{recv}的阵营反转了！" }
+                    sendRawMessage { Type = Public ; Content = $"{recv}的阵营反转了！" } ApiType.FamaoReversedBroadcast
                     let entity = { entity with State.Reversed = entity.State.Reversed |> not }
                     let game = game.UpdateEntity entity
                     do! State.put ((main, game), night)
@@ -73,7 +74,7 @@ type FaMaoSkill =
         member this.CanHeal () =
             this.Healed |> not
         member this.Heal target =
-            sendMessage { Type = Public ; Content = $"但是{target}被救活了" }
+            sendRawMessage { Type = Public ; Content = $"但是{target}被救活了" } ApiType.FamaoSaveBroadcast
             { this with Healed = true }
 
 // 获取最大投掷数量（第一晚2瓶，之后1瓶）
@@ -104,4 +105,4 @@ let faMaoSendSkill ps (game: GameContext) =
     
     let createSkill id = Skill.New ps id (FaMaoSkill.New ())
     let parser = parseMultiSkill config filter createSkill
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title ApiType.RequestFamaoSkill filter parser def

@@ -5,6 +5,7 @@ open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Cli
 open WereMF.Module.Roll
+open WereMF.Module.Api
 open WereMF.State
 
 /// input and init players
@@ -23,12 +24,17 @@ let initPlayers () =
             Type = Internal
             Content = $"输入玩家列表（{minPlayer}~{maxPlayer} 人）"
         }
-        let players = requestInputWithMessage inputMsg parser
+        let players = requestInputWithRawMessage inputMsg ApiType.RequestPlayerList parser
         let pList = [1..players.Length]
                     |> List.map (fun i -> Player.New (PlayerId i)  players[i - 1])
         let main = { main with Players = pList }
         do! State.put main
         let pMessage = pList |> List.map (fun p -> p.ToInGameString() + "\n") |> List.reduce (+)
-        sendMessage { Type = Public ; Content = $"\n{pMessage}" }
+        sendMessage {
+            Type = Public
+            Content = $"\n{pMessage}"
+            Api = ApiType.PlayerInit
+            Data = main.ToJsonValue ()
+        }
         Roll
     }

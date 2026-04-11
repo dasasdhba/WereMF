@@ -1,6 +1,7 @@
 module WereMF.Skill.Rabi
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -8,6 +9,7 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.Role.Rabi
 open WereMF.State
 
@@ -53,13 +55,13 @@ type RabiSkill =
                             | Dry -> "毒奶"
             let drink =
                 if force then
-                    sendMessage { Type = ToPlayer tEntity.Player ; Content = $"你被喂{milkName}" }
+                    sendRawMessage { Type = ToPlayer tEntity.Player ; Content = $"你被喂{milkName}" } ApiType.RabiMilkedNotify
                     true
                 else
                     let msg = { Type = ToPlayer tEntity.Player
                                 Content = "你被喂奶，要喝吗？（1：喝；0：不喝）" }
-                    let yes = requestInputWithMessage msg parseBool
-                    if yes then sendMessage { Type = ToPlayer tEntity.Player; Content = milkName }
+                    let yes = requestInputWithRawMessage msg ApiType.RequestDrinkMilk parseBool
+                    if yes then sendRawMessage { Type = ToPlayer tEntity.Player; Content = milkName } ApiType.RabiMilkTypeNotify
                     yes
 
             if drink then
@@ -68,7 +70,7 @@ type RabiSkill =
                     let handler = handlers |> List.randomChoiceWith main.Rng
                     let chara = getHandlerCharaType handler tEntity
                     if chara = Rabi then this else
-                    let ps = createPendingSkill handler tEntity
+                    let ps = createPendingSkill main.Rng handler tEntity
                     let night = { night with PendingSkills = ps :: night.PendingSkills }
                     do! State.put ((main, game), night)
                     this
@@ -90,7 +92,7 @@ type RabiSkill =
             let recv = sending.Target |> getPlayerName game
             let target = sending |> getRealTarget
             let tEntity = target |> game.GetEntity
-            sendMessage { Type = Public; Content = $"{recv}被喂了毒奶！" }
+            sendRawMessage { Type = Public; Content = $"{recv}被喂了毒奶！" } ApiType.RabiKillBroadcast
             Some {
                 Target = tEntity
                 Request = DeadRequest.New Kill
@@ -126,7 +128,15 @@ let rabbitSendSkill ps (game: GameContext) =
                 >> filterKidnapped ps
     let filter = giveUpOrFilterWith filter
     let def () =
-        let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择给鲜奶还是毒奶（1：鲜奶；0：毒奶）" }
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = "你可以选择给鲜奶还是毒奶（1：鲜奶；0：毒奶）"
+            Api = ApiType.RequestRabiSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
         let yes = requestInputWithMessage msg parseBool
         let t = if yes then Fresh else Dry
         { MilkType = t; Poison = false } :> ISkill
@@ -139,4 +149,4 @@ let rabbitSendSkill ps (game: GameContext) =
         [ rabiSkill |> Some ]
     }
     
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title ApiType.RequestRabiSkill filter parser def

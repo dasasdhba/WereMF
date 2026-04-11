@@ -1,10 +1,12 @@
 module WereMF.Role.Kirby
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
+open WereMF.Module.Api
 
 type KirbyRole =
     {
@@ -21,6 +23,17 @@ type KirbyRole =
             Priority = 9
             SummaryName = Kirby.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "copied_role", (
+                match this.CopiedRole with
+                | Some role ->
+                    JsonValue.Record [|
+                        "chara_type", (role |> getCharaType).ToJsonValue ()
+                        "data", role.ToJsonValue ()
+                    |]
+                | None -> JsonValue.Null
+            )
+        |]
     member this.GetSubHandler () =
         let sub = createSubFunctor
                    (fun k -> k.CopiedRole.Value)
@@ -41,6 +54,11 @@ type KirbyRole =
                 let msg = {
                     Type = ToPlayer player
                     Content = $"是否使用复制技能（{chara.ToString()}）？（1：使用；0：放弃并使用吸入技能）"
+                    Api = ApiType.RequestKirbyUsingCopySkill
+                    Data = JsonValue.Record [|
+                        "chara_type", chara.ToJsonValue ()
+                        "data", role.ToJsonValue ()
+                    |]
                 }
 
                 let yes = requestInputWithMessage msg parseBool

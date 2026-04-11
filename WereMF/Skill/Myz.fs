@@ -1,12 +1,14 @@
 module WereMF.Skill.Myz
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Role.Myz
 
@@ -27,9 +29,9 @@ type MyzSkill =
                              handler
             let game = entity |> game.UpdateEntity
             let sender = sending |> getSenderName game
-            sendMessage { Type = Public; Content = $"{sender}自爆了身份！" }
-            sendMessage { Type = Public; Content = $"{source |> getPlayerNameAnonymous game}是{sender}" }
-            sendMessage { Type = Public; Content = $"{sender}今晚的威胁将强制生效！" }
+            sendRawMessage { Type = Public; Content = $"{sender}自爆了身份！" } ApiType.MyzSelfRevealBroadcast
+            sendRawMessage { Type = Public; Content = $"{source |> getPlayerNameAnonymous game}是{sender}" } ApiType.MyzSelfRevealBroadcast
+            sendRawMessage { Type = Public; Content = $"{sender}今晚的威胁将强制生效！" } ApiType.MyzSelfRevealBroadcast
             do! State.put ((main, game), night)
             this
         }
@@ -49,7 +51,7 @@ type MyzSkill =
             let entity = source |> game.GetEntity
             let tEntity = target |> game.GetEntity
             if tEntity.State.Threaten |> Option.isSome then
-                sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player; Content = "失败" } ApiType.MyzThreatFailedByAlreadyNotify
                 this
             else
             
@@ -59,7 +61,7 @@ type MyzSkill =
             let idx = pending |> List.indexed |> List.filter (fun (i, p) -> p.Source = target && p.Threaten = None)
             let night =
                 if idx.IsEmpty then
-                    sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                    sendRawMessage { Type = ToPlayer entity.Player; Content = "失败" } ApiType.MyzThreatFailedByNoSkillNotify
                     night
                 else
                     let i, ps = idx |> List.randomChoiceWith main.Rng
@@ -127,7 +129,16 @@ let myzSendSkill ps (game: GameContext) =
             let! targetId = Ok targetId |> targetFilter
             targetId, isForce
         }
-        let msg = { Type = ToPlayer entity.Player ; Content = title }
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = title
+            Api = ApiType.RequestMyzSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "invalid_target_choice", game.Entities |> createInvalidChoiceArray targetFilter
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
         let targetId, isForce = requestInputWithMessage msg parser
         { Threaten = { Source = ps.Source; Target = targetId; Force = isForce } } :> ISkill
     
@@ -146,5 +157,12 @@ let myzSendSkill ps (game: GameContext) =
             let skill = Skill.New ps playerId { Threaten = { Source = ps.Source; Target = targetId; Force = isForce } }
             [ skill |> Some ]
         }
-        
-    ps |> sendSkillWith title filter parser def
+    
+    let data = JsonValue.Record [|
+        "skill_id", ps.ToJsonValue ()
+        "invalid_choice", game.Entities |> createInvalidChoiceArray filter
+        "invalid_target_choice", game.Entities |> createInvalidChoiceArray targetFilter
+        "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+    |]
+    
+    ps |> sendSkillWithData title ApiType.RequestMyzSkill data filter parser def

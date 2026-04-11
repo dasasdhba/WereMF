@@ -1,10 +1,12 @@
 module WereMF.Role.Leaf
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
+open WereMF.Module.Api
 
 type LeafRole =
     {
@@ -30,6 +32,18 @@ type LeafRole =
             Priority = 100
             SummaryName = this.SummaryName
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "fury", JsonValue.Boolean this.Fury
+            "roles", (
+                let min = if this.Fury then 1 else 0
+                let max = if this.Fury then this.Roles.Length - 1 else 0
+                this.Roles[min..max] |> List.mapJson (fun r ->
+                    JsonValue.Record [|
+                        "chara_type", (r |> getCharaType).ToJsonValue ()
+                        "data", r.ToJsonValue ()
+                    |])
+                )
+        |]
     interface IRoleLeaf with
         member this.Fury =
             this.Fury

@@ -1,10 +1,12 @@
 module WereMF.Role.CaiMon
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
+open WereMF.Module.Api
 
 type CaiMonRole =
     {
@@ -19,6 +21,10 @@ type CaiMonRole =
             Priority = 99
             SummaryName = CaiMon.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "cai_count", decimal this.CaiCount |> JsonValue.Number
+            "reborn_list", this.RebornList |> List.mapJson (fun p -> p.ToJsonValue())
+        |]
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             match this.RebornRound with
@@ -41,7 +47,7 @@ type CaiMonRole =
             
             let! entity, bind = State.get
             let msg = { Type = ToPlayer entity.Player ; Content = "用一根彩条复活吗？（1：是；0：否）" }
-            let yes = requestInputWithMessage msg parseBool
+            let yes = requestInputWithRawMessage msg ApiType.RequestCaimonReborn parseBool
             if yes |> not then None else
             
             let role = { this with RebornRound = Some 1 ; CaiCount = this.CaiCount - 1 }

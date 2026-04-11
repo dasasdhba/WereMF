@@ -9,11 +9,12 @@ open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.Role.HeChong
 open WereMF.Role.Leaf
 open WereMF.Role.ShiWu
 
-let private requestHandlerFromLeaf (random: Random) (hint: Message) (leaf: LeafRole) (entity : Entity) =
+let private requestHandlerFromLeaf (random: Random) (hint: RawMessage) (leaf: LeafRole) (entity : Entity) =
     let handlers = leaf.GetQueriedHandlers random
     let handlers = handlers |> List.filter (fun h ->
             let chara = getHandlerCharaType h entity
@@ -35,7 +36,7 @@ let private requestHandlerFromLeaf (random: Random) (hint: Message) (leaf: LeafR
         else
             handlers[int-1]
     }
-    requestInputWithMessage msg parser |> Some
+    requestInputWithRawMessage msg ApiType.RequestHechongCopyLeaf parser |> Some
 
 type HeChongSkill =
     | HeChongSkill
@@ -64,7 +65,7 @@ type HeChongSkill =
             let entity = source |> game.GetEntity
 
             if th.IsNone then
-                sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player; Content = "失败" } ApiType.HechongSkillFailBySmogNotify
                 this
             else
 
@@ -77,14 +78,14 @@ type HeChongSkill =
                 | _ -> th
 
             if th.IsNone then
-                sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player; Content = "失败" } ApiType.HechongSkillFailByLeafNotify
                 this
             else
 
             let th = th.Value
             let chara = getHandlerCharaType th tEntity
             if chara = Leaf || chara = HeChong then
-                sendMessage { Type = ToPlayer entity.Player; Content = "失败" }
+                sendRawMessage { Type = ToPlayer entity.Player; Content = "失败" } ApiType.HechongSkillFailByInvalidCharaNotify
                 this
             else
 
@@ -92,7 +93,7 @@ type HeChongSkill =
             let game = game.UpdateEntity tEntity
 
             let role = th.GetFromEntity tEntity
-            sendMessage { Type = ToPlayer entity.Player; Content = role |> getSummaryName }
+            sendRawMessage { Type = ToPlayer entity.Player; Content = role |> getSummaryName } ApiType.HechongSkillSuccessCopyNotify
 
             let handler = sending |> getHandler
             let entity = entity |> updateRoleWithHandler
@@ -104,7 +105,7 @@ type HeChongSkill =
                             handler
             let hs = role |> getPendingHandlers entity.Player
             let handlers = hs |> List.map (fun h -> handler.Bind ( sub.Bind h) )
-            let ps = handlers |> List.map (fun h -> createPendingSkill h entity)
+            let ps = handlers |> List.map (fun h -> createPendingSkill main.Rng h entity)
             let night = { night with PendingSkills = ps @ night.PendingSkills }
 
             do! State.put ((main, game), night)
@@ -130,4 +131,4 @@ let heChongSendSkill ps (game: WereMF.State.GameContext) =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r HeChongSkill |> Some ])
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title ApiType.RequestHechongSkill filter parser def

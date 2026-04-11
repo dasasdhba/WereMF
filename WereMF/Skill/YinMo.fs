@@ -4,9 +4,11 @@ open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module
+open WereMF.Module.Entity
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Role.YinMo
 
@@ -35,9 +37,10 @@ type YinMoSkill =
             let! (main, game), night = State.get
 
             let target = sending |> getRealTarget
+            let sender = sending |> getSenderName game
+            let recv = target |> getPlayerName game
             if target |> isDoged night then
-                let sender = sending |> getSenderName game
-                let recv = target |> getPlayerName game
+                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } ApiType.YinmoSkillFailByDogeNotify
                 let night = night.AddMessage $"{sender}想暴毙{recv}，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
@@ -80,13 +83,13 @@ type YinMoSkill =
             do! State.put ((main, game), night)
 
             if sending.Spring.IsNone then
-                sendMessage { Type = Public; Content = $"{sender}给{recv}发了唱片！" }
+                sendRawMessage { Type = Public; Content = $"{sender}给{recv}发了唱片！" } ApiType.YinmoKillBroadcast
                 Some {
                     Target = tEntity
                     Request = DeadRequest.New Sudden
                 }
             else
-                sendMessage { Type = Public; Content = $"{sender}想暴毙{recv}，被弹簧弹回！" }
+                sendRawMessage { Type = Public; Content = $"{sender}想暴毙{recv}，被弹簧弹回！" } ApiType.YinmoKillSpringBroadcast
                 Some {
                     Target = tEntity
                     Request = DeadRequest.FromSelf sender Sudden
@@ -116,4 +119,4 @@ let yinMoSendSkill ps (game: GameContext) =
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r (YinMoSkill.New ())  |> Some ])
     
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title ApiType.RequestYinmoSkill filter parser def

@@ -1,12 +1,14 @@
 module WereMF.Skill.Doge
 
 open System
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Role.Doge
 
@@ -67,7 +69,7 @@ type DogeSkill =
             let! (main, game), night = State.get
             let source = sending |> getSource
             let entity = source |> game.GetEntity
-            sendMessage { Type = Public ; Content = $"{entity.Player.Name}自爆了！" }
+            sendRawMessage { Type = Public ; Content = $"{entity.Player.Name}自爆了！" } ApiType.DogeSuicideBroadcast
             Some {
                 Target = entity
                 Request = DeadRequest.New Force
@@ -114,7 +116,15 @@ let dogeSendSkill ps (game: GameContext) =
                     
     let filter = giveUpOrFilterWith filter
     let def () =
-        let msg = { Type = ToPlayer entity.Player ; Content = "你可以选择是否自爆（1：是；0：否）" }
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = "你可以选择是否自爆（1：是；0：否）"
+            Api = ApiType.RequestDogeSkillForceThreaten
+            Data = JsonValue.Record [|
+                "skill_id", ps.ToJsonValue ()
+                "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+            |]
+        }
         let yes = requestInputWithMessage msg parseBool
         { IsSuicide = yes ; Success = None } :> ISkill
     let parser (input: string) : Result<Skill option list, string> = monad {
@@ -125,4 +135,4 @@ let dogeSendSkill ps (game: GameContext) =
         [ dogeSkill |> Some ]
     }
     
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title ApiType.RequestDogeSkill filter parser def

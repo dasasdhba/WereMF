@@ -1,10 +1,12 @@
 module WereMF.Role.FenXia
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
+open WereMF.Module.Api
 
 type FenXiaRole =
     {
@@ -27,6 +29,15 @@ type FenXiaRole =
             Priority = 100
             SummaryName = this.SummaryName
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "fen_count", decimal this.FenCount |> JsonValue.Number
+            "copied_roles", (this.CopiedRoles |> List.mapJson (fun r ->
+                JsonValue.Record [|
+                    "chara_type", (r |> getCharaType).ToJsonValue ()
+                    "data", r.ToJsonValue ()
+                |]
+            ))
+        |]
     member this.GetSubHandler idx =
         let sub = createSubFunctor
                            (fun k -> k.CopiedRoles[idx])
@@ -101,7 +112,7 @@ type FenXiaRole =
             if dead = Force || this.RebornRound.IsSome || this.FenCount <= 1 then None else
             let entity, bind = context
             let msg = { Type = ToPlayer entity.Player ; Content = "用一根粉条复活吗？（1：是；0：否）" }
-            let yes = requestInputWithMessage msg parseBool
+            let yes = requestInputWithRawMessage msg ApiType.RequestFenxiaReborn parseBool
             if yes |> not then None else
             
             let role = { this with RebornRound = Some 1 ; FenCount = this.FenCount - 1 }

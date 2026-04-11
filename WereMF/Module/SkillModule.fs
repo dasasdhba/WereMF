@@ -1,8 +1,10 @@
 module WereMF.Module.Skill
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
+open WereMF.Module.Api
 open WereMF.Module.Cli
 open WereMF.Module.Entity
 open WereMF.State
@@ -59,24 +61,24 @@ let private getThreatenResult filter (creator: unit -> ISkill)
     ps.Threaten |> Option.bind (fun threaten ->
         let target = threaten.Target
         if Ok target |> filter |> Result.isError then
-            sendMessage { Type = ToPlayer (threaten.Source |> game.GetEntity).Player
-                          Content = "威胁失败" }
+            sendRawMessage { Type = ToPlayer (threaten.Source |> game.GetEntity).Player
+                             Content = "威胁失败" } ApiType.MyzThreatFailedNotify
             None
         else
             
-        let msg = if target <= PlayerId 0 then "不发技能"
-                  else $"技能发给 {(target |> game.GetEntity).Player.ToInGameString ()}"
-        
-        if threaten.Force then
-            sendMessage { Type = ToPlayer entity.Player
-                          Content = $"你被强制威胁{msg}" }
-            Some (Ok (if target > PlayerId 0 then
-                          Skill.New ps target (creator()) |> Some
-                      else None))
-        else
-            sendMessage { Type = ToPlayer entity.Player
-                          Content = $"你被威胁{msg}" }
-            Some (Error threaten.Target)
+            let msg = if target <= PlayerId 0 then "不发技能"
+                      else $"技能发给 {(target |> game.GetEntity).Player.ToInGameString ()}"
+            
+            if threaten.Force then
+                sendRawMessage { Type = ToPlayer entity.Player
+                                 Content = $"你被强制威胁{msg}" } ApiType.MyzThreatenForceNotify
+                Some (Ok (if target > PlayerId 0 then
+                              Skill.New ps target (creator()) |> Some
+                          else None))
+            else
+                sendRawMessage { Type = ToPlayer entity.Player
+                                 Content = $"你被威胁{msg}" } ApiType.MyzThreatenNotify
+                Some (Error threaten.Target)
     )
     
 let private updateThreatenIfViolate targets result entity =
@@ -85,8 +87,27 @@ let private updateThreatenIfViolate targets result entity =
         if targets |> List.contains target then entity
         else { entity with Entity.State.Threaten = Some true }
     | _ -> entity
+
+let createInvalidChoiceArray filter entities =
+    entities |> List.choose (fun e ->
+        match Ok e.Player.Id |> filter with
+        | Ok _ -> None
+        | Error m ->
+            JsonValue.Record [|
+                "id", e.Player.Id.ToJsonValue ()
+                "reason", JsonValue.String m
+            |] |> Some
+    ) |> List.toArray |> JsonValue.Array
+
+let createPendingSkillApi ps filter (game: GameContext) =
+    let entity = game.GetEntity ps.Source
+    JsonValue.Record [|
+        "skill_id", ps.GetIdJson ()
+        "invalid_choice", game.Entities |> createInvalidChoiceArray filter
+        "pending_role", (ps.Handler.GetFromEntity entity).ToJsonValue ()
+    |]
     
-let sendSkillWith title filter
+let sendSkillWithData title (api : ApiType) (data) filter
     (parser: string -> Result<Skill option list, string>) creator ps = monad {
     let! (game: GameContext, night: NightContext) = State.get
     let entity = game.GetEntity ps.Source
@@ -95,8 +116,12 @@ let sendSkillWith title filter
     if game.Entities |> List.exists (fun e ->
         Ok e.Player.Id |> filter |> Result.isOk) |> not then
         let name = entity |> Entity.getHandlerName ps.Handler
-        sendMessage { Type = ToPlayer entity.Player
-                      Content = $"你的{name}技能不可用" }
+        sendMessage {
+            Type = ToPlayer entity.Player
+            Content = $"你的{name}技能不可用"
+            Api = ApiType.InvalidPendingSkillNotify
+            Data = ps.GetIdJson ()
+        }
         ()
     else
     
@@ -107,7 +132,12 @@ let sendSkillWith title filter
         do! State.put (game, night)
         ()
     | _ ->
-        let msg = { Type = ToPlayer entity.Player; Content = title }
+        let msg = {
+            Type = ToPlayer entity.Player
+            Content = title
+            Api = api
+            Data = data
+        }
         let results = requestInputWithMessage msg parser
         let targets = results |> List.map (function
             | Some skill -> skill.Sending.Target
@@ -118,6 +148,16 @@ let sendSkillWith title filter
         let night = { night with Skills = skills @ night.Skills }
         do! State.put (game, night)
         ()
+}
+    
+let sendSkillWith title (api : ApiType) filter
+    (parser: string -> Result<Skill option list, string>) creator ps = monad {
+    let! (game: GameContext, night: NightContext) = State.get
+    let _, (game, night) =
+        State.run (
+            sendSkillWithData title api (createPendingSkillApi ps filter game) filter parser creator ps
+        ) (game, night)
+    do! State.put (game, night)
 }
 
 // ------------------------------------------------------------------
@@ -236,7 +276,7 @@ let involveIfDoge (target: Entity) (context: SkillContext)=
         let entity = game.GetEntity ps.Id
         let name = entity.Player.Name
         let msg = $"{target.Player.Name}保护了{name}"
-        sendMessage { Type = Public ; Content = msg }
+        sendRawMessage { Type = Public ; Content = msg } ApiType.DogeInvolveBroadcast
         let request = DeadRequest.New Kill
         let dead = entity, (main, game)
         let entity, (main, game) = requestDead request dead

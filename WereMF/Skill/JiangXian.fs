@@ -3,6 +3,7 @@ module WereMF.Skill.JiangXian
 open WereMF.Common
 open WereMF.Module.Cli
 open WereMF.Module.Skill
+open WereMF.Module.Api
 
 type JiangXianSkill =
     | JiangXianSkill
@@ -20,4 +21,4 @@ let jiangXianSendSkill ps game =
     let parser = parsePlayerId >> filter >> Result.map (
         fun r -> if r <= PlayerId 0 then [ None ]
                  else [ Skill.New ps r JiangXianSkill |> Some ])
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title ApiType.RequestJiangxianSkill filter parser def

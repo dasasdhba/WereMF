@@ -1,10 +1,12 @@
 module WereMF.Role.CTF
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Role
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 
 type CTFRole =
@@ -19,6 +21,10 @@ type CTFRole =
             Priority = 3
             SummaryName = CTF.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "bug_count", decimal this.BugCount |> JsonValue.Number
+            "reborn", JsonValue.Boolean this.Reborn
+        |]
     interface IRolePreventDead with
         member this.Prevent dead = monad {
             if this.Reborn || dead = Force then None else
@@ -34,7 +40,7 @@ type CTFRole =
             if totalBug <= 0 then None else
             
             let msg = { Type = ToPlayer entity.Player ; Content = "移动一只 bug 到自己身上并复活吗？（1：是；0：否）" }
-            let yes = requestInputWithMessage msg parseBool
+            let yes = requestInputWithRawMessage msg ApiType.RequestCtfReborn parseBool
             if yes |> not then None else
                 
             let bugPlayer = game.Entities |> List.filter (

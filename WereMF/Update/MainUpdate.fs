@@ -5,6 +5,7 @@ open System.IO
 open FSharpPlus.Data
 open WereMF.Module
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Update.Game
 open WereMF.Update.Init
@@ -23,7 +24,7 @@ let private tryPrintWith (main: MainState) printer =
     match main.Status with
     | Game game ->
         let context = game.Context
-        sendMessage { Type = Public ; Content = $"\n{Entity.printSummaryWith printer context.Entities}" }
+        sendRawMessage { Type = Public ; Content = $"\n{Entity.printSummaryWith printer context.Entities}" } ApiType.CliNightSummary
     | _ -> ()
 
 let rec private tryPrintVote (main: MainState) =
@@ -31,7 +32,7 @@ let rec private tryPrintVote (main: MainState) =
     | Game game ->
         match game.Status with
         | Day day ->
-            sendMessage { Type = Public ; Content = $"\n{Day.printVoteSummary game.Context day}" }
+            sendRawMessage { Type = Public ; Content = $"\n{Day.printVoteSummary game.Context day}" } ApiType.CliDaySummary
         | _ -> ()
     | _ -> ()
 
@@ -63,7 +64,7 @@ let rec private updateMain main : MainState =
             updateMain (MainState.New seed)
         | Reboot ->
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
-            sendMessage { Type = Internal ; Content = $"游戏种子：{seed}" }
+            sendRawMessage { Type = Internal ; Content = $"游戏种子：{seed}" } ApiType.CliGameSeed
             cliUndo <- []
             cliRedo <- []
             cliReplay <- []
@@ -71,7 +72,7 @@ let rec private updateMain main : MainState =
             updateMain (MainState.New seed)
         | Restart ->
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
-            sendMessage { Type = Internal ; Content = $"游戏种子：{seed}" }
+            sendRawMessage { Type = Internal ; Content = $"游戏种子：{seed}" } ApiType.CliGameSeed
             cliUndo <- [cliUndo.Head]
             cliRedo <- []
             cliReplay <- cliUndo
@@ -127,6 +128,6 @@ let rec private updateMain main : MainState =
         reraise()
 
 let launchMain () =
-    sendMessage { Type = Internal ; Content = $"游戏种子：{seed}" }
+    sendRawMessage { Type = Internal ; Content = $"游戏种子：{seed}" } ApiType.CliGameSeed
     updateMain (MainState.New seed)
 

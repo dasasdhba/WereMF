@@ -1,5 +1,7 @@
 namespace WereMF.Common
 
+open FSharp.Data
+
 type CharaCamp =
     | Bar
     | Boom
@@ -14,6 +16,8 @@ type CharaCamp =
         | Bar -> "吧方"
         | Boom -> "爆方"
         | Yezi -> "叶子"
+    member this.ToJsonValue () =
+        JsonValue.String (this.ToString())
 
 type CharaType =
     | JiaoHua
@@ -65,6 +69,8 @@ type CharaType =
         | JiangXian -> "江仙"
         | Myz -> "myz"
         | Leaf -> "叶子"
+    member this.ToJsonValue () =
+        JsonValue.String (this.ToString())
     static member Create (name : string) =
         match name.ToLower() with
         | "脚滑人" | "脚滑" | "滑" | "jiaohua" | "hua" | "wsw" -> Ok JiaoHua

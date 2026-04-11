@@ -1,7 +1,9 @@
 module WereMF.Role.Doctor
 
+open FSharp.Data
 open WereMF.Common
 open WereMF.Module.Role
+open WereMF.Module.Api
 
 type DoctorRole =
     {
@@ -15,6 +17,9 @@ type DoctorRole =
             Priority = 0
             SummaryName = Doctor.ToString ()
         }
+        member this.ToJsonValue () = JsonValue.Record [|
+            "capsule", JsonValue.Number (decimal this.Capsule)
+        |]
     interface IRoleUpdateOnNightStart with
         member this.Update () =
             match this.Round with

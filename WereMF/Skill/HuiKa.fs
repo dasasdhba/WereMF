@@ -1,5 +1,7 @@
 module WereMF.Skill.HuiKa
 
+open System.Text.Json.Nodes
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
@@ -7,6 +9,7 @@ open WereMF.Module
 open WereMF.Module.Entity
 open WereMF.Module.Skill
 open WereMF.Module.Cli
+open WereMF.Module.Api
 open WereMF.State
 open WereMF.Role.HuiKa
 
@@ -20,9 +23,10 @@ type HuiKaSkill =
         member this.Execute sending = monad {
             let! (main, game), night = State.get
             let target = sending |> getRealTarget
+            let sender = sending |> getSenderName game
+            let recv = target |> getPlayerName game
             if target |> isDoged night then
-                let sender = sending |> getSenderName game
-                let recv = target |> getPlayerName game
+                sendRawMessage { Type = ToPlayer (sending |> getSource |> game.GetEntity).Player ; Content = "失败" } ApiType.HuikaSkillFailByDogeNotify
                 let night = night.AddMessage $"{sender}想给{recv}丢烟雾弹，被Doge挡了"
                 do! State.put ((main, game), night)
                 this
@@ -37,12 +41,12 @@ type HuiKaSkill =
             let target = this.Success.Value
             let recv = target |> getPlayerNameAnonymous game
             let tEntity = target |> game.GetEntity
-            sendMessage { Type = Public ; Content = $"{recv}被烟雾弥漫！" }
+            sendRawMessage { Type = Public ; Content = $"{recv}被烟雾弥漫！" } ApiType.HuikaSmogBroadcast
             let tEntity = { tEntity with State = tEntity.State |> EntityState.addSmog }
             let game = game.UpdateEntity tEntity
             let main, game, night =
                 if tEntity.State.SmogCount < 2 then main, game, night else
-                sendMessage { Type = Public ; Content = $"{recv}窒息了！" }
+                sendRawMessage { Type = Public ; Content = $"{recv}窒息了！" } ApiType.HuikaSmogKillBroadcast
                 let dead = tEntity, (main, game)
                 let request = DeadRequest.New Kill
                 let dead = dead |> Entity.requestDead request
@@ -52,7 +56,12 @@ type HuiKaSkill =
                 main, game, night
 
             do! State.put ((main, game), night)
-            sendMessage { Type = Public ; Content = $"\n{printNightSummary game.Entities}" }
+            sendMessage {
+                Type = Public
+                Content = $"\n{printNightSummary game.Entities}"
+                Api = ApiType.GameUpdateNight
+                Data = game.ToJsonValue ()
+            }
             this
         }
 
@@ -84,4 +93,4 @@ let huiKaSendSkill ps (game: GameContext) =
     
     let createSkill id = Skill.New ps id (HuiKaSkill.New ())
     let parser = parseMultiSkill config filter createSkill
-    ps |> sendSkillWith title filter parser def
+    ps |> sendSkillWith title ApiType.RequestHuikaSkill filter parser def

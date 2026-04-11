@@ -1,5 +1,7 @@
 namespace WereMF.Common
 
+open FSharp.Data
+
 type PlayerId =
     | PlayerId of int
     member this.ToInt() =
@@ -16,6 +18,8 @@ type PlayerId =
             string circles[this.ToInt() - 1]
         else
             this.ToString()
+    member this.ToJsonValue () =
+        JsonValue.Number (this.ToInt() |> decimal)
 
 type Player =
     {
@@ -31,3 +35,9 @@ type Player =
         $"{this.Id.ToString()}: {this.BaseName}"
     member this.ToInGameString() =
         $"{this.Id.ToCircleString()}{this.Name}"
+    member this.ToJsonValue() =
+        JsonValue.Record [|
+            "id", this.Id.ToJsonValue()
+            "name", JsonValue.String this.BaseName
+            "anonymous", JsonValue.Boolean this.Anonymous
+        |]

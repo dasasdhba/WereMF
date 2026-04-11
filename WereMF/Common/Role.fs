@@ -1,5 +1,7 @@
 namespace WereMF.Common
 
+open FSharp.Data
+
 type RoleBase =
     {
         CharaType : CharaType
@@ -9,3 +11,4 @@ type RoleBase =
 
 type IRole =
     abstract member Base : RoleBase
+    abstract member ToJsonValue : unit -> JsonValue

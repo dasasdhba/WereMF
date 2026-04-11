@@ -7,10 +7,12 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <PackageReference Include="FSharp.Data" Version="8.1.7" />
       <PackageReference Include="FSharpPlus" Version="1.9.1" />
     </ItemGroup>
     
     <ItemGroup>
+        <Compile Include="Common\List.fs" />
         <Compile Include="Common\Chara.fs" />
         <Compile Include="Common\Role.fs" />
         <Compile Include="Common\Player.fs" />
@@ -21,6 +23,7 @@
         <Compile Include="State\DayState.fs" />
         <Compile Include="State\GameState.fs" />
         <Compile Include="State\MainState.fs" />
+        <Compile Include="Module\Api.fs" />
         <Compile Include="Module\Cli.fs" />
         <Compile Include="Module\RollModule.fs" />
         <Compile Include="Module\RoleModule.fs" />

@@ -1,10 +1,12 @@
 module WereMF.Update.Roll
 
+open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
 open WereMF.Common
 open WereMF.Module.Cli
 open WereMF.Module.Roll
+open WereMF.Module.Api
 open WereMF.Role.Bind
 open WereMF.State
     
@@ -29,17 +31,17 @@ let rollAskLeaf () =
         Type = Internal
         Content = "是否为叶子局？(1: 是；0: 否)"
     }
-    requestInputWithMessage msg parseBool
+    requestInputWithRawMessage msg ApiType.RequestLeafGame parseBool
 
-let rollDraw (r :RollResult) = monad { 
-    let! main = State.get
+let rollDraw () = monad { 
+    let! main = Reader.ask
     let rng = main.Rng
     
     let msg = {
         Type = Internal
         Content = "第一晚是否匿名？(1: 是；0: 否)"
     }
-    let anonymous = requestInputWithMessage msg parseBool
+    let anonymous = requestInputWithRawMessage msg ApiType.RequestAnonymousGame parseBool
     
     let main =
         if anonymous |> not then
@@ -53,7 +55,6 @@ let rollDraw (r :RollResult) = monad {
         let players =
             idp |> List.map (fun (i, p) -> { p with Id = PlayerId (i + 1) ; Anonymous = true })
         { main with Players = players }
-    do! State.put main
     
     let count = main.Players.Length
     let leaf = if count <= minPlayer then false
@@ -63,17 +64,17 @@ let rollDraw (r :RollResult) = monad {
     let rolls = [0..(count-1)] |> List.map (fun i ->
         let player = main.Players[i]
         let chara = result[i]
-        sendMessage { Type = ToPlayer player ; Content = chara.ToString() }
+        sendRawMessage { Type = ToPlayer player ; Content = chara.ToString() } ApiType.PlayerNotifyChara
         {
-            Player = player
+            PlayerId = player.Id
             Type = chara
             Reset = false
         }
     )
-    { r with Rolls = rolls }
+    { main with Roll.Rolls = rolls }
 }
 
-let rollReset (roll : RollResult) = monad {
+let rollReset () = monad {
     let! main = Reader.ask
     let rng = main.Rng
     
@@ -83,45 +84,58 @@ let rollReset (roll : RollResult) = monad {
         let resetRolls = getResetRolls (remainingBar.Length > 0) (remainingBoom.Length > 0) r
         
         if resetRolls.Length = 0 then r else
-
-        let msg = {
-            Type = Internal
-            Content = "输入需要重抽身份的玩家，输入 0 以继续"
-        }
-        let parser = parseInt >> (function
+        
+        let filter = function
            | Ok i when i <= 0 -> Ok i
            | Ok i ->
                 let pId = PlayerId i
-                let p = r.Rolls |> List.tryFind (fun s -> s.Player.Id = pId)
+                let p = r.Rolls |> List.tryFind (fun s -> s.PlayerId = pId)
                 match p with
-                | Some player ->
-                    if resetRolls |> List.exists (fun s -> s = player) then Ok i
-                    else Error $"玩家 {player.Player.ToCliString()} 无法重抽身份"
+                | Some pair ->
+                    if resetRolls |> List.exists (fun s -> s = pair) then Ok i
+                    else
+                        let player = main.GetPlayer pair.PlayerId
+                        Error $"玩家 {player.ToCliString()} 无法重抽身份"
                 | None -> Error $"玩家 {pId} 不存在"
            | value -> value
-        )
-
+        let msg = {
+            Type = Internal
+            Content = "输入需要重抽身份的玩家，输入 0 以继续"
+            Api = ApiType.RequestRerollPlayer
+            Data =
+                [1..main.Players.Length]
+                |> List.choose (fun i ->
+                    match Ok i |> filter with
+                    | Ok i -> Some (decimal i |> JsonValue.Number)
+                    | Error _ -> None
+                    )
+                |> List.toArray
+                |> JsonValue.Array
+        }
+        let parser = parseInt >> filter
         let result = requestInputWithMessage msg parser
         if result <= 0 then r else
         
         let pId = PlayerId result
-        let p = r.Rolls |> List.find (fun s -> s.Player.Id = pId)
+        let p = r.Rolls |> List.find (fun s -> s.PlayerId = pId)
         let camp = p.Type.GetCamp()
         let pool = if (camp = Bar) then remainingBar
                    else remainingBoom
         let newChara = pool |> List.randomChoiceWith rng
-        sendMessage { Type = ToPlayer p.Player ; Content = newChara.ToString() }
+        let player = main.GetPlayer p.PlayerId
+        sendRawMessage { Type = ToPlayer player ; Content = newChara.ToString() } ApiType.PlayerNotifyCharaReset
         let newP = { p with Type = newChara ; Reset = true }
         let newRolls = r.Rolls |> List.map (fun s ->
             if s = p then newP else s
         )
         loop { r with Rolls = newRolls }
         
-    loop roll
+    let roll = loop main.Roll
+    { main with Roll = roll }
 }
 
-let rollInputLeaf (leaf : RollPair) =
-    let msg = { Type = ToPlayer leaf.Player ; Content = "输入叶子的四个身份" }
+let rollInputLeaf (player: Player)=
+    let msg = { Type = ToPlayer player ; Content = "输入叶子的四个身份" }
     let isInvalidCharas c = c = FenXia || c = CaiMon || c = Leaf
     let parser = parseCharaList >> (function
         | Ok list when list.Length <> 4 ->
@@ -133,44 +147,46 @@ let rollInputLeaf (leaf : RollPair) =
             Error "必须同时包含吧方和爆方身份"
         | value -> value
     )
-    requestInputWithMessage msg parser
+    requestInputWithRawMessage msg ApiType.RequestLeafCharas parser
 
-let rollSetLeaf (r : RollResult) = monad {
+let rollSetLeaf () = monad {
     let! main = Reader.ask
     let rng = main.Rng
+    let r = main.Roll
     let ye = r.Rolls |> List.tryFind (fun s -> s.Type = Leaf)
-    match ye with
-    | None -> r
-    | Some leaf ->
-        let result = rollInputLeaf leaf
-        let result = result |> List.randomShuffleWith rng
-        sendMessage { Type = ToPlayer leaf.Player ; Content = $"第一身份：{result.Head}" }
-        let r = { r with LeafRolls = result }
-        
-        let msg = { Type = ToPlayer leaf.Player ; Content = "是否重抽第一身份？（1：重抽；0：放弃）" }
-        let result = requestInputWithMessage msg parseBool
-        if not result then r else
-        
-        let head = r.LeafRolls.Head
-        let remaining = r.LeafRolls.Tail
-        let list = (remaining |> List.randomShuffleWith rng) @ [head]
-        sendMessage { Type = ToPlayer leaf.Player ; Content = $"第一身份：{list.Head}" }
-        { r with LeafRolls = list }
+    let r = 
+        match ye with
+        | None -> r
+        | Some leaf ->
+            let player = main.GetPlayer leaf.PlayerId
+            let result = rollInputLeaf player
+            let result = result |> List.randomShuffleWith rng
+            sendRawMessage { Type = ToPlayer player ; Content = $"第一身份：{result.Head}" } ApiType.LeafNotifyFirstChara
+            let r = { r with LeafRolls = result }
+            
+            let msg = { Type = ToPlayer player ; Content = "是否重抽第一身份？（1：重抽；0：放弃）" }
+            let result = requestInputWithRawMessage msg ApiType.RequestLeafCharaReroll parseBool
+            if not result then r else
+            
+            let head = r.LeafRolls.Head
+            let remaining = r.LeafRolls.Tail
+            let list = (remaining |> List.randomShuffleWith rng) @ [head]
+            sendRawMessage { Type = ToPlayer player ; Content = $"第一身份：{list.Head}" } ApiType.LeafNotifyFirstCharaReroll
+            { r with LeafRolls = list }
+    { main with Roll = r }
 }
 
-let createEntities (r : RollResult) =
-    r.Rolls |> List.map (fun p ->
-            { Player = p.Player ; Role = p.Type |> createRole r ; State = EntityState.New() }
+let createEntities (main : MainContext) =
+    main.Roll.Rolls |> List.map (fun p ->
+            { Player = main.GetPlayer p.PlayerId ; Role = p.Type |> createRole main.Roll ; State = EntityState.New() }
         )
 
 let rollUpdate () = monad {
     let! main = State.get
-    let roll = main.Roll
-    let r, main = State.run (rollDraw roll) main
-    let r = Reader.run (rollReset r) main
-    let r = Reader.run (rollSetLeaf r) main
-    let main = { main with Roll = r }
+    let main = Reader.run (rollDraw ()) main
+    let main = Reader.run (rollReset ()) main
+    let main = Reader.run (rollSetLeaf ()) main
     do! State.put main
-    let entities = createEntities r
+    let entities = createEntities main
     GameState.New entities |> Game
 }
