@@ -579,7 +579,7 @@ null
 
 | API | 说明 | 举例 | Data |
 |-----|------|------|------|
-| `player_init` | 打印本局玩家 | - | `main` |
+| `player_init` | 打印本局玩家 | - | `Main` |
 | `player_notify_chara` | 通知玩家抽到的身份 |
 | `player_notify_chara_reset` | 通知玩家重抽的身份 |
 | `leaf_notify_first_chara` | 通知叶子的第一身份 |

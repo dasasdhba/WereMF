@@ -74,7 +74,7 @@ type Message =
     |]
 
 let sendApi (message: Message) =
-    if cliApi then Console.WriteLine (message.ToJsonValue().ToString())
+    if cliApi then Console.WriteLine (message.ToJsonValue().ToString JsonSaveOptions.CompactSpaceAfterComma)
 
 let sendMessage (message : Message) =
     if cliLog then
@@ -83,7 +83,12 @@ let sendMessage (message : Message) =
     if cliSilent then
         ()
     else
-        Console.WriteLine (if cliApi then message.ToJsonValue().ToString() else message.ToString())
+        Console.WriteLine(
+            if cliApi then
+                message.ToJsonValue().ToString JsonSaveOptions.CompactSpaceAfterComma
+            else
+                message.ToString()
+        )
 
 type RawMessage =
     {
