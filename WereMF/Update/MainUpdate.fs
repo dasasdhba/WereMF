@@ -24,7 +24,12 @@ let private tryPrintWith (main: MainState) printer =
     match main.Status with
     | Game game ->
         let context = game.Context
-        sendRawMessage { Type = Public ; Content = $"\n{Entity.printSummaryWith printer context.Entities}" } ApiType.CliNightSummary
+        sendMessage {
+            Type = Public
+            Content = $"\n{Entity.printSummaryWith printer context.Entities}"
+            Api = ApiType.CliNightSummary
+            Data = game.Context.ToJsonValue ()
+        }
     | _ -> ()
 
 let rec private tryPrintVote (main: MainState) =
@@ -32,7 +37,12 @@ let rec private tryPrintVote (main: MainState) =
     | Game game ->
         match game.Status with
         | Day day ->
-            sendRawMessage { Type = Public ; Content = $"\n{Day.printVoteSummary game.Context day}" } ApiType.CliDaySummary
+            sendMessage {
+                Type = Public
+                Content = $"\n{Day.printVoteSummary game.Context day}"
+                Api = ApiType.CliDaySummary
+                Data = game.Context.ToJsonValue ()
+            }
         | _ -> ()
     | _ -> ()
 

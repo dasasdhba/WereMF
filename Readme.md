@@ -372,16 +372,16 @@ null
 
 #### 客户端命令类
 
-| API | 说明 |
-|-----|------|
+| API | 说明 | Data |
+|-----|------|------|
 | `command_error` | `\rename` 等 cli 命令错误提示 |
 | `roll_init_error` | 身份池初始化错误信息 |
 | `roll_bar_not_enough` | 身份池的吧方角色不足 |
 | `roll_bar_error` | 身份池的吧方错误信息 |
 | `roll_boom_not_enough` | 身份池的爆方角色不足 |
 | `roll_boom_error` | 身份池的爆方错误信息 |
-| `cli_night_summary` | 夜晚总结 |
-| `cli_day_summary` | 白天总结 |
+| `cli_night_summary` | 夜晚总结 | `Game` |
+| `cli_day_summary` | 白天总结 | `Day` |
 | `cli_game_seed` | 游戏种子 |
 
 #### 玩家状态类
