@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace WereMFServer;
 
@@ -9,7 +10,9 @@ public class GameProcess
     private readonly StreamWriter _input;
     private readonly StreamReader _output;
     private readonly Queue<string> _outputQueue = new();
+    private string _queuedLog = "";
     private bool _running = true;
+    private readonly object _ioLock = new();
     
     public GameProcess(Guid gameId, Process proc)
     {
@@ -24,28 +27,62 @@ public class GameProcess
         {
             while (!_output.EndOfStream && _running)
             {
-                var line = _output.ReadLine();
-                if (line != null)
+                lock (_ioLock)
                 {
-                    lock (_outputQueue)
+                    var line = _output.ReadLine();
+                    if (line != null)
                     {
-                        _outputQueue.Enqueue(line);
+                        lock (_outputQueue)
+                        {
+                            _outputQueue.Enqueue(line);
+                        }
+
+                        lock (_queuedLog)
+                        {
+                            try
+                            {
+                                var json = JsonSerializer.Deserialize<Dictionary<string, string>>(line);
+                                if (json != null && json.TryGetValue("api", out string? value) && value == "cli_log")
+                                {
+                                    _queuedLog = json["data"];
+                                }
+                            }
+                            catch
+                            {
+                                continue;
+                            }
+                        }
                     }
                 }
             }
         });
         outputThread.Start();
     }
+
+    public string GetQueuedLog()
+    {
+        lock (_queuedLog)
+        {
+            return _queuedLog;
+        }
+    }
     
     public bool SendInput(string input)
     {
-        if (_proc.HasExited) return false;
+        if (_proc.HasExited)
+        {
+            Console.WriteLine($"[{DateTime.Now}] Game process of {GameId} has probably crashed, failed Sending {input} to game process {GameId}.");
+            return false;
+        }
         try
         {
-            _input.WriteLine(input);
-            _input.Flush();
-            Console.WriteLine($"[{DateTime.Now}] Sent {input} to game process {GameId}.");
-            return true;
+            lock (_ioLock)
+            {
+                _input.WriteLine(input);
+                _input.Flush();
+                Console.WriteLine($"[{DateTime.Now}] Sent {input} to game process {GameId}.");
+                return true;
+            }
         }
         catch (Exception e)
         {

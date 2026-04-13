@@ -3,21 +3,47 @@
 MF 杀是由 [Mario Forever 社区](https://www.marioforever.net) 的大爷、xfx 等众多玩家共同设计的类狼人杀游戏
 本项目是该游戏的机器实现
 
-## CLI 参数
+## Server
+
+Server 用于转发 CLI 程序的输入输出，通过 WebSocket 在 `ws://host:port` 连接，并且可以通过 `http://host:port` 查看已连接的对局状态
+
+### 选项
+
+* `--help`: 显示帮助
+* `--path <path>`: Cli 程序路径，默认为 `weremf`
+* `--host <host>`: 默认为 127.0.01
+* `--websocket-port <port>`: 默认为 5000
+* `--http-port <port>`: 默认为 5001
+
+### 命令
+
+* `help`: 显示帮助
+* `ls`: 显示已创建的游戏
+* `seed`: 令下一局游戏使用随机种子
+* `seed <int>`: 令下一局游戏使用指定的种子
+* `config <path>`: 设置抽签配置文件
+* `kill <id>`: 终止指定的一局游戏
+* `exit` / `quit`: 退出
+
+---
+
+## Game
+
+### 选项
 
 * `--help`: 显示帮助
 * `--api`: API 模式
 * `--config <path>`: 使用自定义的抽签配置文件
 * `--seed <int>`：使用自定义的种子
 
-## 游戏内辅助功能
+### 命令
 
 * `\undo`: 撤销
 * `\redo`: 重做
 * `\restart`: 重开一局（使用当前玩家列表）
 * `\reboot`: 重启程序
 * `\exit`: 退出
-* `\log`: 保存当前对局作为日志
+* `\log <path>`: 保存当前对局作为日志，若 path 留空，则会使用系统时间创建默认名称；若填为 null，则不会生成文件，此时日志内容可在 api 模式下访问
 * `\rename <idx> <newName>`: 将第 `idx` 个玩家重命名为 `newName`，这里的 `idx` 以输入玩家列表的顺序为准，不以第一晚匿名模式打乱的顺序为准
 * `\night`: 打印晚上的总结
 * `\day`: 打印白天的总结
@@ -26,7 +52,7 @@ MF 杀是由 [Mario Forever 社区](https://www.marioforever.net) 的大爷、xf
 
 ---
 
-以下为 API 模式的文档 
+# API 文档
 
 ## 1. Common 数据结构
 
@@ -380,9 +406,10 @@ null
 | `roll_bar_error` | 身份池的吧方错误信息 |
 | `roll_boom_not_enough` | 身份池的爆方角色不足 |
 | `roll_boom_error` | 身份池的爆方错误信息 |
-| `cli_night_summary` | 夜晚总结 | `Game` |
-| `cli_day_summary` | 白天总结 | `Day` |
+| `cli_game_summary` | 游戏总结（当前节点开始时），通常用于投降 | `Game` |
+| `cli_vote_summary` | 投票总结（当前节点开始时），通常用于投降 | `Day` |
 | `cli_game_seed` | 游戏种子 |
+| `cli_log` | 创建游戏日志 | 日志文本 |
 
 #### 玩家状态类
 

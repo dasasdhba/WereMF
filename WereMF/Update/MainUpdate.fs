@@ -27,7 +27,7 @@ let private tryPrintWith (main: MainState) printer =
         sendMessage {
             Type = Public
             Content = $"\n{Entity.printSummaryWith printer context.Entities}"
-            Api = ApiType.CliNightSummary
+            Api = ApiType.CliGameSummary
             Data = game.Context.ToJsonValue ()
         }
     | _ -> ()
@@ -40,7 +40,7 @@ let rec private tryPrintVote (main: MainState) =
             sendMessage {
                 Type = Public
                 Content = $"\n{Day.printVoteSummary game.Context day}"
-                Api = ApiType.CliDaySummary
+                Api = ApiType.CliVoteSummary
                 Data = game.Context.ToJsonValue ()
             }
         | _ -> ()
@@ -122,10 +122,14 @@ let rec private updateMain main : MainState =
         | Log l ->
             let text = $"游戏种子：{seed}\n玩家：\n"
             let summary = tryGetSummaryWith main Entity.getSummary
-            let now = DateTime.Now.ToString("yyMMdd_HHmmss")
-            let log = if l = "" then $"WereMF_{now}.log" else $"{l}"
-            File.AppendAllText(log, text + summary + "\n\n", System.Text.Encoding.UTF8)
+            let log =
+                if l = "" then
+                    let now = DateTime.Now.ToString("yyMMdd_HHmmss")
+                    $"WereMF_{now}.log"
+                else
+                    l
             
+            cliLogContent <- text + summary + "\n\n"
             cliLogName <- log
             cliLog <- true
             cliReplay <- cliUndo

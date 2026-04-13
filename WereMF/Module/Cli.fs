@@ -42,6 +42,7 @@ let mutable cliUndo : string list = []
 let mutable cliRedo : string list = []
 let mutable cliReplay : string list = []
 let mutable cliSilent : bool = false
+let mutable cliLogContent : string = ""
 let mutable cliLogName : string = ""
 let mutable cliLog : bool = false
 
@@ -78,7 +79,7 @@ let sendApi (message: Message) =
 
 let sendMessage (message : Message) =
     if cliLog then
-        File.AppendAllText(cliLogName, message.ToString() + "\n", System.Text.Encoding.UTF8)
+        cliLogContent <- cliLogContent + message.ToString() + "\n"
     
     if cliSilent then
         ()
@@ -295,12 +296,27 @@ let parseCommand (input : string) =
     
 let requestInputWithMessage (message : Message) (parser : string -> Result<'a, string>) =
     let rec loop () =
-        let input = if cliReplay |> List.isEmpty then
-                        cliLog <- false
-                        cliSilent <- false
-                        sendMessage message
-                        Console.ReadLine()
-                    else cliReplay.Head
+        let input =
+            if cliReplay |> List.isEmpty then
+                cliSilent <- false
+                if cliLog then
+                    cliLog <- false
+                    if cliLogName <> "null" then
+                        File.AppendAllText(cliLogName, cliLogContent, System.Text.Encoding.UTF8)
+                    sendMessage {
+                        Type = Internal
+                        Content =
+                            if cliLogName <> "null" then
+                                $"日志已保存至 {cliLogName}"
+                            else
+                                "日志已创建"
+                        Api = ApiType.CliLog
+                        Data = JsonValue.String cliLogContent
+                    }
+                sendMessage message
+                Console.ReadLine()
+            else
+                cliReplay.Head
         let command = parseCommand input
         match command with
         | Ok c -> raise (c |> CommandEx)
@@ -313,7 +329,7 @@ let requestInputWithMessage (message : Message) (parser : string -> Result<'a, s
                     cliRedo <- []
                 else
                     if cliLog then
-                        File.AppendAllText(cliLogName, message.ToString() + "\n" + cliReplay.Head + "\n", System.Text.Encoding.UTF8)
+                        cliLogContent <- message.ToString() + "\n" + cliReplay.Head + "\n"
                     cliReplay <- cliReplay.Tail
                 result
             | Error msg ->

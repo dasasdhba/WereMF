@@ -170,9 +170,10 @@ type ApiType =
     | JiaohuaStartNotify
     | XiansongStartNotify
     | RequestForNextGame
-    | CliNightSummary
-    | CliDaySummary
+    | CliGameSummary
+    | CliVoteSummary
     | CliGameSeed
+    | CliLog
     | ParseError of ApiType
     member this.ToSnakeString () =
         match this with

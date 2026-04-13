@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Net;
+using System.Text;
+using System.Text.Json;
 using Fleck;
 
 namespace WereMFServer;
@@ -19,6 +21,8 @@ public class GameServer
         int counter = 0;
         while (_games.TryGetValue(socket, out var game))
         {
+            if (!socket.IsAvailable) return;
+        
             try
             {
                 var outputs = game.GetOutput();
@@ -48,7 +52,29 @@ public class GameServer
         }
     }
 
-    private void Start(IWebSocketConnection socket, string wereMFPath)
+    private void SendInput(IWebSocketConnection socket, string message)
+    {
+        if (!_games.TryGetValue(socket, out var game)) return;
+    
+        const int retryCount = 10;
+        var counter = 0;
+        while (!game.SendInput(message))
+        {
+            if (!socket.IsAvailable) return;
+        
+            counter++;
+            Console.WriteLine($"[{DateTime.Now}] Failed sending input to game process {game.GameId}, retry {counter}/{retryCount}");
+
+            if (counter >= retryCount)
+            {
+                Console.WriteLine($"[{DateTime.Now}] Game process {game.GameId} is unexpected closed by too many errors of sending inputs.");
+                socket.Close();
+                break;
+            }
+        }
+    }
+
+    private void Start(IWebSocketConnection socket, string path)
     {
         socket.OnOpen = () =>
         {
@@ -63,14 +89,14 @@ public class GameServer
                 arg += $" --seed {_seed}";
             }
             
-            var psi = new ProcessStartInfo(wereMFPath)
+            var psi = new ProcessStartInfo(path)
             {
                 UseShellExecute = false,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(wereMFPath),
+                WorkingDirectory = Path.GetDirectoryName(path),
                 Arguments = arg
             };
             psi.StandardOutputEncoding = System.Text.Encoding.UTF8;
@@ -89,26 +115,7 @@ public class GameServer
             Task.Run(() => SendOutputs(socket));
         };
             
-        socket.OnMessage = message =>
-        {
-            if (_games.TryGetValue(socket, out var game))
-            {
-                const int retryCount = 10;
-                var counter = 0;
-                while (!game.SendInput(message))
-                {
-                    counter++;
-                    Console.WriteLine($"[{DateTime.Now}] Failed sending input to game process {game.GameId}, retry {counter}/{retryCount}");
-
-                    if (counter >= retryCount)
-                    {
-                        Console.WriteLine($"[{DateTime.Now}] Game process {game.GameId} is unexpected closed by too many errors of sending inputs.");
-                        socket.Close();
-                        break;
-                    }
-                }
-            }
-        };
+        socket.OnMessage = message => SendInput(socket, message);
             
         socket.OnClose = () =>
         {
@@ -132,7 +139,41 @@ public class GameServer
                 var context = _httpServer.GetContext();
                 var response = context.Response;
                 
-                var html = GenerateStatusHtml();
+                var gameLogs = new Dictionary<Guid, string>();
+                foreach (var (socket, game) in _games)
+                {
+                    if (game.SendInput($"\\log null"))
+                    {
+                        int logCounter = 0;
+                        while (socket.IsAvailable)
+                        {
+                            Thread.Sleep(200);
+
+                            try
+                            {
+                                var log = game.GetQueuedLog();
+                                if (log != "")
+                                {
+                                    gameLogs[game.GameId] = log;
+                                    break;
+                                }
+
+                                throw new Exception();
+                            }
+                            catch
+                            {
+                                logCounter++;
+                                if (logCounter >= retryCount)
+                                {
+                                    Console.WriteLine($"[{DateTime.Now}] Failed to get log of game process {game.GameId}.");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                var html = GenerateStatusHtml(gameLogs);
                 var buffer = System.Text.Encoding.UTF8.GetBytes(html);
                 
                 response.ContentType = "text/html; charset=utf-8";
@@ -156,40 +197,48 @@ public class GameServer
         }
     }
 
-    private string GenerateStatusHtml()
+    private string GenerateStatusHtml(Dictionary<Guid, string> gameLogs)
     {
-        var gameList = string.Join("", _games.Values.Select(g => 
-            $"<li>Game ID: {g.GameId}</li>"));
+        var gameList = string.Join("", _games
+            .Where(s => s.Key.IsAvailable )
+            .Select(s => 
+            { 
+                var id = s.Value.GameId;
+                var logContent = "";
+                if (gameLogs.TryGetValue(id, out var log))
+                {
+                    var escaped = log.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&#39;");
+                    logContent = $"<div class=\"log-content\" style=\"display:none;\"><pre style=\"background:#f5f5f5;padding:10px;max-height:300px;overflow:auto;font-size:11px;\">{escaped}</pre></div>";
+                }
+                return $"<div class=\"game-item\"><button class=\"game-btn\" onclick=\"this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'\">Game: {id}</button>{logContent}</div>";
+            }));
         
         return $@"<!DOCTYPE html>
 <html>
 <head>
     <meta charset=""utf-8"">
-    <title>WereMF Server Status</title>
+    <title>WereMF Server</title>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        h1 {{ color: #333; }}
+        body {{ font-family: Arial, margin: 40px; }}
         .count {{ font-size: 24px; font-weight: bold; color: #2196F3; }}
-        ul {{ list-style-type: none; padding: 0; }}
-        li {{ padding: 8px; border-bottom: 1px solid #eee; }}
+        .game-item {{ margin-bottom: 10px; }}
+        .game-btn {{ padding: 10px 20px; background: #2196F3; color: white; border: none; cursor: pointer; }}
+        .log-content {{ margin-top: 10px; }}
     </style>
 </head>
 <body>
-    <h1>WereMF Server Status</h1>
+    <h1>WereMF Server</h1>
     <p>Active Games: <span class=""count"">{_games.Count}</span></p>
-    <h2>Game List</h2>
-    <ul>
-        {(string.IsNullOrEmpty(gameList) ? "<li>No active games</li>" : gameList)}
-    </ul>
+    <div>{gameList}</div>
 </body>
 </html>";
     }
 
-    public GameServer(string wereMFPath, string host, int wsPort, int httpPort)
+    public GameServer(string path, string host, int wsPort, int httpPort)
     {
-        if (!File.Exists(wereMFPath))
+        if (!File.Exists(path))
         {
-            Console.WriteLine($"[{DateTime.Now}] {wereMFPath} is not a valid WereMF cli program, server initialization failed.");
+            throw new Exception($"[{DateTime.Now}] {path} is not a valid WereMF cli program, server initialization failed.");
         }
     
         _games = [];
@@ -197,7 +246,7 @@ public class GameServer
         var url = $"ws://{host}:{wsPort}";
         var http = $"http://{host}:{httpPort}/";
         _server = new(url);
-        _server.Start(socket => Start(socket, wereMFPath));
+        _server.Start(socket => Start(socket, path));
 
         // Start HTTP server for status page
         _httpServer = new HttpListener();
