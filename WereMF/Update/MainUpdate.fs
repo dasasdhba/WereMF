@@ -119,11 +119,11 @@ let rec private updateMain main : MainState =
             cliReplay <- cliUndo
             cliSilent <- true
             updateMain (MainState.New seed)
-        | Log ->
+        | Log l ->
             let text = $"游戏种子：{seed}\n玩家：\n"
             let summary = tryGetSummaryWith main Entity.getSummary
             let now = DateTime.Now.ToString("yyMMdd_HHmmss")
-            let log = $"WereMF_{now}.log"
+            let log = if l = "" then $"WereMF_{now}.log" else $"{l}"
             File.AppendAllText(log, text + summary + "\n\n", System.Text.Encoding.UTF8)
             
             cliLogName <- log

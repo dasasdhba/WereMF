@@ -117,7 +117,7 @@ type CommandType =
     | VoteSummary
     | Summary
     | Rename of int * string
-    | Log
+    | Log of string
 
 exception CommandEx of CommandType
 
@@ -283,7 +283,9 @@ let parseCommand (input : string) =
         | _ ->
             sendRawMessage { Type = Internal ; Content = "请输入要重命名的玩家编号和新的玩家名" } ApiType.CommandError
             Error true
-    | "\\log" -> Ok Log
+    | s when s.StartsWith "\\log" ->
+        Ok (Log (s[4..].Trim()))
+    | "\\log" -> Ok (Log "")
     | "\\night" -> Ok NightSummary
     | "\\day" -> Ok DaySummary
     | "\\summary" -> Ok Summary

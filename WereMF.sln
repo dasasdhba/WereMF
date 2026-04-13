@@ -2,7 +2,7 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "WereMF", "WereMF\WereMF.fsproj", "{AD649618-5D48-4511-BCA6-2F2DED504DC1}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "WereMFServer", "WereMFServer\WereMFServer.fsproj", "{446FB363-A55B-48C2-B24A-6F8600EC0A56}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WereMFServer", "WereMFServer\WereMFServer.csproj", "{B1F13EA0-482A-4228-8E86-02F167F3C194}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -14,9 +14,9 @@ Global
 		{AD649618-5D48-4511-BCA6-2F2DED504DC1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AD649618-5D48-4511-BCA6-2F2DED504DC1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AD649618-5D48-4511-BCA6-2F2DED504DC1}.Release|Any CPU.Build.0 = Release|Any CPU
-		{446FB363-A55B-48C2-B24A-6F8600EC0A56}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{446FB363-A55B-48C2-B24A-6F8600EC0A56}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{446FB363-A55B-48C2-B24A-6F8600EC0A56}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{446FB363-A55B-48C2-B24A-6F8600EC0A56}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1F13EA0-482A-4228-8E86-02F167F3C194}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1F13EA0-482A-4228-8E86-02F167F3C194}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1F13EA0-482A-4228-8E86-02F167F3C194}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1F13EA0-482A-4228-8E86-02F167F3C194}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
