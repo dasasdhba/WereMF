@@ -9,10 +9,62 @@ public class GameProcess
     private readonly Process _proc;
     private readonly StreamWriter _input;
     private readonly StreamReader _output;
+    private readonly StreamReader _error;
     private readonly Queue<string> _outputQueue = new();
     private string _queuedLog = "";
     private bool _running = true;
-    private readonly object _ioLock = new();
+
+    private void CaptureOutputs()
+    {
+        while (!_output.EndOfStream && _running)
+        {
+            string? line;
+
+            lock (_output)
+            {
+                line = _output.ReadLine();
+            }
+            
+            if (line != null)
+            {
+                lock (_outputQueue)
+                {
+                    _outputQueue.Enqueue(line);
+                }
+
+                lock (_queuedLog)
+                {
+                    try
+                    {
+                        var json = JsonSerializer.Deserialize<Dictionary<string, string>>(line);
+                        if (json != null && json.TryGetValue("api", out string? value) && value == "cli_log")
+                        {
+                            _queuedLog = json["data"];
+                        }
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+    
+    private void CaptureErrors()
+    {
+        while (!_error.EndOfStream && _running)
+        {
+            lock (_error)
+            {
+                var line = _error.ReadLine();
+                if (line != null)
+                {
+                    Console.WriteLine($"[{DateTime.Now}] Error from game process {GameId}: {line}");
+                }
+            }
+        }
+    }
     
     public GameProcess(Guid gameId, Process proc)
     {
@@ -22,41 +74,10 @@ public class GameProcess
         _proc = proc;
         _input = proc.StandardInput;
         _output = proc.StandardOutput;
+        _error = proc.StandardError;
         
-        var outputThread = new Thread(() =>
-        {
-            while (!_output.EndOfStream && _running)
-            {
-                lock (_ioLock)
-                {
-                    var line = _output.ReadLine();
-                    if (line != null)
-                    {
-                        lock (_outputQueue)
-                        {
-                            _outputQueue.Enqueue(line);
-                        }
-
-                        lock (_queuedLog)
-                        {
-                            try
-                            {
-                                var json = JsonSerializer.Deserialize<Dictionary<string, string>>(line);
-                                if (json != null && json.TryGetValue("api", out string? value) && value == "cli_log")
-                                {
-                                    _queuedLog = json["data"];
-                                }
-                            }
-                            catch
-                            {
-                                continue;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        outputThread.Start();
+        Task.Run(CaptureOutputs);
+        Task.Run(CaptureErrors);
     }
 
     public string GetQueuedLog()
@@ -76,7 +97,7 @@ public class GameProcess
         }
         try
         {
-            lock (_ioLock)
+            lock (_input)
             {
                 _input.WriteLine(input);
                 _input.Flush();
@@ -112,8 +133,9 @@ public class GameProcess
             if (!_proc.HasExited)
             {
                 _proc.Kill(true);
-                _input.Dispose();
-                _output.Dispose();
+                lock(_input) _input.Dispose();
+                lock(_output) _output.Dispose();
+                lock(_error) _error.Dispose();
                 _proc.Dispose();
             }
         }

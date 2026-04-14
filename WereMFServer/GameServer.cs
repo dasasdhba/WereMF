@@ -99,8 +99,8 @@ public class GameServer
                 WorkingDirectory = Path.GetDirectoryName(path),
                 Arguments = arg
             };
-            psi.StandardOutputEncoding = System.Text.Encoding.UTF8;
-            psi.StandardInputEncoding = System.Text.Encoding.UTF8;
+            psi.StandardOutputEncoding = Encoding.UTF8;
+            psi.StandardInputEncoding = Encoding.UTF8;
                 
             var proc = Process.Start(psi);
             if (proc == null)
@@ -122,7 +122,6 @@ public class GameServer
             if (_games.Remove(socket, out var game))
             {
                 game.Kill();
-                _games.Remove(socket);
                 Console.WriteLine($"[{DateTime.Now}] Closed game: {game.GameId}");
             }
         };
@@ -142,7 +141,7 @@ public class GameServer
                 var gameLogs = new Dictionary<Guid, string>();
                 foreach (var (socket, game) in _games)
                 {
-                    if (game.SendInput($"\\log null"))
+                    if (game.SendInput("\\log null"))
                     {
                         int logCounter = 0;
                         while (socket.IsAvailable)
@@ -174,7 +173,7 @@ public class GameServer
                 }
                 
                 var html = GenerateStatusHtml(gameLogs);
-                var buffer = System.Text.Encoding.UTF8.GetBytes(html);
+                var buffer = Encoding.UTF8.GetBytes(html);
                 
                 response.ContentType = "text/html; charset=utf-8";
                 response.ContentLength64 = buffer.Length;
