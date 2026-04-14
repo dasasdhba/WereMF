@@ -127,6 +127,7 @@ null
 ```
 
 #### Rabi
+
 ```json
 {
     "round": 1
@@ -334,19 +335,19 @@ null
 
 ## 2. State 数据结构
 
-### 2.1 Roll (抽签结果)
+### 2.1 Game (游戏上下文)
+
+包含全体玩家实体
 
 ```json
 {
-    "roll_pairs": [
-        { "player_id": 1, "chara_type": "Doge", "reset": false } // 玩家，身份， 是否已重抽
-        ...
-    ],
-    "leaf_charas": ["炮仙", "音魔", "地鼠", "铯郎"] // 叶子的四个身份，首位为第一身份
+    "entities": [...] // 全体玩家实体
 }
 ```
 
 ### 2.2 Day (白天上下文)
+
+包含完整的投票状态
 
 ```json
 {
@@ -357,23 +358,6 @@ null
             "confirmed": false // 是否投票两次
         }
     ]
-}
-```
-
-### 2.3 Game (游戏上下文)
-
-```json
-{
-    "entities": [...] // 全体玩家实体
-}
-```
-
-### 2.4 Main (主上下文)
-
-```json
-{
-    "players": [...], // 玩家列表
-    "roll": { ... } // 抽签结果
 }
 ```
 
@@ -606,11 +590,12 @@ null
 
 | API | 说明 | 举例 | Data |
 |-----|------|------|------|
-| `player_init` | 打印本局玩家 | - | `Main` |
-| `player_notify_chara` | 通知玩家抽到的身份 |
-| `player_notify_chara_reset` | 通知玩家重抽的身份 |
-| `leaf_notify_first_chara` | 通知叶子的第一身份 |
-| `leaf_notify_first_chara_reroll` | 通知叶子重抽的第一身份 |
+| `player_init` | 打印本局玩家 | - | `Player` 列表 |
+| `player_anonymous_init` | 第一晚匿名打乱的玩家 | - | `Player` 列表 |
+| `player_notify_chara` | 通知玩家抽到的身份 | 炮仙 |
+| `player_notify_chara_reset` | 通知玩家重抽的身份 | 音魔 |
+| `leaf_notify_first_chara` | 通知叶子的第一身份 | 第一身份：炮仙 | `CharaType` |
+| `leaf_notify_first_chara_reroll` | 通知叶子重抽的第一身份 | 同上 | `CharaType` |
 | `barleader_notify` | 吧主通知 | 你是吧主，脚滑人是 xxx |
 | `jiaohua_start_notify` | 脚滑人获知两个身份通知 | 本局有合虫和兔子 |
 | `xiansong_start_notify` | 贤松获知炮仙通知 | 炮仙是 xxx |

@@ -54,6 +54,12 @@ let rollDraw () = monad {
             main.Players |> List.randomShuffleWith rng |> List.indexed
         let players =
             idp |> List.map (fun (i, p) -> { p with Id = PlayerId (i + 1) ; Anonymous = true })
+        sendApi {
+            Type = Internal
+            Content = ""
+            Api = ApiType.PlayerAnonymousInit
+            Data = players |> List.mapJson (fun p -> p.ToJsonValue())
+        }
         { main with Players = players }
     
     let count = main.Players.Length
@@ -161,7 +167,12 @@ let rollSetLeaf () = monad {
             let player = main.GetPlayer leaf.PlayerId
             let result = rollInputLeaf player
             let result = result |> List.randomShuffleWith rng
-            sendRawMessage { Type = ToPlayer player ; Content = $"第一身份：{result.Head}" } ApiType.LeafNotifyFirstChara
+            sendMessage {
+                Type = ToPlayer player
+                Content = $"第一身份：{result.Head}"
+                Api = ApiType.LeafNotifyFirstChara
+                Data = result.Head.ToJsonValue ()
+            }
             let r = { r with LeafRolls = result }
             
             let msg = { Type = ToPlayer player ; Content = "是否重抽第一身份？（1：重抽；0：放弃）" }
@@ -171,7 +182,12 @@ let rollSetLeaf () = monad {
             let head = r.LeafRolls.Head
             let remaining = r.LeafRolls.Tail
             let list = (remaining |> List.randomShuffleWith rng) @ [head]
-            sendRawMessage { Type = ToPlayer player ; Content = $"第一身份：{list.Head}" } ApiType.LeafNotifyFirstCharaReroll
+            sendMessage {
+                Type = ToPlayer player
+                Content = $"第一身份：{list.Head}"
+                Api = ApiType.LeafNotifyFirstCharaReroll
+                Data = list.Head.ToJsonValue ()
+            }
             { r with LeafRolls = list }
     { main with Roll = r }
 }

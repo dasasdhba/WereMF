@@ -131,6 +131,7 @@ type ApiType =
     | PlayerInit
     | RequestLeafGame
     | RequestAnonymousGame
+    | PlayerAnonymousInit
     | PlayerNotifyChara
     | RequestRerollPlayer
     | PlayerNotifyCharaReset

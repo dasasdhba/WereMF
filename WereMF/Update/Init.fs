@@ -34,7 +34,7 @@ let initPlayers () =
             Type = Public
             Content = $"\n{pMessage}"
             Api = ApiType.PlayerInit
-            Data = main.ToJsonValue ()
+            Data = pList |> List.mapJson (fun p -> p.ToJsonValue())
         }
         Roll
     }

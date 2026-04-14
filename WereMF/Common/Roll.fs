@@ -9,12 +9,6 @@ type RollPair =
         Type : CharaType
         Reset : bool
     }
-    member this.ToJsonValue () =
-        JsonValue.Record [|
-            "player_id", this.PlayerId.ToJsonValue()
-            "chara_type", this.Type.ToJsonValue()
-            "reset", JsonValue.Boolean this.Reset
-        |]
     
 type RollResult =
     {
