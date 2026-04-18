@@ -42,15 +42,11 @@ jobs:
       - name: Build WereMF
         run: dotnet publish WereMF/WereMF.fsproj -c Release -r ${{ matrix.target }} --self-contained true -p:PublishSingleFile=true -o ./publish
 
-      - name: Create zip
-        run: |
-          zip -r ${{ matrix.zip_name }}.zip ./publish/*
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.zip_name }}.zip
-          path: ${{ matrix.zip_name }}.zip
+          name: ${{ matrix.zip_name }}
+          path: ./publish/
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
