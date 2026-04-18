@@ -295,27 +295,34 @@ let parseCommand (input : string) =
     | _ -> Error false
     
 let requestInputWithMessage (message : Message) (parser : string -> Result<'a, string>) =
+    let saveLog () =
+        if cliLog then
+            cliLog <- false
+            if cliLogName <> "null" then
+                File.AppendAllText(cliLogName, cliLogContent, System.Text.Encoding.UTF8)
+            sendMessage {
+                Type = Internal
+                Content =
+                    if cliLogName <> "null" then
+                        $"日志已保存至 {cliLogName}"
+                    else
+                        "日志已创建"
+                Api = ApiType.CliLog
+                Data = JsonValue.String cliLogContent
+            }
+    
     let rec loop () =
         let input =
             if cliReplay |> List.isEmpty then
                 cliSilent <- false
-                if cliLog then
-                    cliLog <- false
-                    if cliLogName <> "null" then
-                        File.AppendAllText(cliLogName, cliLogContent, System.Text.Encoding.UTF8)
-                    sendMessage {
-                        Type = Internal
-                        Content =
-                            if cliLogName <> "null" then
-                                $"日志已保存至 {cliLogName}"
-                            else
-                                "日志已创建"
-                        Api = ApiType.CliLog
-                        Data = JsonValue.String cliLogContent
-                    }
+                saveLog ()
                 sendMessage message
                 Console.ReadLine()
             else
+                if cliReplay.Head |> String.startsWith "\\" then
+                    cliSilent <- false
+                    saveLog ()
+                    cliSilent <- true
                 cliReplay.Head
         let command = parseCommand input
         match command with
@@ -329,7 +336,7 @@ let requestInputWithMessage (message : Message) (parser : string -> Result<'a, s
                     cliRedo <- []
                 else
                     if cliLog then
-                        cliLogContent <- message.ToString() + "\n" + cliReplay.Head + "\n"
+                        cliLogContent <- cliLogContent + message.ToString() + "\n" + cliReplay.Head + "\n"
                     cliReplay <- cliReplay.Tail
                 result
             | Error msg ->

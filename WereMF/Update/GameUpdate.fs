@@ -69,6 +69,10 @@ let gameUpdate (game: GameState) = monad {
         | End ->
             let msg = { Type = Internal ; Content = "开启下一局？（1：是；0：否）" }
             let result = requestInputWithRawMessage msg ApiType.RequestForNextGame parseBool
+            
+            // this message should not be logged, or it will cause recurse
+            cliUndo <- cliUndo |> List.take (cliUndo.Length - 1)
+            
             if result then
                 raise (Restart |> CommandEx)
             else

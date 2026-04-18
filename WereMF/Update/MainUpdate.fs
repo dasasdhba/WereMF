@@ -1,7 +1,6 @@
 module WereMF.Update.Main
 
 open System
-open System.IO
 open FSharpPlus.Data
 open WereMF.Module
 open WereMF.Module.Cli
@@ -47,6 +46,23 @@ let rec private tryPrintVote (main: MainState) =
     | _ -> ()
 
 let rec private updateMain main : MainState =
+    let saveLogWith l command =
+        let text = $"游戏种子：{seed}\n玩家：\n"
+        let summary = tryGetSummaryWith main Entity.getSummary
+        let log =
+            if l = "" then
+                let now = DateTime.Now.ToString("yyMMdd_HHmmss")
+                $"WereMF_{now}.log"
+            else
+                l
+        
+        cliLogContent <- text + summary + "\n\n"
+        cliLogName <- log
+        cliLog <- true
+        cliReplay <- if command <> "" then cliUndo @ [command] else cliUndo
+        cliSilent <- true
+        updateMain (MainState.New seed)
+    
     try 
         let s, c =
            match main.Status with
@@ -73,6 +89,7 @@ let rec private updateMain main : MainState =
             cliSilent <- true
             updateMain (MainState.New seed)
         | Reboot ->
+            saveLogWith "" "\exit" |> ignore
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
             sendRawMessage { Type = Internal ; Content = $"游戏种子：{seed}" } ApiType.CliGameSeed
             cliUndo <- []
@@ -81,6 +98,7 @@ let rec private updateMain main : MainState =
             cliSilent <- false
             updateMain (MainState.New seed)
         | Restart ->
+            saveLogWith "" "\exit" |> ignore
             seed <- DateTime.UtcNow.Ticks.GetHashCode()
             sendRawMessage { Type = Internal ; Content = $"游戏种子：{seed}" } ApiType.CliGameSeed
             cliUndo <- [cliUndo.Head]
@@ -120,21 +138,7 @@ let rec private updateMain main : MainState =
             cliSilent <- true
             updateMain (MainState.New seed)
         | Log l ->
-            let text = $"游戏种子：{seed}\n玩家：\n"
-            let summary = tryGetSummaryWith main Entity.getSummary
-            let log =
-                if l = "" then
-                    let now = DateTime.Now.ToString("yyMMdd_HHmmss")
-                    $"WereMF_{now}.log"
-                else
-                    l
-            
-            cliLogContent <- text + summary + "\n\n"
-            cliLogName <- log
-            cliLog <- true
-            cliReplay <- cliUndo
-            cliSilent <- true
-            updateMain (MainState.New seed)
+            saveLogWith l ""
         | Exit ->
             main
     | ex ->
