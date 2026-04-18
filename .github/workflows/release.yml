@@ -57,13 +57,13 @@ jobs:
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: WereMF-win-x64.zip
+          name: WereMF-win-x64
           path: ./artifacts
 
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
-          name: WereMF-linux-x64.zip
+          name: WereMF-linux-x64
           path: ./artifacts
 
       - name: Upload release
