@@ -58,17 +58,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: WereMF-win-x64
-          path: ./artifacts
+          path: ./artifacts/win
 
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
           name: WereMF-linux-x64
-          path: ./artifacts
+          path: ./artifacts/linux
+
+      - name: Create release archives
+        run: |
+          cd ./artifacts/win && zip -r ../../WereMF-win-x64.zip . && cd ../..
+          cd ./artifacts/linux && tar -czf ../../WereMF-linux-x64.tar.gz . && cd ../..
 
       - name: Upload release
         uses: softprops/action-gh-release@v2
         with:
-          files: ./artifacts/*.zip
+          files: |
+            WereMF-win-x64.zip
+            WereMF-linux-x64.tar.gz
           prerelease: false
-          generate_release_notes: true
