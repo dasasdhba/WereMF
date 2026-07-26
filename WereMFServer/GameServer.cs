@@ -122,8 +122,9 @@ internal sealed class GameRoom : IAsyncDisposable
         if (msg.Type == "command")
         {
             if (!p.IsHost || _game is null) throw new ClientVisibleException("只有房主可以使用管理命令");
-            var ok = new[] { "\\undo", "\\redo", "\\restart", "\\night", "\\day", "\\vote", "\\summary", "\\log null" };
-            if (!ok.Contains(msg.Value)) throw new ClientVisibleException("不支持的命令"); if (msg.Value == "\\log null") _exportingLog = true; await _game.SendAsync(msg.Value!, ct); return;
+            if (msg.Value != "\\restart") throw new ClientVisibleException("房主只能使用重开命令");
+            await _game.SendAsync(msg.Value, ct);
+            return;
         }
         if (msg.Type == "ping") { await SendAsync(p, new { type = "pong" }, ct); return; }
         throw new ClientVisibleException("未知操作");
@@ -140,6 +141,8 @@ internal sealed class GameRoom : IAsyncDisposable
     private async Task InputAsync(PlayerSession p, string value, CancellationToken ct)
     {
         if (_game is null) throw new ClientVisibleException("对局尚未开始");
+        value = value.Trim();
+        if (value.StartsWith('\\')) throw new ClientVisibleException("玩家输入不能使用管理命令");
         if (_concurrentInput is not null)
         {
             await ConcurrentInputAsync(p, value, ct);
@@ -147,7 +150,7 @@ internal sealed class GameRoom : IAsyncDisposable
         }
         var allowed = _expected == $"player_{p.GameId}" || _expected == "public" || (_expected == "internal" && p.IsHost);
         if (!allowed) throw new ClientVisibleException("现在还没轮到你行动");
-        _expected = null; await _game.SendAsync(value.Trim(), ct);
+        _expected = null; await _game.SendAsync(value, ct);
     }
 
     private async Task ConcurrentInputAsync(PlayerSession player, string value, CancellationToken ct)
@@ -223,6 +226,20 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             var root = doc.RootElement.Clone(); var target = root.GetProperty("message_type").GetString() ?? "internal"; var api = root.GetProperty("api").GetString() ?? ""; if (_exportingLog && api != "cli_log") return; if (api == "cli_log") _exportingLog = false;
             var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload = root });
+            if (api == "cli_log")
+            {
+                var content = root.TryGetProperty("data", out var logData) && logData.ValueKind == JsonValueKind.String ? logData.GetString() ?? "" : "";
+                var download = JsonSerializer.SerializeToElement(new { type = "game_log_available", fileName = $"WereMF_{DateTime.Now:yyMMdd_HHmmss}_{_code}.log", content });
+                Add(_publicHistory, download);
+                await BroadcastAsync(download);
+                return;
+            }
+            if (api == "request_for_next_game")
+            {
+                _exportingLog = true;
+                await _game!.SendAsync("\\log null");
+                return;
+            }
             if (api == "player_anonymous_init") { await ApplyAnonymousMappingAsync(root); return; }
             if (api == "pending_skill_created") { await RoutePendingSkillAsync(root); return; }
             if (api is "request_reroll_player" or "request_vote") { await RouteConcurrentRequestAsync(root, api); return; }

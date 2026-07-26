@@ -6,7 +6,7 @@ const state = {
   roomCode: "", playerId: null, playerName: "", token: "", isHost: false, started: false,
   players: [], entities: [], votes: [], events: [], phase: "等待", round: 0, role: "身份尚未揭晓",
   roleVisible: true, request: null, selected: [], modifier: "", reconnecting: false,
-  pendingSkills: [], pendingDrafts: {}, activePendingId: ""
+  pendingSkills: [], pendingDrafts: {}, activePendingId: "", gameLog: null
 };
 const e = (value = "") => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
 const socketUrl = () => state.server.trim() || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
@@ -34,6 +34,7 @@ function onMessage(message) {
   if (message.type === "game_message") handleGameMessage(message.payload);
   if (message.type === "game_ended") { addEvent("SYSTEM", message.message, false); state.request = null; }
   if (message.type === "server_notice") addEvent("SERVER", message.message, true);
+  if (message.type === "game_log_available") { state.gameLog = message; addEvent("SYSTEM", "本局日志已生成，所有玩家均可下载", false); }
   if (message.type === "input_accepted") notify(message.remaining ? `已暂存，还可提交 ${message.remaining} 次` : "已提交，等待其他玩家");
   render();
 }
@@ -44,10 +45,10 @@ function handleGameMessage(msg) {
   if (api === "leaf_notify_first_chara" || api === "leaf_notify_first_chara_reroll") state.role = `叶子 · ${text}`;
   if (api === "night_start_broadcast") { state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
   if (api === "day_start_broadcast") { state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
-  if (api === "vote_start_broadcast") { state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; }
+  if (api === "vote_start_broadcast") { state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; }
   if (api === "game_win_broadcast") state.phase = "终局";
   if (api === "game_update_night" || api === "game_update_day") { state.entities = Array.isArray(msg.data) ? msg.data : msg.data?.entities || []; state.players = state.entities.map(entity => ({ ...entity.player, connected: true })); }
-  if (api === "game_update_vote") state.votes = msg.data?.votes || [];
+  if (api === "game_update_vote") updateVotes(msg);
   if (api === "pending_skill_created") rememberPending(msg.data);
   if (api === "invalid_pending_skill_notify") removePending(pendingId(msg.data));
   if (api.startsWith("request_") && !api.endsWith("_parse_error")) activateRequest(msg);
@@ -70,7 +71,25 @@ function activateRequest(msg) {
   state.selected = draft.filter(x => typeof x !== "number" || !invalid.has(x)); state.activePendingId = id || state.activePendingId;
   if (removed.length) { const names = removed.map(id => state.players.find(x => x.id === id)?.name || `${id} 号`).join("、"); notify(`局面已变化，已取消无效选择：${names}`); }
 }
-function addEvent(api, text, privateMessage) {
+function voteTargetText(target) {
+  if (target === 0) return "弃票";
+  const player = state.players.find(x => x.id === target);
+  return player ? `${target} 号 · ${player.name}` : `${target} 号玩家`;
+}
+function updateVotes(msg) {
+  const next = Array.isArray(msg.data) ? msg.data : msg.data?.votes || [];
+  for (const vote of next) {
+    const before = state.votes.find(x => x.id === vote.id); if (vote.target == null) continue;
+    const voter = state.players.find(x => x.id === vote.id); const voterName = voter ? `${vote.id} 号 · ${voter.name}` : `${vote.id} 号玩家`;
+    if (!before || before.target !== vote.target) {
+      const action = before?.target == null ? "投给" : "改投";
+      addEvent("公开投票", `${voterName} ${vote.target === 0 ? "选择弃票" : `${action} ${voteTargetText(vote.target)}`}`, false);
+    } else if (!before.confirmed && vote.confirmed) {
+      addEvent("公开投票", `${voterName} 确认${vote.target === 0 ? "弃票" : `投给 ${voteTargetText(vote.target)}`}`, false);
+    }
+  }
+  state.votes = next;
+}function addEvent(api, text, privateMessage) {
   state.events.push({ api, text, private: privateMessage, time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) });
   if (state.events.length > 180) state.events.shift();
 }
@@ -90,8 +109,9 @@ function room() {
 function entityFor(id) { return state.entities.find(x => (x.player?.id ?? x.player?.Id) === id); }
 function playerCard(p) {
   const entity = entityFor(p.id); const st = entity?.state || {}; const dead = st.is_dead_public || st.is_dead; const invalid = invalidIds().has(p.id); const selected = state.selected.includes(p.id);
+  const vote = state.votes.find(x => x.id === p.id); const voteText = vote?.target == null ? "" : vote.target === 0 ? "弃票" : `投给 ${voteTargetText(vote.target)}`;
   const tokens = [["☁",st.smog_count],["💊",st.capsule_count],["💧",st.potion_count],["🍪",st.xian_song_count],["🐞",st.bug_count]].filter(x => x[1]>0);
-  return `<button class="board-player ${dead ? "dead" : ""} ${selected ? "selected" : ""}" data-player="${p.id}" ${invalid ? "disabled" : ""}><div class="board-name"><span class="seat-no" style="display:inline-grid;width:25px;height:25px;border-radius:8px;margin-right:7px">${p.id}</span>${e(p.name)}</div><div class="board-role">${(entity?.role?.summary_name || entity?.role?.role?.summary_name) ? e(entity.role.summary_name || entity.role.role.summary_name) : dead ? e(st.dead_showing_name || "身份未公开") : "身份隐藏"}</div>${tokens.length ? `<div class="tokens">${tokens.map(x=>`<span class="token">${x[0]} × ${x[1]}</span>`).join("")}</div>` : ""}</button>`;
+  return `<button class="board-player ${dead ? "dead" : ""} ${selected ? "selected" : ""}" data-player="${p.id}" ${invalid ? "disabled" : ""}><div class="board-name"><span class="seat-no" style="display:inline-grid;width:25px;height:25px;border-radius:8px;margin-right:7px">${p.id}</span>${e(p.name)}</div><div class="board-role">${(entity?.role?.summary_name || entity?.role?.role?.summary_name) ? e(entity.role.summary_name || entity.role.role.summary_name) : dead ? e(st.dead_showing_name || "身份未公开") : "身份隐藏"}</div>${voteText ? `<div class="vote-status ${vote.confirmed ? "confirmed" : ""}">${e(voteText)}${vote.confirmed ? " · 已确认" : " · 可改票"}</div>` : ""}${tokens.length ? `<div class="tokens">${tokens.map(x=>`<span class="token">${x[0]} × ${x[1]}</span>`).join("")}</div>` : ""}</button>`;
 }
 function invalidIdsFor(request) {
   const data = request?.data; let list;
@@ -131,7 +151,7 @@ function actionPanel() {
 function game() {
   const players = state.players.length ? state.players : Array.from({length:7},(_,i)=>({id:i+1,name:`${i+1} 号玩家`}));
   return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> 房间 ${e(state.roomCode)}</div><div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.playerId} 号 · ${e(state.playerName)}</div></header>
-  <div class="game-layout"><aside class="panel phase-panel"><div class="phase-orb ${state.phase === "夜晚" ? "night" : ""}"></div><div><div class="phase-name">${e(state.phase)}</div><div class="phase-sub">${state.round ? `第 ${state.round} 夜 · ` : ""}${state.phase === "夜晚" ? "请保持安静" : "信息公开"}</div></div><div class="identity-card ${state.roleVisible ? "" : "hidden"}"><small>你的身份</small><strong>${e(state.role)}</strong><button class="identity-toggle" id="toggle-role">${state.roleVisible ? "隐藏身份" : "显示身份"}</button></div>${state.isHost ? `<div class="host-tools"><button class="btn" data-command="\\undo">撤销</button><button class="btn" data-command="\\summary">总结</button><button class="btn" data-command="\\restart">重开</button></div>` : ""}</aside>
+  <div class="game-layout"><aside class="panel phase-panel"><div class="phase-orb ${state.phase === "夜晚" ? "night" : ""}"></div><div><div class="phase-name">${e(state.phase)}</div><div class="phase-sub">${state.round ? `第 ${state.round} 夜 · ` : ""}${state.phase === "夜晚" ? "请保持安静" : "信息公开"}</div></div><div class="identity-card ${state.roleVisible ? "" : "hidden"}"><div class="identity-main"><div><small>你的身份</small><strong>${e(state.role)}</strong></div><div class="game-seat"><small>本局编号</small><b>${state.playerId}</b><span>号</span></div></div><button class="identity-toggle" id="toggle-role">${state.roleVisible ? "隐藏身份" : "显示身份"}</button></div>${state.isHost ? `<div class="host-tools"><button class="btn" data-command="\\restart">重开</button></div>` : ""}${state.gameLog ? `<button class="btn log-download" id="download-log">下载本局日志</button>` : ""}</aside>
   <section class="panel board-panel"><div class="panel-title"><h2>在场玩家</h2><span class="count">点击玩家以选择目标</span></div><div class="board-list">${players.map(playerCard).join("")}</div></section>
   <aside class="right-stack">${actionPanel()}<section class="panel"><div class="panel-title"><h3>事件记录</h3><span class="count">仅你可见的消息已标红</span></div><div class="feed">${state.events.length ? state.events.slice().reverse().map(x=>`<article class="event ${x.private ? "private" : ""}"><div class="event-meta">${e(x.time)} · ${e(x.api.replaceAll("_"," "))}</div><div class="event-text">${e(x.text)}</div></article>`).join("") : '<div class="empty-state">夜幕尚未降临</div>'}</div></section></aside></div></main>`;
 }
@@ -148,6 +168,7 @@ function bind() {
   document.querySelector("#copy-room")?.addEventListener("click", async () => { await navigator.clipboard.writeText(`来玩 MF 杀：房间 ${state.roomCode}`); notify("邀请信息已复制"); });
   document.querySelector("#start-game")?.addEventListener("click", () => send({ type: "start_game" }));
   document.querySelector("#toggle-role")?.addEventListener("click", () => { state.roleVisible = !state.roleVisible; render(); });
+  document.querySelector("#download-log")?.addEventListener("click", () => { const blob = new Blob([state.gameLog.content], { type: "text/plain;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = state.gameLog.fileName || "WereMF.log"; link.click(); URL.revokeObjectURL(url); });
   document.querySelectorAll("[data-player]").forEach(el => el.addEventListener("click", () => {
     if (!state.request && !state.activePendingId) return; const id = Number(el.dataset.player);
     if (state.request?.api === "request_vote") state.selected = state.selected.includes(id) ? [] : [id];
