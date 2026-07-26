@@ -169,9 +169,15 @@ let private updateIfJiaoHuaOut (entity : Entity) (game: GameContext) =
     match action with
     | Blocked ->
         let tEntity = { tEntity with State.JiaoHuaBlocked = tEntity.State.JiaoHuaBlocked + 1 }
+        sendRawMessage { Type = Public
+                         Content = $"{tEntity.Player.Name}被已死亡的{entity.Player.Name}封住下一晚的一次行动" }
+                       ApiType.JiaohuaDeadSkillBroadcast
         game.UpdateEntity tEntity
     | Protected ->
         let tEntity = { tEntity with State.JiaoHuaProtected = true }
+        sendRawMessage { Type = Public
+                         Content = $"{tEntity.Player.Name}被已死亡的{entity.Player.Name}保护" }
+                       ApiType.JiaohuaDeadSkillBroadcast
         game.UpdateEntity tEntity
         
 let private updateIfShiWuOut (entity : Entity) (bind: BindContext) =

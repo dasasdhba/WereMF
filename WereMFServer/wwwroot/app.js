@@ -7,11 +7,28 @@ const state = {
   players: [], entities: [], votes: [], events: [], phase: "等待", round: 0, role: "身份尚未揭晓",
   roleVisible: true, request: null, selected: [], modifier: "", reconnecting: false,
   pendingSkills: [], pendingDrafts: {}, activePendingId: "", gameLog: null,
-  timerDeadline: 0, timerApi: "", timerMode: ""
+  timerDeadline: 0, timerApi: "", timerMode: "", feedPinned: true, feedScrollTop: 0
 };
 const e = (value = "") => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
 const socketUrl = () => state.server.trim() || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
 const notify = message => { toast.textContent = message; toast.classList.add("show"); clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove("show"), 2600); };
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {}
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  const copied = document.execCommand?.("copy") ?? false;
+  input.remove();
+  return copied;
+}
 const defaultTitle = document.title || "MF 杀 · 今夜谁在说谎";
 let titleFlashTimer = null;
 function stopTitleFlash() {
@@ -37,6 +54,8 @@ function requestBrowserNotifications() {
 }
 function alertRequest(request) {
   flashTitle("轮到你行动");
+  if (document.visibilityState === "visible" && !state.reconnecting)
+    notify(`轮到你行动：${String(request.message_content || "请做出选择").replace(/\s+/g, " ").slice(0, 48)}`);
   if (!("Notification" in globalThis) || Notification.permission !== "granted" || state.reconnecting) return;
   const notification = new Notification("MF 杀 · 轮到你行动", {
     body: String(request.message_content || "请返回游戏做出选择"),
@@ -160,10 +179,17 @@ function updateVotes(msg) {
     }
   }
   state.votes = next;
-}function addEvent(api, text, privateMessage) {
+}function isFeedAtBottom() {
+  const feed = document.querySelector(".feed");
+  return !feed || feed.scrollHeight - feed.scrollTop - feed.clientHeight <= 32;
+}
+function addEvent(api, text, privateMessage) {
+  const browsingHistory = !isFeedAtBottom();
   state.events.push({ api, text, private: privateMessage, time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) });
   if (state.events.length > 180) state.events.shift();
   flashTitle("有新消息");
+  if (browsingHistory && !state.reconnecting)
+    notify(`${privateMessage ? "私密消息" : "新消息"}：${String(text).replace(/\s+/g, " ").slice(0, 48)}`);
 }
 
 function landing() {
@@ -174,7 +200,7 @@ function landing() {
 function room() {
   const seats = [...state.players]; while (seats.length < Math.max(7, state.players.length)) seats.push(null);
   return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> MF 杀 ONLINE</div><div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.connected ? "房间在线" : "连接中断"}</div></header>
-  <section class="room-head"><div><div class="eyebrow">私人房间</div><div class="room-code">${e(state.roomCode)} <small>点击复制</small></div></div><button class="btn btn-ghost" id="copy-room">复制邀请信息</button></section>
+  <section class="room-head"><div><div class="eyebrow">私人房间</div><div class="room-code" id="copy-room-code" role="button" tabindex="0">${e(state.roomCode)} <small>点击复制</small></div></div><button class="btn btn-ghost" id="copy-room">复制邀请信息</button></section>
   <section class="lobby"><div class="panel"><div class="panel-title"><h2>玩家席位</h2><span class="count">${state.players.length} / 16</span></div><div class="players-grid">${seats.map((p,i) => p ? `<div class="player-seat ${p.connected ? "" : "offline"}"><span class="seat-no">${p.id}</span><div>${e(p.name)}${p.isHost ? '<span class="host-tag">房主</span>' : ""}${p.id === state.playerId ? '<span class="you-tag">你</span>' : ""}</div></div>` : `<div class="player-seat empty-seat"><span class="seat-no">${i+1}</span><div>等待加入</div></div>`).join("")}</div></div>
   <aside class="panel"><div class="panel-title"><h3>开局之前</h3></div><p class="lobby-note">需要至少 <strong>7 名玩家</strong>。开始后，系统会私下发送身份与行动面板。建议所有人保持页面开启，并在语音或线下完成白天讨论。</p><div class="divider"></div><p class="lobby-note">你是 <strong>${state.isHost ? "房主" : `${state.playerId} 号玩家`}</strong>${state.isHost ? "，玩家到齐后由你开局。" : "，等待房主开局。"}</p><div class="start-wrap">${state.isHost ? `<button class="btn btn-primary" id="start-game" ${state.players.length < 7 ? "disabled" : ""}>${state.players.length < 7 ? `还差 ${7-state.players.length} 人` : "所有人准备好 · 开始"}</button>` : `<button class="btn" disabled>等待房主开始</button>`}</div></aside></section></main>`;
 }
@@ -182,8 +208,16 @@ function entityFor(id) { return state.entities.find(x => (x.player?.id ?? x.play
 function playerCard(p) {
   const entity = entityFor(p.id); const st = entity?.state || {}; const dead = st.is_dead_public || st.is_dead; const invalid = invalidIds().has(p.id); const selected = state.selected.includes(p.id);
   const vote = state.votes.find(x => x.id === p.id); const voteText = vote?.target == null ? "" : vote.target === 0 ? "弃票" : `投给 ${voteTargetText(vote.target)}`;
-  const tokens = [["☁",st.smog_count],["💊",st.capsule_count],["💧",st.potion_count],["🍪",st.xian_song_count],["🐞",st.bug_count]].filter(x => x[1]>0);
-  return `<button class="board-player ${dead ? "dead" : ""} ${selected ? "selected" : ""}" data-player="${p.id}" ${invalid ? "disabled" : ""}><div class="board-name"><span class="seat-no" style="display:inline-grid;width:25px;height:25px;border-radius:8px;margin-right:7px">${p.id}</span>${e(p.name)}</div><div class="board-role">${(entity?.role?.summary_name || entity?.role?.role?.summary_name) ? e(entity.role.summary_name || entity.role.role.summary_name) : dead ? e(st.dead_showing_name || "身份未公开") : "身份隐藏"}</div>${voteText ? `<div class="vote-status ${vote.confirmed ? "confirmed" : ""}">${e(voteText)}${vote.confirmed ? " · 已确认" : " · 可改票"}</div>` : ""}${tokens.length ? `<div class="tokens">${tokens.map(x=>`<span class="token">${x[0]} × ${x[1]}</span>`).join("")}</div>` : ""}</button>`;
+  const tokens = [["☁",st.smog_count],["🐞",st.bug_count],["🍪",st.xian_song_count],["💊",st.capsule_count],["💧",st.potion_count]].filter(x => x[1]>0);
+  const effects = [
+    st.jiaohua_vote_blocked ? ["✖ 禁票", "vote-blocked"] : null,
+    st.jiaohua_protected ? ["🛡 脚滑保护", "protected"] : null,
+    st.jiaohua_blocked > 0 ? ["❌ 技能被封", "skill-blocked"] : null,
+    st.leaf_protected ? ["❎ 叶子保护", "leaf-protected"] : null,
+    st.myz_threaten ? ["❌ 被威胁 · 白天无法行动", "threatened"] : null,
+    st.shiwu_kidnapped ? ["被实物绑架", "kidnapped"] : null
+  ].filter(Boolean);
+  return `<button class="board-player ${dead ? "dead" : ""} ${selected ? "selected" : ""}" data-player="${p.id}" ${invalid ? "disabled" : ""}><div class="board-name"><span class="seat-no" style="display:inline-grid;width:25px;height:25px;border-radius:8px;margin-right:7px">${p.id}</span>${e(p.name)}</div><div class="board-role">${(entity?.role?.summary_name || entity?.role?.role?.summary_name) ? e(entity.role.summary_name || entity.role.role.summary_name) : dead ? e(st.dead_showing_name || "身份未公开") : "身份隐藏"}</div>${effects.length ? `<div class="state-badges">${effects.map(x => `<span class="state-badge ${x[1]}">${x[0]}</span>`).join("")}</div>` : ""}${voteText ? `<div class="vote-status ${vote.confirmed ? "confirmed" : ""}">${e(voteText)}${vote.confirmed ? " · 已确认" : " · 可改票"}</div>` : ""}${tokens.length ? `<div class="tokens">${tokens.map(x=>`<span class="token">${x[0]} × ${x[1]}</span>`).join("")}</div>` : ""}</button>`;
 }
 function invalidIdsFor(request) {
   const data = request?.data; let list;
@@ -232,9 +266,14 @@ function game() {
   return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> 房间 ${e(state.roomCode)}</div><div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.playerId} 号 · ${e(state.playerName)}</div></header>
   <div class="game-layout"><aside class="panel phase-panel"><div class="phase-orb ${state.phase === "夜晚" ? "night" : ""}"></div><div><div class="phase-name">${e(state.phase)}</div><div class="phase-sub">${state.round ? `第 ${state.round} 夜 · ` : ""}${state.phase === "夜晚" ? "请保持安静" : "信息公开"}</div></div><div class="identity-card ${state.roleVisible ? "" : "hidden"}"><div class="identity-main"><div><small>你的身份</small><strong>${e(state.role)}</strong></div><div class="game-seat"><small>本局编号</small><b>${state.playerId}</b><span>号</span></div></div><button class="identity-toggle" id="toggle-role">${state.roleVisible ? "隐藏身份" : "显示身份"}</button></div>${state.isHost ? `<div class="host-tools"><button class="btn" data-command="\\restart">重开</button></div>` : ""}${state.gameLog ? `<button class="btn log-download" id="download-log">下载本局日志</button>` : ""}</aside>
   <section class="panel board-panel"><div class="panel-title"><h2>在场玩家</h2><span class="count">点击玩家以选择目标</span></div><div class="board-list">${players.map(playerCard).join("")}</div></section>
-  <aside class="right-stack">${actionPanel()}<section class="panel"><div class="panel-title"><h3>事件记录</h3><span class="count">仅你可见的消息已标红</span></div><div class="feed">${state.events.length ? state.events.slice().reverse().map(x=>`<article class="event ${x.private ? "private" : ""}"><div class="event-meta">${e(x.time)} · ${e(x.api.replaceAll("_"," "))}</div><div class="event-text">${e(x.text)}</div></article>`).join("") : '<div class="empty-state">夜幕尚未降临</div>'}</div></section></aside></div></main>`;
+  <aside class="right-stack">${actionPanel()}<section class="panel"><div class="panel-title"><h3>事件记录</h3><span class="count">仅你可见的消息已标红</span></div><div class="feed">${state.events.length ? state.events.map(x=>`<article class="event ${x.private ? "private" : ""}"><div class="event-meta">${e(x.time)} · ${e(x.api.replaceAll("_"," "))}</div><div class="event-text">${e(x.text)}</div></article>`).join("") : '<div class="empty-state">夜幕尚未降临</div>'}</div></section></aside></div></main>`;
 }
 function render() {
+  const currentFeed = document.querySelector(".feed");
+  if (currentFeed) {
+    state.feedPinned = isFeedAtBottom();
+    state.feedScrollTop = currentFeed.scrollTop;
+  }
   app.innerHTML = state.view === "landing" ? landing() : state.view === "room" ? room() : game();
   bind();
 }
@@ -245,7 +284,10 @@ function bind() {
     requestBrowserNotifications();
     connect({ type: action === "create" ? "create_room" : "join_room", playerName: name, roomCode });
   });
-  document.querySelector("#copy-room")?.addEventListener("click", async () => { await navigator.clipboard.writeText(`来玩 MF 杀：房间 ${state.roomCode}`); notify("邀请信息已复制"); });
+  const copyRoomCode = async () => notify(await copyText(state.roomCode) ? "房间号已复制" : "复制失败，请手动选择房间号");
+  document.querySelector("#copy-room-code")?.addEventListener("click", copyRoomCode);
+  document.querySelector("#copy-room-code")?.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); copyRoomCode(); } });
+  document.querySelector("#copy-room")?.addEventListener("click", async () => notify(await copyText(`来玩 MF 杀：房间 ${state.roomCode}`) ? "邀请信息已复制" : "复制失败，请手动复制房间号"));
   document.querySelector("#start-game")?.addEventListener("click", () => send({ type: "start_game" }));
   document.querySelector("#toggle-role")?.addEventListener("click", () => { state.roleVisible = !state.roleVisible; render(); });
   document.querySelector("#download-log")?.addEventListener("click", () => { const blob = new Blob([state.gameLog.content], { type: "text/plain;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = state.gameLog.fileName || "WereMF.log"; link.click(); URL.revokeObjectURL(url); });
@@ -274,6 +316,14 @@ function bind() {
   document.querySelector("[data-giveup]")?.addEventListener("click", () => submit("0"));
   document.querySelector("[data-manual]")?.addEventListener("click", () => submit(document.querySelector("#manual-input").value));
   document.querySelectorAll("[data-command]").forEach(el => el.addEventListener("click", () => send({ type: "command", value: el.dataset.command })));
+  const feed = document.querySelector(".feed");
+  if (feed) {
+    feed.scrollTop = state.feedPinned ? feed.scrollHeight : Math.min(state.feedScrollTop, Math.max(0, feed.scrollHeight - feed.clientHeight));
+    feed.addEventListener("scroll", () => {
+      state.feedPinned = isFeedAtBottom();
+      state.feedScrollTop = feed.scrollTop;
+    });
+  }
 }
 function formatSelection() {
   const api = state.request?.api || ""; const ids = state.selected.join(" ");

@@ -65,6 +65,8 @@ type JiaoHuaRole =
                 if r <= PlayerId 0 then game else
                 let e = game.GetEntity r
                 let e = { e with State.JiaoHuaVoteBlocked = true }
+                sendRawMessage { Type = Public ; Content = $"{e.Player.Name}被{player.Name}禁票" }
+                               ApiType.JiaohuaVoteBlockBroadcast
                 game.UpdateEntity e
             do! State.put game
             { this with VoteBlock = false }
