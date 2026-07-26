@@ -31,7 +31,11 @@ function onMessage(message) {
     localStorage.setItem("weremf.session", JSON.stringify({ roomCode: state.roomCode, playerName: state.playerName, token: state.token, server: state.server }));
   }
   if (message.type === "player_remapped") state.playerId = message.playerId;
-  if (message.type === "room_state") { if (!message.started || state.view !== "game") state.players = [...message.players]; state.started = message.started; if (message.started) state.view = "game"; }
+  if (message.type === "room_state") {
+    if (!message.started || !state.players.length) state.players = [...message.players];
+    state.started = message.started;
+    if (message.started) state.view = "game";
+  }
   if (message.type === "game_message") handleGameMessage(message.payload);
   if (message.type === "game_ended") { addEvent("SYSTEM", message.message, false); state.request = null; clearTimer(); }
   if (message.type === "server_notice") addEvent("SERVER", message.message, true);
