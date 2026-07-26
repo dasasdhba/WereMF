@@ -28,7 +28,8 @@ function onMessage(message) {
     Object.assign(state, { view: "room", roomCode: message.roomCode, playerId: message.playerId, playerName: message.playerName, token: message.token, isHost: message.isHost });
     localStorage.setItem("weremf.session", JSON.stringify({ roomCode: state.roomCode, playerName: state.playerName, token: state.token, server: state.server }));
   }
-  if (message.type === "room_state") { state.players = [...message.players]; state.started = message.started; if (message.started) state.view = "game"; }
+  if (message.type === "player_remapped") state.playerId = message.playerId;
+  if (message.type === "room_state") { if (!message.started || state.view !== "game") state.players = [...message.players]; state.started = message.started; if (message.started) state.view = "game"; }
   if (message.type === "game_message") handleGameMessage(message.payload);
   if (message.type === "game_ended") { addEvent("SYSTEM", message.message, false); state.request = null; }
   if (message.type === "server_notice") addEvent("SERVER", message.message, true);
@@ -43,7 +44,7 @@ function handleGameMessage(msg) {
   if (api === "day_start_broadcast") { state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; }
   if (api === "vote_start_broadcast") { state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; }
   if (api === "game_win_broadcast") state.phase = "终局";
-  if (api === "game_update_night" || api === "game_update_day") state.entities = Array.isArray(msg.data) ? msg.data : msg.data?.entities || [];
+  if (api === "game_update_night" || api === "game_update_day") { state.entities = Array.isArray(msg.data) ? msg.data : msg.data?.entities || []; state.players = state.entities.map(entity => ({ ...entity.player, connected: true })); }
   if (api === "game_update_vote") state.votes = msg.data?.votes || [];
   if (api.startsWith("request_") && !api.endsWith("_parse_error")) { state.request = msg; state.selected = []; state.modifier = ""; }
   if (api.endsWith("_parse_error")) { notify(text || "这个选择无效，请重试"); }
@@ -135,8 +136,3 @@ function submit(value) { if (value === "") return notify("请输入内容"); sen
 const saved = JSON.parse(localStorage.getItem("weremf.session") || "null");
 if (saved?.roomCode && saved?.token) { state.server = saved.server || ""; state.reconnecting = true; connect({ type: "reconnect", ...saved }); setTimeout(()=>state.reconnecting=false,1500); }
 render();
-
-
-
-
-

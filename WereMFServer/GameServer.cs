@@ -87,7 +87,7 @@ internal sealed class GameRoom : IAsyncDisposable
     private readonly object _gate = new();
     private readonly string _code; private readonly ServerOptions _options; private readonly Func<string, Task> _remove;
     private readonly List<PlayerSession> _players = []; private readonly List<JsonElement> _publicHistory = []; private readonly List<JsonElement> _hostHistory = [];
-    private GameProcess? _game; private bool _started; private string? _expected;
+    private GameProcess? _game; private bool _started; private bool _exportingLog; private string? _expected;
     public bool IsJoinable => !_started && _players.Count < 16;
     public GameRoom(string code, ServerOptions options, Func<string, Task> remove) => (_code, _options, _remove) = (code, options, remove);
     public object PublicState() => new { code = _code, players = _players.Count, maxPlayers = 16, started = _started };
@@ -122,7 +122,7 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             if (!p.IsHost || _game is null) throw new ClientVisibleException("只有房主可以使用管理命令");
             var ok = new[] { "\\undo", "\\redo", "\\restart", "\\night", "\\day", "\\vote", "\\summary", "\\log null" };
-            if (!ok.Contains(msg.Value)) throw new ClientVisibleException("不支持的命令"); await _game.SendAsync(msg.Value!, ct); return;
+            if (!ok.Contains(msg.Value)) throw new ClientVisibleException("不支持的命令"); if (msg.Value == "\\log null") _exportingLog = true; await _game.SendAsync(msg.Value!, ct); return;
         }
         if (msg.Type == "ping") { await SendAsync(p, new { type = "pong" }, ct); return; }
         throw new ClientVisibleException("未知操作");
@@ -139,7 +139,7 @@ internal sealed class GameRoom : IAsyncDisposable
     private async Task InputAsync(PlayerSession p, string value, CancellationToken ct)
     {
         if (_game is null) throw new ClientVisibleException("对局尚未开始");
-        var allowed = _expected == $"player_{p.Id}" || _expected == "public" || (_expected == "internal" && p.IsHost);
+        var allowed = _expected == $"player_{p.GameId}" || _expected == "public" || (_expected == "internal" && p.IsHost);
         if (!allowed) throw new ClientVisibleException("现在还没轮到你行动");
         _expected = null; await _game.SendAsync(value.Trim(), ct);
     }
@@ -149,23 +149,45 @@ internal sealed class GameRoom : IAsyncDisposable
         JsonDocument doc; try { doc = JsonDocument.Parse(line); } catch { await HostAsync(new { type = "server_notice", message = line }); return; }
         using (doc)
         {
-            var root = doc.RootElement.Clone(); var target = root.GetProperty("message_type").GetString() ?? "internal"; var api = root.GetProperty("api").GetString() ?? "";
+            var root = doc.RootElement.Clone(); var target = root.GetProperty("message_type").GetString() ?? "internal"; var api = root.GetProperty("api").GetString() ?? ""; if (_exportingLog && api != "cli_log") return; if (api == "cli_log") _exportingLog = false;
             var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload = root });
+            if (api == "player_anonymous_init") { await ApplyAnonymousMappingAsync(root); return; }
             if (api.StartsWith("request_") && !api.EndsWith("_parse_error")) _expected = target;
             if (target == "public" && api is "game_update_night" or "game_update_day" or "cli_game_summary")
             {
                 PlayerSession[] recipients; lock (_gate) recipients = _players.Where(x => x.Connected).ToArray();
                 foreach (var player in recipients)
                 {
-                    var redacted = RedactedEnvelope(root, player.Id); Add(player.History, redacted); await SendAsync(player, redacted);
+                    var redacted = RedactedEnvelope(root, player.GameId); Add(player.History, redacted); await SendAsync(player, redacted);
                 }
                 return;
             }
             if (target == "public") { Add(_publicHistory, envelope); await BroadcastAsync(envelope); }
-            else if (target.StartsWith("player_") && int.TryParse(target[7..], out var id)) { var p = _players.FirstOrDefault(x => x.Id == id); if (p is not null) { Add(p.History, envelope); await SendAsync(p, envelope); } }
+            else if (target.StartsWith("player_") && int.TryParse(target[7..], out var id)) { var p = _players.FirstOrDefault(x => x.GameId == id); if (p is not null) { Add(p.History, envelope); await SendAsync(p, envelope); } }
             else { Add(_hostHistory, envelope); await HostAsync(envelope); }
         }
     }
+    private async Task ApplyAnonymousMappingAsync(JsonElement root)
+    {
+        var payload = JsonNode.Parse(root.GetRawText())!.AsObject();
+        if (payload["data"] is not JsonArray players) return;
+        PlayerSession[] sessions; lock (_gate) sessions = _players.ToArray();
+        foreach (var item in players.OfType<JsonObject>())
+        {
+            var id = item["id"]?.GetValue<int>() ?? 0;
+            var name = item["name"]?.GetValue<string>() ?? "";
+            var session = sessions.FirstOrDefault(x => x.Name == name);
+            if (session is null) continue;
+            session.GameId = id;
+            item["name"] = $"玩家{id}";
+        }
+        payload["message_type"] = "public";
+        var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload });
+        Add(_publicHistory, envelope);
+        await BroadcastAsync(envelope);
+        await Task.WhenAll(sessions.Select(x => SendAsync(x, new { type = "player_remapped", playerId = x.GameId })));
+    }
+
     private static JsonElement RedactedEnvelope(JsonElement root, int playerId)
     {
         var payload = JsonNode.Parse(root.GetRawText())!.AsObject();
@@ -180,6 +202,8 @@ internal sealed class GameRoom : IAsyncDisposable
             foreach (var item in entities.OfType<JsonObject>())
             {
                 var id = item["player"]?["id"]?.GetValue<int>() ?? 0;
+                if (item["player"] is JsonObject player && player["anonymous"]?.GetValue<bool>() == true)
+                    player["name"] = $"玩家{id}";
                 if (id != playerId) item["role"] = null;
             }
         }
@@ -188,7 +212,7 @@ internal sealed class GameRoom : IAsyncDisposable
 
     private static void Add(List<JsonElement> list, JsonElement value) { lock (list) { list.Add(value); if (list.Count > 250) list.RemoveAt(0); } }
     private async Task ReplayAsync(PlayerSession p, CancellationToken ct) { foreach (var x in _publicHistory.Concat(p.History).Concat(p.IsHost ? _hostHistory : [])) await SendAsync(p, x, ct); }
-    private Task WelcomeAsync(PlayerSession p, CancellationToken ct) => SendAsync(p, new { type = "welcome", roomCode = _code, playerId = p.Id, playerName = p.Name, token = p.Token, isHost = p.IsHost }, ct);
+    private Task WelcomeAsync(PlayerSession p, CancellationToken ct) => SendAsync(p, new { type = "welcome", roomCode = _code, playerId = p.GameId, playerName = p.Name, token = p.Token, isHost = p.IsHost }, ct);
     private async Task StateAsync(CancellationToken ct = default)
     {
         PlayerSession[] snapshot; lock (_gate) snapshot = _players.ToArray();
@@ -211,7 +235,7 @@ internal sealed class GameRoom : IAsyncDisposable
 
 internal sealed class PlayerSession(int id, string name, bool host, WebSocket socket)
 {
-    public int Id { get; } = id; public string Name { get; } = name; public bool IsHost { get; } = host; public WebSocket Socket { get; set; } = socket; public bool Connected { get; set; } = true;
+    public int Id { get; } = id; public int GameId { get; set; } = id; public string Name { get; } = name; public bool IsHost { get; } = host; public WebSocket Socket { get; set; } = socket; public bool Connected { get; set; } = true;
     public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)); public SemaphoreSlim SendLock { get; } = new(1, 1); public List<JsonElement> History { get; } = [];
 }
 internal sealed record ClientMessage { public string Type { get; init; } = ""; public string? RoomCode { get; init; } public string? PlayerName { get; init; } public string? Token { get; init; } public string? Value { get; init; } }
