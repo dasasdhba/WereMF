@@ -1,0 +1,549 @@
+﻿游戏种子：-985608761
+玩家：
+①TNT: 贤松
+②LAKE: CTF
+③xmx: 庸医
+④NL: 叶子（卡比 炮仙 合虫 贤松）
+⑤大爷: 粉侠（CTF）（吧主）
+⑥HJM: 脚滑人
+⑦冻双: 兔子
+⑧116: 炮仙
+
+[Internal] 输入玩家列表（7~20 人）
+xmx NL TNT 大爷 116 HJM 冻双 LAKE
+[Public] 
+①xmx
+②NL
+③TNT
+④大爷
+⑤116
+⑥HJM
+⑦冻双
+⑧LAKE
+
+[Internal] 第一晚是否匿名？(1: 是；0: 否)
+1
+[Internal] 是否为叶子局？(1: 是；0: 否)
+1
+[ToPlayer 1: TNT] 贤松
+[ToPlayer 2: LAKE] CTF
+[ToPlayer 3: xmx] 庸医
+[ToPlayer 4: NL] 叶子
+[ToPlayer 5: 大爷] 粉侠
+[ToPlayer 6: HJM] 脚滑人
+[ToPlayer 7: 冻双] 地鼠
+[ToPlayer 8: 116] 炮仙
+[Internal] 输入需要重抽身份的玩家，输入 0 以继续
+7
+[ToPlayer 7: 冻双] 兔子
+[Internal] 输入需要重抽身份的玩家，输入 0 以继续
+0
+[ToPlayer 4: NL] 输入叶子的四个身份
+炮仙 闲松 卡比 合虫
+[ToPlayer 4: NL] 第一身份：贤松
+[ToPlayer 4: NL] 是否重抽第一身份？（1：重抽；0：放弃）
+1
+[ToPlayer 4: NL] 第一身份：卡比
+[ToPlayer 5: 大爷] 你是吧主，脚滑人是 ⑥玩家6
+[ToPlayer 6: HJM] 本局有粉侠和贤松
+[ToPlayer 1: TNT] 炮仙是 ⑧玩家8
+[Public] 晚上开始
+[ToPlayer 8: 116] 队友：①玩家1，②玩家2
+[Public] 
+①玩家1
+②玩家2
+③玩家3
+④玩家4
+⑤玩家5
+⑥玩家6
+⑦玩家7
+⑧玩家8
+[ToPlayer 5: 大爷] 输入要获取技能的角色编号（剩余 3 根粉条），输入 0 放弃
+0
+[ToPlayer 4: NL] 输入一名玩家的编号吸入，输入 0 放弃
+1
+[ToPlayer 6: HJM] 输入一名玩家的编号查询其身份，输入 0 以放弃
+2
+[ToPlayer 6: HJM] CTF
+[ToPlayer 2: LAKE] 输入要释放虫子的玩家编号（剩余 3 只虫子），输入 0 放弃
+6
+[ToPlayer 1: TNT] 输入一名其他玩家的编号索要 mfa 文件，输入 0 放弃
+3
+[ToPlayer 3: xmx] 你被要mfa了，给吗？（1：给；0：不给）
+1
+[ToPlayer 1: TNT] 你要到mfa了，对面的身份是庸医
+[ToPlayer 7: 冻双] 输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃
+8 x
+[ToPlayer 8: 116] 输入一名玩家的编号令其死亡，输入 0 放弃
+7
+[ToPlayer 3: xmx] 输入要扎针的玩家编号（最多 3 个），输入 0 放弃
+3 7
+[ToPlayer 8: 116] 你被喂奶，要喝吗？（1：喝；0：不喝）
+1
+[ToPlayer 8: 116] 鲜奶
+[ToPlayer 8: 116] 输入一名玩家的编号令其死亡，输入 0 放弃
+6
+[Public] 今晚
+[Public] HJM身上多了一只虫子
+[Public] HJM身上多了一只虫子
+[ToPlayer 4: NL] 贤松
+[Public] 冻双被炮仙杀了
+[Public] 但是冻双被救活了
+[Public] HJM被炮仙杀了
+[Public] HJM死了
+[Public] HJM是脚滑人
+[Public] xmx被扎了一针
+[Public] 白天开始
+[Public] 
+①TNT
+②LAKE
+③xmx💊
+④NL
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧116
+[Public] 投票开始
+[Public] HJM可以禁票一人
+[ToPlayer 6: HJM] 输入要禁票的玩家编号，输入 0 放弃
+2
+[Public] 
+①TNT
+②LAKE✖
+③xmx💊
+④NL
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧116
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+4 2
+[Public] 
+①TNT
+②LAKE✖
+③xmx
+④NL：2
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧116
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+3 2
+[Public] 
+①TNT
+②LAKE✖
+③xmx：2
+④NL：2
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧116
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+7 2
+[Public] 
+①TNT
+②LAKE✖
+③xmx：2
+④NL：2
+⑤大爷
+⑥【脚滑人】
+⑦冻双：2
+⑧116
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+1 2
+[Public] 
+①TNT：2
+②LAKE✖
+③xmx：2
+④NL：2
+⑤大爷
+⑥【脚滑人】
+⑦冻双：2
+⑧116
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+5 0
+[Public] 
+①TNT：2
+②LAKE✖
+③xmx：2
+④NL：2
+⑤大爷：弃票
+⑥【脚滑人】
+⑦冻双：2
+⑧116
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+0
+[Public] 投票结束
+[Public] 
+①TNT：2
+②LAKE✖
+③xmx：2
+④NL：2
+⑤大爷：弃票
+⑥【脚滑人】
+⑦冻双：2
+⑧116
+[Public] 投票结果是
+[Public] LAKE出局
+[Public] LAKE是CTF
+[Public] 晚上开始
+[Public] 
+①TNT
+②【CTF】
+③xmx💊
+④NL
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧116
+[ToPlayer 4: NL] 是否使用复制技能（贤松）？（1：使用；0：放弃并使用吸入技能）
+0
+[ToPlayer 5: 大爷] 输入要获取技能的角色编号（剩余 3 根粉条），输入 0 放弃
+2
+[ToPlayer 5: 大爷] CTF
+[ToPlayer 4: NL] 输入一名玩家的编号吸入，输入 0 放弃
+3
+[ToPlayer 5: 大爷] 输入要释放虫子的玩家编号（剩余 3 只虫子），输入 0 放弃
+8
+[ToPlayer 1: TNT] 输入一名其他玩家的编号索要 mfa 文件，输入 0 放弃
+3
+[ToPlayer 1: TNT] 失败
+[ToPlayer 4: NL] 贤松
+[ToPlayer 4: NL] 输入一名其他玩家的编号索要 mfa 文件，输入 0 放弃
+8
+[ToPlayer 8: 116] 你被要mfa了，给吗？（1：给；0：不给）
+1
+[ToPlayer 4: NL] 你要到mfa了，对面的身份是炮仙
+[ToPlayer 7: 冻双] 输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃
+4 x
+[ToPlayer 3: xmx] 输入要扎针的玩家编号（最多 1 个），输入 0 放弃
+8
+[ToPlayer 8: 116] 输入一名玩家的编号令其死亡，输入 0 放弃
+5
+[ToPlayer 4: NL] 你被喂奶，要喝吗？（1：喝；0：不喝）
+1
+[ToPlayer 4: NL] 鲜奶
+[ToPlayer 4: NL] 是否使用复制技能（贤松）？（1：使用；0：放弃并使用吸入技能）
+0
+[ToPlayer 4: NL] 输入一名玩家的编号吸入，输入 0 放弃
+5
+[Public] 今晚
+[Public] 116身上多了一只虫子
+[Public] 116身上多了一只虫子
+[Public] 116身上多了一只虫子
+[Public] 116身上多了一只虫子
+[Public] 116的虫子数量过多！
+[Public] 116暴毙了
+[Public] 116是炮仙
+[ToPlayer 4: NL] 粉侠
+[Public] 大爷被炮仙杀了
+[Public] 大爷死了
+[ToPlayer 5: 大爷] 用一根粉条复活吗？（1：是；0：否）
+1
+[Public] 但是大爷复活了
+[Public] 白天开始
+[Public] 
+①TNT
+②【CTF】
+③xmx
+④NL
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Public] 投票开始
+[Public] 
+①TNT
+②【CTF】
+③xmx
+④NL
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+5 3
+[Public] 
+①TNT
+②【CTF】
+③xmx
+④NL
+⑤大爷：3
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+3 5
+[Public] 
+①TNT
+②【CTF】
+③xmx：5
+④NL
+⑤大爷：3
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+4 3
+[Public] 
+①TNT
+②【CTF】
+③xmx：5
+④NL：3
+⑤大爷：3
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+1 3
+[Public] 
+①TNT：3
+②【CTF】
+③xmx：5
+④NL：3
+⑤大爷：3
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+5 0
+[Public] 
+①TNT：3
+②【CTF】
+③xmx：5
+④NL：3
+⑤大爷：弃票√
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+7 3
+[Public] 
+①TNT：3
+②【CTF】
+③xmx：5
+④NL：3
+⑤大爷：弃票√
+⑥【脚滑人】
+⑦冻双：3
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+0
+[Public] 投票结束
+[Public] 
+①TNT：3
+②【CTF】
+③xmx：5
+④NL：3
+⑤大爷：弃票√
+⑥【脚滑人】
+⑦冻双：3
+⑧【炮仙】
+[Public] 投票结果是
+[Public] xmx出局
+[Public] xmx是庸医
+[Public] 晚上开始
+[Public] 
+①TNT
+②【CTF】
+③【庸医】
+④NL
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[ToPlayer 4: NL] 是否使用复制技能（粉侠）？（1：使用；0：放弃并使用吸入技能）
+1
+[ToPlayer 4: NL] 输入要获取技能的角色编号（剩余 3 根粉条），输入 0 放弃
+8
+[ToPlayer 5: 大爷] 输入要获取技能的角色编号（剩余 1 根粉条），输入 0 放弃
+0
+[ToPlayer 4: NL] 炮仙
+[ToPlayer 5: 大爷] 输入要释放虫子的玩家编号（剩余 2 只虫子），输入 0 放弃
+4
+[ToPlayer 1: TNT] 输入一名其他玩家的编号索要 mfa 文件，输入 0 放弃
+4
+[ToPlayer 4: NL] 你被要mfa了，给吗？（1：给；0：不给）
+0
+[ToPlayer 1: TNT] 你没有要到mfa
+[ToPlayer 4: NL] 输入一名玩家的编号令其死亡，输入 0 放弃
+7
+[ToPlayer 7: 冻双] 输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃
+4 d
+[ToPlayer 4: NL] 你被喂毒奶
+[ToPlayer 4: NL] 失败
+[Public] 今晚
+[Public] NL身上多了一只虫子
+[Public] NL身上多了一只虫子
+[Public] NL被丢了咸松球
+[Public] NL身上多了一只虫子
+[Public] NL的虫子数量过多！
+[Public] NL暴毙了
+[ToPlayer 4: NL] 用一根粉条复活吗？（1：是；0：否）
+1
+[Public] 但是NL复活了
+[Public] NL被喂了毒奶！
+[Public] NL死了
+[Public] NL是粉侠卡比
+[Public] NL是叶子
+[Public] 白天开始
+[Public] 
+①TNT
+②【CTF】
+③【庸医】
+④NL（叶子）❎
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Public] 投票开始
+[Public] 
+①TNT
+②【CTF】
+③【庸医】
+④NL（叶子）❎
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+4 1
+[Public] 
+①TNT
+②【CTF】
+③【庸医】
+④NL（叶子）❎：1
+⑤大爷
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+7 7
+[Public] 
+①TNT
+②【CTF】
+③【庸医】
+④NL（叶子）❎：1
+⑤大爷
+⑥【脚滑人】
+⑦冻双：7
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+1 1
+[Public] 
+①TNT：1
+②【CTF】
+③【庸医】
+④NL（叶子）❎：1
+⑤大爷
+⑥【脚滑人】
+⑦冻双：7
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+1 5
+[Public] 
+①TNT：5√
+②【CTF】
+③【庸医】
+④NL（叶子）❎：1
+⑤大爷
+⑥【脚滑人】
+⑦冻双：7
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+4 5
+[Public] 
+①TNT：5√
+②【CTF】
+③【庸医】
+④NL（叶子）❎：5√
+⑤大爷
+⑥【脚滑人】
+⑦冻双：7
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+5 7
+[Public] 
+①TNT：5√
+②【CTF】
+③【庸医】
+④NL（叶子）❎：5√
+⑤大爷：7
+⑥【脚滑人】
+⑦冻双：7
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+7 0
+[Public] 
+①TNT：5√
+②【CTF】
+③【庸医】
+④NL（叶子）❎：5√
+⑤大爷：7
+⑥【脚滑人】
+⑦冻双：弃票√
+⑧【炮仙】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+0
+[Public] 投票结束
+[Public] 
+①TNT：5√
+②【CTF】
+③【庸医】
+④NL（叶子）❎：5√
+⑤大爷：7
+⑥【脚滑人】
+⑦冻双：弃票√
+⑧【炮仙】
+[Public] 投票结果是
+[Public] 平票
+[Public] 晚上开始
+[Public] 大爷暴毙了
+[Public] 大爷是粉侠
+[Public] 
+①TNT
+②【CTF】
+③【庸医】
+④NL（叶子）
+⑤【粉侠】
+⑥【脚滑人】
+⑦冻双
+⑧【炮仙】
+[ToPlayer 4: NL] 输入一名其他玩家的编号复制其身份，输入 0 以放弃
+7
+[ToPlayer 4: NL] 兔子
+[ToPlayer 4: NL] 输入一名其他玩家的编号索要 mfa 文件，输入 0 放弃
+1
+[ToPlayer 1: TNT] 你的贤松技能不可用
+[ToPlayer 1: TNT] 你被要mfa了，给吗？（1：给；0：不给）
+0
+[ToPlayer 4: NL] 你没有要到mfa
+[ToPlayer 4: NL] 输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃
+1 d
+[ToPlayer 4: NL] 输入一名玩家的编号令其死亡，输入 0 放弃
+7
+[ToPlayer 7: 冻双] 输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃
+4 d
+[ToPlayer 4: NL] 你被喂毒奶
+[ToPlayer 1: TNT] 你被喂毒奶
+[Public] 今晚
+[Public] TNT被丢了咸松球
+[Public] NL被喂了毒奶！
+[Public] NL死了
+[Public] 叶子是叶子
+[Public] 冻双被炮仙杀了
+[Public] 冻双死了
+[Public] 冻双是兔子
+[Public] TNT被喂了毒奶！
+[Public] TNT死了
+[Public] TNT是贤松
+[Public] 游戏结束，无人生还
+[Public] 
+①TNT: 贤松
+②LAKE: CTF
+③xmx: 庸医
+④NL: 叶子（卡比 炮仙 合虫 贤松）
+⑤大爷: 粉侠（CTF）（吧主）
+⑥HJM: 脚滑人
+⑦冻双: 兔子
+⑧116: 炮仙

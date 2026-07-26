@@ -8,7 +8,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -26,15 +26,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
 
       - name: Restore dependencies
         run: dotnet restore WereMF.sln
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Build WereMFWeb
+        run: npm --prefix WereMFWeb run build
 
       - name: Build WereMFServer
         run: dotnet publish WereMFServer/WereMFServer.csproj -c Release -r ${{ matrix.target }} --self-contained true -p:PublishSingleFile=true -o ./publish
@@ -50,18 +59,20 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     needs: build
     runs-on: ubuntu-latest
     steps:
 
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: WereMF-win-x64
           path: ./artifacts/win
 
       - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: WereMF-linux-x64
           path: ./artifacts/linux
@@ -72,7 +83,7 @@ jobs:
           cd ./artifacts/linux && tar -czf ../../WereMF-linux-x64.tar.gz . && cd ../..
 
       - name: Upload release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             WereMF-win-x64.zip

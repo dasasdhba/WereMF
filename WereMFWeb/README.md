@@ -1,66 +1,62 @@
-# WereMF Web
+# WereMFWeb
 
-WereMF Web 把稳定的 F# CLI 规则内核包装成一个 7–16 人在线房间游戏。浏览器不实现规则，只负责展示状态和提交选择；所有结算仍由 `WereMF` 完成。
+WereMFWeb 是 WereMF 的零框架浏览器客户端。它只负责房间交互、状态展示和输入组织；角色规则、合法性判断与结算仍以 WereMF CLI API 为准，联网会话和超时回退由 WereMFServer 处理。
 
-## 产品结构
+## 界面与交互
 
-- **进入页**：创建房间或输入 6 位房间号加入，可连接自托管服务器。
-- **候场室**：显示座位、在线状态与房主；满 7 人后可以开局。
-- **游戏桌**：阶段、个人身份、在场玩家、状态物件、当前行动和事件记录集中在一个界面。
-- **行动面板**：普通技能点选玩家即可；多目标、二段选择、身份选择、投票和特殊后缀都有可视控件，同时保留 CLI 原始输入作为兜底。
-- **隐私边界**：`public` 广播给全房；`player_X` 只发给对应座位；`internal` 只发给房主。完整 Game 快照会在服务端按座位脱敏，其他玩家的 `role` 不会进入浏览器。
+- 创建或加入 6 位房间号，保存令牌并在刷新后恢复同一席位。
+- 大厅显示在线状态、房主与 Bot；房主可以增加/删除 Bot，达到 7 席后开局。
+- 游戏桌显示当前阶段、本局实际编号、私密身份、玩家实体状态、行动面板和按时间排列的事件记录。
+- `pending_skill_created` 到达后即可预选目标；CLI 真正请求该技能时才开放提交。若预选届时失效，客户端取消该选择并提醒玩家。
+- 重抽和投票按玩家并发；投票状态和每次投票广播均为公开信息。
+- 页面标题在有新事件时闪烁；行动请求还会触发浏览器通知。事件列表位于底部时自动滚动，浏览历史时只提示新消息。
+- 所有状态徽标以 `EntityState` 为准，包括脚滑人禁票/保护/封技能、myz 白天威胁、实物绑架及角色资源 emoji。
+- 关闭 Tab 是临时断线，可以重连；“彻底退出”会释放席位，进行中的席位则交给 Bot。
+- 对局结束后所有玩家均可下载本局日志；房主可以“重开并返回大厅”。
 
-## 运行
+## 开发与构建
 
-先构建规则程序与服务：
-
-```powershell
-dotnet build .\WereMF.sln
-```
-
-构建前端（会同步到服务端 `wwwroot`）：
+前端源文件位于 `src/`，没有运行时 npm 依赖。建议使用 Node.js 22：
 
 ```powershell
 cd .\WereMFWeb
+npm run dev
+```
+
+开发服务器默认只提供静态页面；完整联机功能仍需要 WereMFServer。生产构建：
+
+```powershell
 npm run build
 ```
 
-从仓库根目录启动：
+构建脚本会：
 
-```powershell
-.\WereMFServer\bin\Debug\net8.0\WereMFServer.exe --path .\WereMF\bin\Debug\net8.0\WereMF.exe --host 0.0.0.0 --port 5000
-```
+1. 重新生成 `WereMFWeb/dist/`；
+2. 把同一份文件同步到 `WereMFServer/wwwroot/`；
+3. 由后续 `dotnet publish` 一并打入服务端发布包。
 
-访问 `http://localhost:5000`。公网部署时应由反向代理提供 HTTPS/WSS，并把 WebSocket 的 `/ws` 路径转发到同一服务。
-
-## 客户端协议
-
-连接 `/ws` 后第一条消息必须是：
-
-- `create_room`：`{ type, playerName }`
-- `join_room`：`{ type, roomCode, playerName }`
-- `reconnect`：`{ type, roomCode, playerName, token }`
-
-房主发送 `start_game` 后，服务端按候场顺序把昵称提交给 CLI。行动使用 `{ type: "game_input", value: "..." }`；服务端只接受当前 `message_type` 对应座位的输入。
+完整服务端启动参数与 WebSocket 协议见 [`../WereMFServer/README.md`](../WereMFServer/README.md)，CLI API 和数据结构见 [`../WereMF/README.md`](../WereMF/README.md)。
 
 ## 验证
 
-`node scripts/smoke.mjs` 会模拟 7 个 WebSocket 客户端，并确认每个座位只收到一条自己的身份消息。脚本默认连接 `ws://127.0.0.1:5055/ws`。
+### WebSocket smoke test
 
-### 真实长对局回放
+先在端口 5055 启动 WereMFServer，再执行：
 
-除了 `test/web_leaf8_full.mjs` 的固定种子 8 人叶子局，还应把下列目录中的真实长对局日志作为复杂输入回归数据源：
-
-```text
-WereMF/bin/Release/net8.0/win-x64/publish/WereMF_*.log
+```powershell
+node .\WereMFWeb\scripts\smoke.mjs ws://127.0.0.1:5055/ws
 ```
 
-这些日志同时记录请求文本和紧随其后的玩家原始输入，适合覆盖重抽、非零技能、多目标技能、鲜奶/毒奶、MFA、叶子复制身份等自动机器人默认放弃路径没有覆盖的分支。回放时应使用日志首行种子、原始玩家输入顺序、匿名/叶子局选项，并按请求顺序从 Web 对应座位提交输入。
+该脚本创建 7 个 WebSocket 客户端、启动一局，并验证每个席位只收到一次自己的身份消息。
 
-已完成的真实日志 Web 回放基线：
+### 真实长对局日志
 
-- `WereMF_260522_235200.log`：50 条输入，3 夜/3 天，爆方获胜。
-- `WereMF_260522_232757.log`：69 条输入，4 夜/3 天，无人生还。
-- `WereMF_260522_225843.log`：43 条输入，3 夜/2 天，吧方获胜。
+已验证的回放输入位于 [`fixtures/logs`](fixtures/logs/)，这些副本会由 Git 追踪，不依赖本机 `bin/Release`：
 
-三局均启用匿名第一晚；回放必须验证候场会话按姓名重映射到匿名后的游戏 ID，不能直接把 `player_X` 当作候场座位 X。
+| 样例 | 输入数 | 覆盖范围 | 结果 |
+|---|---:|---|---|
+| `WereMF_260522_235200.log` | 50 | 匿名局，3 夜/3 天 | 爆方获胜 |
+| `WereMF_260522_232757.log` | 69 | 匿名局，4 夜/3 天 | 无人生还 |
+| `WereMF_260522_225843.log` | 43 | 匿名局，3 夜/2 天 | 吧方获胜 |
+
+日志同时记录 CLI 请求及紧随其后的玩家原始输入，可覆盖重抽、非零技能、多目标技能、鲜奶/毒奶、MFA、叶子复制身份等纯随机 Bot 容易漏掉的分支。回放时必须使用日志首行种子、原始玩家输入顺序及匿名/叶子选项，并验证候场会话会按姓名映射到匿名后的游戏 ID，不能把 `player_X` 直接当作候场座位 X。

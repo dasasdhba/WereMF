@@ -1,0 +1,320 @@
+﻿游戏种子：1945294126
+玩家：
+①116: myz
+②NL: 粉侠（炮仙）
+③HJM: 脚滑人
+④TNT: 兔子（吧主）
+⑤冻双: 炮仙
+⑥LAKE: 合虫
+⑦大爷: 庸医
+
+[Internal] 输入玩家列表（7~20 人）
+LAKE NL TNT 大爷 116 HJM 冻双
+[Public] 
+①LAKE
+②NL
+③TNT
+④大爷
+⑤116
+⑥HJM
+⑦冻双
+
+[Internal] 第一晚是否匿名？(1: 是；0: 否)
+1
+[ToPlayer 1: 116] 灰卡比
+[ToPlayer 2: NL] 卡比
+[ToPlayer 3: HJM] 脚滑人
+[ToPlayer 4: TNT] 兔子
+[ToPlayer 5: 冻双] 炮仙
+[ToPlayer 6: LAKE] 合虫
+[ToPlayer 7: 大爷] 庸医
+[Internal] 输入需要重抽身份的玩家，输入 0 以继续
+1
+[ToPlayer 1: 116] myz
+[Internal] 输入需要重抽身份的玩家，输入 0 以继续
+2
+[ToPlayer 2: NL] 粉侠
+[Internal] 输入需要重抽身份的玩家，输入 0 以继续
+0
+[ToPlayer 4: TNT] 你是吧主，脚滑人是 ③玩家3
+[ToPlayer 3: HJM] 本局有兔子和炮仙
+[Public] 晚上开始
+[ToPlayer 5: 冻双] 队友：⑥玩家6
+[Public] 
+①玩家1
+②玩家2
+③玩家3
+④玩家4
+⑤玩家5
+⑥玩家6
+⑦玩家7
+[ToPlayer 2: NL] 输入要获取技能的角色编号（剩余 3 根粉条），输入 0 放弃
+0
+[ToPlayer 1: 116] 输入要威胁的玩家编号，威胁目标的编号，输入 0 放弃；在结尾输入 f 以自爆身份，并使威胁强制生效
+7 4
+[ToPlayer 6: LAKE] 输入一名其他玩家的编号复制其身份，输入 0 以放弃
+5
+[ToPlayer 6: LAKE] 炮仙
+[ToPlayer 3: HJM] 输入一名玩家的编号查询其身份，输入 0 以放弃
+5
+[ToPlayer 3: HJM] 炮仙
+[ToPlayer 5: 冻双] 输入一名玩家的编号令其死亡，输入 0 放弃
+7
+[ToPlayer 7: 大爷] 你被威胁技能发给 ④玩家4
+[ToPlayer 7: 大爷] 输入要扎针的玩家编号（最多 3 个），输入 0 放弃
+7 4
+[ToPlayer 6: LAKE] 输入一名玩家的编号令其死亡，输入 0 放弃
+4
+[ToPlayer 4: TNT] 输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃
+3 x
+[ToPlayer 3: HJM] 你被喂奶，要喝吗？（1：喝；0：不喝）
+1
+[ToPlayer 3: HJM] 鲜奶
+[ToPlayer 3: HJM] 输入一名玩家的编号查询其身份，输入 0 以放弃
+6
+[ToPlayer 3: HJM] 炮仙
+[Public] 今晚
+[Public] TNT被炮仙杀了
+[Public] 但是TNT被救活了
+[Public] 大爷被炮仙杀了
+[Public] 但是大爷被救活了
+[Public] 白天开始
+[Public] 
+①116
+②NL
+③HJM
+④TNT
+⑤冻双
+⑥LAKE
+⑦大爷
+[Public] 投票开始
+[Public] 大爷昨晚被威胁，白天无法行动
+[Public] 
+①116
+②NL
+③HJM
+④TNT
+⑤冻双
+⑥LAKE
+⑦大爷
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+2 5
+[Public] 
+①116
+②NL：5
+③HJM
+④TNT
+⑤冻双
+⑥LAKE
+⑦大爷❌
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+3 5
+[Public] 
+①116
+②NL：5
+③HJM：5
+④TNT
+⑤冻双
+⑥LAKE
+⑦大爷❌
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+5 3
+[Public] 
+①116
+②NL：5
+③HJM：5
+④TNT
+⑤冻双：3
+⑥LAKE
+⑦大爷❌
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+4 5
+[Public] 
+①116
+②NL：5
+③HJM：5
+④TNT：5
+⑤冻双：3
+⑥LAKE
+⑦大爷❌
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+6 5
+[Public] 
+①116
+②NL：5
+③HJM：5
+④TNT：5
+⑤冻双：3
+⑥LAKE：5
+⑦大爷❌
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+0
+[Public] 投票结束
+[Public] 
+①116
+②NL：5
+③HJM：5
+④TNT：5
+⑤冻双：3
+⑥LAKE：5
+⑦大爷❌
+[Public] 投票结果是
+[Public] 冻双出局
+[Public] 冻双是炮仙
+[Public] 晚上开始
+[Public] 
+①116
+②NL
+③HJM
+④TNT
+⑤【炮仙】
+⑥LAKE
+⑦大爷
+[ToPlayer 2: NL] 输入要获取技能的角色编号（剩余 3 根粉条），输入 0 放弃
+5
+[ToPlayer 2: NL] 炮仙
+[ToPlayer 1: 116] 输入要威胁的玩家编号，威胁目标的编号，输入 0 放弃；在结尾输入 f 以自爆身份，并使威胁强制生效
+4 3
+[ToPlayer 6: LAKE] 输入一名其他玩家的编号复制其身份，输入 0 以放弃
+7
+[ToPlayer 6: LAKE] 庸医
+[ToPlayer 3: HJM] 输入一名玩家的编号查询其身份，输入 0 以放弃
+1
+[ToPlayer 3: HJM] myz
+[ToPlayer 6: LAKE] 输入要扎针的玩家编号（最多 1 个），输入 0 放弃
+6
+[ToPlayer 7: 大爷] 输入要扎针的玩家编号（最多 1 个），输入 0 放弃
+3
+[ToPlayer 2: NL] 输入一名玩家的编号令其死亡，输入 0 放弃
+6
+[ToPlayer 4: TNT] 你被威胁技能发给 ③HJM
+[ToPlayer 4: TNT] 输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃
+3 x
+[ToPlayer 3: HJM] 你被喂鲜奶
+[ToPlayer 3: HJM] 输入一名玩家的编号查询其身份，输入 0 以放弃
+2
+[ToPlayer 3: HJM] 粉侠
+[Public] 今晚
+[Public] LAKE被炮仙杀了
+[Public] 但是LAKE被救活了
+[Public] HJM被扎了一针
+[Public] 白天开始
+[Public] 
+①116
+②NL
+③HJM💊
+④TNT
+⑤【炮仙】
+⑥LAKE
+⑦大爷
+[Public] 投票开始
+[Public] TNT昨晚被威胁，白天无法行动
+[Public] 
+①116
+②NL
+③HJM💊
+④TNT
+⑤【炮仙】
+⑥LAKE
+⑦大爷
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+3 1
+[Public] 
+①116
+②NL
+③HJM：1
+④TNT❌
+⑤【炮仙】
+⑥LAKE
+⑦大爷
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+2 1
+[Public] 
+①116
+②NL：1
+③HJM：1
+④TNT❌
+⑤【炮仙】
+⑥LAKE
+⑦大爷
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+7 1
+[Public] 
+①116
+②NL：1
+③HJM：1
+④TNT❌
+⑤【炮仙】
+⑥LAKE
+⑦大爷：1
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+6 1
+[Public] 
+①116
+②NL：1
+③HJM：1
+④TNT❌
+⑤【炮仙】
+⑥LAKE：1
+⑦大爷：1
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+0
+[Public] 投票结束
+[Public] 
+①116
+②NL：1
+③HJM：1
+④TNT❌
+⑤【炮仙】
+⑥LAKE：1
+⑦大爷：1
+[Public] 投票结果是
+[Public] 116出局
+[Public] 116是myz
+[Public] 晚上开始
+[Public] 
+①【myz】
+②NL
+③HJM💊
+④TNT
+⑤【炮仙】
+⑥LAKE
+⑦大爷
+[ToPlayer 2: NL] 输入要获取技能的角色编号（剩余 2 根粉条），输入 0 放弃
+0
+[ToPlayer 6: LAKE] 输入一名其他玩家的编号复制其身份，输入 0 以放弃
+4
+[ToPlayer 6: LAKE] 兔子
+[ToPlayer 3: HJM] 输入一名玩家的编号查询其身份，输入 0 以放弃
+7
+[ToPlayer 3: HJM] 庸医
+[ToPlayer 6: LAKE] 输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃
+2 d
+[ToPlayer 4: TNT] 输入要投喂的玩家编号和奶类型（x=鲜奶，d=毒奶），输入 0 放弃
+6 d
+[ToPlayer 2: NL] 输入一名玩家的编号令其死亡，输入 0 放弃
+6
+[ToPlayer 7: 大爷] 输入要扎针的玩家编号（最多 3 个），输入 0 放弃
+4 7
+[ToPlayer 6: LAKE] 你被喂毒奶
+[ToPlayer 2: NL] 你被喂毒奶
+[Public] 今晚
+[Public] LAKE被炮仙杀了
+[Public] LAKE死了
+[Public] LAKE是兔子
+[Public] NL被喂了毒奶！
+[Public] NL死了
+[ToPlayer 2: NL] 用一根粉条复活吗？（1：是；0：否）
+1
+[Public] 但是NL复活了
+[Public] TNT被扎了一针
+[Public] 大爷被扎了一针
+[Public] 游戏结束，吧方获胜
+[Public] 
+①116: myz
+②NL: 粉侠（炮仙）
+③HJM: 脚滑人
+④TNT: 兔子（吧主）
+⑤冻双: 炮仙
+⑥LAKE: 合虫
+⑦大爷: 庸医

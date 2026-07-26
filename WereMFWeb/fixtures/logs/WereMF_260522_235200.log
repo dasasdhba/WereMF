@@ -1,0 +1,493 @@
+﻿游戏种子：-1150003473
+玩家：
+①大爷: 灰卡比
+②NL: 实物
+③116: 炮仙
+④xmx: 叶子（卡比 合虫 CTF 炮仙）
+⑤LAKE: 法猫
+⑥HJM: 粉侠（爬行者）（吧主）
+⑦冻双: 脚滑人
+⑧TNT: 爬行者
+
+[Internal] 输入玩家列表（7~20 人）
+xmx NL TNT 大爷 116 HJM 冻双 LAKE
+[Public] 
+①xmx
+②NL
+③TNT
+④大爷
+⑤116
+⑥HJM
+⑦冻双
+⑧LAKE
+
+[Internal] 第一晚是否匿名？(1: 是；0: 否)
+1
+[Internal] 是否为叶子局？(1: 是；0: 否)
+1
+[ToPlayer 1: 大爷] 灰卡比
+[ToPlayer 2: NL] myz
+[ToPlayer 3: 116] 炮仙
+[ToPlayer 4: xmx] 叶子
+[ToPlayer 5: LAKE] 法猫
+[ToPlayer 6: HJM] 粉侠
+[ToPlayer 7: 冻双] 脚滑人
+[ToPlayer 8: TNT] 爬行者
+[Internal] 输入需要重抽身份的玩家，输入 0 以继续
+2
+[ToPlayer 2: NL] 实物
+[Internal] 输入需要重抽身份的玩家，输入 0 以继续
+0
+[ToPlayer 4: xmx] 输入叶子的四个身份
+炮仙 CTF 合虫 卡比
+[ToPlayer 4: xmx] 第一身份：炮仙
+[ToPlayer 4: xmx] 是否重抽第一身份？（1：重抽；0：放弃）
+1
+[ToPlayer 4: xmx] 第一身份：卡比
+[ToPlayer 6: HJM] 你是吧主，脚滑人是 ⑦玩家7
+[ToPlayer 7: 冻双] 本局有法猫和灰卡比
+[Public] 晚上开始
+[ToPlayer 3: 116] 队友：①玩家1，②玩家2
+[Public] 
+①玩家1
+②玩家2
+③玩家3
+④玩家4
+⑤玩家5
+⑥玩家6
+⑦玩家7
+⑧玩家8
+[ToPlayer 6: HJM] 输入要获取技能的角色编号（剩余 3 根粉条），输入 0 放弃
+0
+[ToPlayer 4: xmx] 输入一名玩家的编号吸入，输入 0 放弃
+5
+[ToPlayer 1: 大爷] 输入要投掷烟雾弹的玩家编号（最多 2 个），输入 0 放弃
+1 3
+[Public] 玩家1被烟雾弥漫！
+[Public] 
+①玩家1☁
+②玩家2
+③玩家3
+④玩家4
+⑤玩家5
+⑥玩家6
+⑦玩家7
+⑧玩家8
+[Public] 玩家3被烟雾弥漫！
+[Public] 
+①玩家1☁
+②玩家2
+③玩家3☁
+④玩家4
+⑤玩家5
+⑥玩家6
+⑦玩家7
+⑧玩家8
+[ToPlayer 2: NL] 输入一名玩家的编号进行绑架，输入 0 放弃；在结尾输入 b 表示公开被绑架者的身份
+6
+[Public] 玩家6被实物绑架了！
+[ToPlayer 7: 冻双] 输入一名玩家的编号查询其身份，输入 0 以放弃
+6
+[ToPlayer 7: 冻双] 粉侠
+[ToPlayer 3: 116] 输入一名玩家的编号令其死亡，输入 0 放弃
+4
+[ToPlayer 5: LAKE] 输入要投掷药水的玩家编号（最多 2 个），输入 0 放弃
+2 4
+[ToPlayer 8: TNT] 输入要在谁身上埋炸药（剩余 3 个炸弹），输入 0 放弃
+6
+[Public] 今晚
+[ToPlayer 4: xmx] 法猫
+[Public] xmx被炮仙杀了
+[Public] xmx死了
+[Public] xmx是法猫卡比
+[Public] xmx是叶子
+[Public] NL被丢了药水
+[Public] 白天开始
+[Public] 
+①大爷☁
+②NL💧
+③116☁
+④xmx（叶子）❎
+⑤LAKE
+⑥HJM
+⑦冻双
+⑧TNT
+[Public] 投票开始
+[Public] 
+①大爷☁
+②NL💧
+③116☁
+④xmx（叶子）❎
+⑤LAKE
+⑥HJM
+⑦冻双
+⑧TNT
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+4 8
+[Public] 
+①大爷
+②NL
+③116
+④xmx（叶子）❎：8
+⑤LAKE
+⑥HJM
+⑦冻双
+⑧TNT
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+2 2
+[Public] 
+①大爷
+②NL：2
+③116
+④xmx（叶子）❎：8
+⑤LAKE
+⑥HJM
+⑦冻双
+⑧TNT
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+1 1
+[Public] 
+①大爷：1
+②NL：2
+③116
+④xmx（叶子）❎：8
+⑤LAKE
+⑥HJM
+⑦冻双
+⑧TNT
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+8 8
+[Public] 
+①大爷：1
+②NL：2
+③116
+④xmx（叶子）❎：8
+⑤LAKE
+⑥HJM
+⑦冻双
+⑧TNT：8
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+7 7
+[Public] 
+①大爷：1
+②NL：2
+③116
+④xmx（叶子）❎：8
+⑤LAKE
+⑥HJM
+⑦冻双：7
+⑧TNT：8
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+6 0
+[Public] 
+①大爷：1
+②NL：2
+③116
+④xmx（叶子）❎：8
+⑤LAKE
+⑥HJM：弃票
+⑦冻双：7
+⑧TNT：8
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+7 1
+[Public] 
+①大爷：1
+②NL：2
+③116
+④xmx（叶子）❎：8
+⑤LAKE
+⑥HJM：弃票
+⑦冻双：1√
+⑧TNT：8
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+5 1
+[Public] 
+①大爷：1
+②NL：2
+③116
+④xmx（叶子）❎：8
+⑤LAKE：1
+⑥HJM：弃票
+⑦冻双：1√
+⑧TNT：8
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+1 8
+[Public] 
+①大爷：8√
+②NL：2
+③116
+④xmx（叶子）❎：8
+⑤LAKE：1
+⑥HJM：弃票
+⑦冻双：1√
+⑧TNT：8
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+2 1
+[Public] 
+①大爷：8√
+②NL：1√
+③116
+④xmx（叶子）❎：8
+⑤LAKE：1
+⑥HJM：弃票
+⑦冻双：1√
+⑧TNT：8
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+3 8
+[Public] 
+①大爷：8√
+②NL：1√
+③116：8
+④xmx（叶子）❎：8
+⑤LAKE：1
+⑥HJM：弃票
+⑦冻双：1√
+⑧TNT：8
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+0
+[Public] 投票结束
+[Public] 
+①大爷：8√
+②NL：1√
+③116：8
+④xmx（叶子）❎：8
+⑤LAKE：1
+⑥HJM：弃票
+⑦冻双：1√
+⑧TNT：8
+[Public] 投票结果是
+[Public] TNT出局
+[Public] TNT是爬行者
+[Public] 晚上开始
+[Public] HJM身上的炸药爆炸了！
+[Public] HJM死了
+[ToPlayer 6: HJM] 用一根粉条复活吗？（1：是；0：否）
+1
+[Public] 但是HJM复活了
+[Public] 
+①大爷☁
+②NL💧
+③116☁
+④xmx（叶子）
+⑤LAKE
+⑥HJM
+⑦冻双
+⑧【爬行者】
+[ToPlayer 6: HJM] 输入要获取技能的角色编号（剩余 2 根粉条），输入 0 放弃
+8
+[ToPlayer 6: HJM] 爬行者
+[ToPlayer 1: 大爷] 输入要投掷烟雾弹的玩家编号（最多 1 个），输入 0 放弃
+2
+[Public] NL被烟雾弥漫！
+[Public] 
+①大爷☁
+②NL☁💧
+③116☁
+④xmx（叶子）
+⑤LAKE
+⑥HJM
+⑦冻双
+⑧【爬行者】
+[ToPlayer 2: NL] 输入一名玩家的编号进行绑架，输入 0 放弃；在结尾输入 b 表示公开被绑架者的身份
+4
+[Public] xmx被实物绑架了！
+[ToPlayer 4: xmx] 你的CTF技能被绑架禁用
+[ToPlayer 4: xmx] 输入一名其他玩家的编号复制其身份，输入 0 以放弃
+5
+[ToPlayer 4: xmx] 法猫
+[ToPlayer 7: 冻双] 输入一名玩家的编号查询其身份，输入 0 以放弃
+5
+[ToPlayer 7: 冻双] 法猫
+[ToPlayer 4: xmx] 你的CTF技能不可用
+[ToPlayer 6: HJM] 输入要在谁身上埋炸药（剩余 3 个炸弹），输入 0 放弃
+6
+[ToPlayer 4: xmx] 输入要投掷药水的玩家编号（最多 1 个），输入 0 放弃
+4
+[ToPlayer 3: 116] 输入一名玩家的编号令其死亡，输入 0 放弃
+6
+[ToPlayer 4: xmx] 输入一名玩家的编号令其死亡，输入 0 放弃
+3
+[ToPlayer 5: LAKE] 输入要投掷药水的玩家编号（最多 1 个），输入 0 放弃
+7
+[Public] 今晚
+[Public] 116被炮仙杀了
+[Public] 116死了
+[Public] 116是炮仙
+[Public] HJM被炮仙杀了
+[Public] HJM死了
+[Public] HJM是粉侠
+[Public] 冻双被丢了药水
+[Public] xmx被丢了药水
+[Public] 白天开始
+[Public] 
+①大爷
+②NL☁
+③【炮仙】
+④xmx（叶子）💧
+⑤LAKE
+⑥【粉侠】
+⑦冻双💧
+⑧【爬行者】
+[Public] 投票开始
+[Public] 
+①大爷
+②NL☁
+③【炮仙】
+④xmx（叶子）💧
+⑤LAKE
+⑥【粉侠】
+⑦冻双💧
+⑧【爬行者】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+2 4
+[Public] 
+①大爷
+②NL：4
+③【炮仙】
+④xmx（叶子）
+⑤LAKE
+⑥【粉侠】
+⑦冻双
+⑧【爬行者】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+7 4
+[Public] 
+①大爷
+②NL：4
+③【炮仙】
+④xmx（叶子）
+⑤LAKE
+⑥【粉侠】
+⑦冻双：4
+⑧【爬行者】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+1 4
+[Public] 
+①大爷：4
+②NL：4
+③【炮仙】
+④xmx（叶子）
+⑤LAKE
+⑥【粉侠】
+⑦冻双：4
+⑧【爬行者】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+0
+[Public] 投票结束
+[Public] 
+①大爷：4
+②NL：4
+③【炮仙】
+④xmx（叶子）
+⑤LAKE
+⑥【粉侠】
+⑦冻双：4
+⑧【爬行者】
+[Public] 投票结果是
+[Public] xmx出局
+[Public] 叶子是叶子
+[Public] 晚上开始
+[Public] 
+①大爷
+②NL☁
+③【炮仙】
+④【叶子】
+⑤LAKE
+⑥【粉侠】
+⑦冻双💧
+⑧【爬行者】
+[ToPlayer 1: 大爷] 输入要投掷烟雾弹的玩家编号（最多 1 个），输入 0 放弃
+1
+[Public] 大爷被烟雾弥漫！
+[Public] 
+①大爷☁
+②NL☁
+③【炮仙】
+④【叶子】
+⑤LAKE
+⑥【粉侠】
+⑦冻双💧
+⑧【爬行者】
+[ToPlayer 2: NL] 输入一名玩家的编号进行绑架，输入 0 放弃；在结尾输入 b 表示公开被绑架者的身份
+5
+[Public] LAKE被实物绑架了！
+[ToPlayer 5: LAKE] 你的法猫技能被绑架禁用
+[ToPlayer 7: 冻双] 输入一名玩家的编号查询其身份，输入 0 以放弃
+2
+[ToPlayer 7: 冻双] 实物
+[ToPlayer 5: LAKE] 输入要投掷药水的玩家编号（最多 1 个），输入 0 放弃
+5
+[Public] 今晚
+[Public] 实物被查出了身份，实物撕票了！
+[Public] LAKE死了
+[Public] LAKE是法猫
+[Public] 白天开始
+[Public] 
+①大爷☁
+②NL
+③【炮仙】
+④【叶子】
+⑤【法猫】
+⑥【粉侠】
+⑦冻双
+⑧【爬行者】
+[Public] 投票开始
+[Public] 
+①大爷☁
+②NL
+③【炮仙】
+④【叶子】
+⑤【法猫】
+⑥【粉侠】
+⑦冻双
+⑧【爬行者】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+2 7
+[Public] 
+①大爷
+②NL：7
+③【炮仙】
+④【叶子】
+⑤【法猫】
+⑥【粉侠】
+⑦冻双
+⑧【爬行者】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+1 7
+[Public] 
+①大爷：7
+②NL：7
+③【炮仙】
+④【叶子】
+⑤【法猫】
+⑥【粉侠】
+⑦冻双
+⑧【爬行者】
+[Internal] 输入 x y 表示 x 给 y 投票，若 x 是脚滑人，可以输入 x b 自爆；输入 0 结束投票环节
+0
+[Public] 投票结束
+[Public] 
+①大爷：7
+②NL：7
+③【炮仙】
+④【叶子】
+⑤【法猫】
+⑥【粉侠】
+⑦冻双
+⑧【爬行者】
+[Public] 投票结果是
+[Public] 冻双出局
+[Public] 冻双是脚滑人
+[Public] 冻双可以取消一人下一个晚上的一次行动，或令一人不可被其他人的技能选中
+[ToPlayer 7: 冻双] 输入玩家编号和行动类型（x=封住行动，p=保护玩家），输入 0 放弃
+0
+[Public] 游戏结束，爆方获胜
+[Public] 
+①大爷: 灰卡比
+②NL: 实物
+③116: 炮仙
+④xmx: 叶子（卡比 合虫 CTF 炮仙）
+⑤LAKE: 法猫
+⑥HJM: 粉侠（爬行者）（吧主）
+⑦冻双: 脚滑人
+⑧TNT: 爬行者
