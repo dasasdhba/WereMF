@@ -6,7 +6,8 @@ const state = {
   roomCode: "", playerId: null, playerName: "", token: "", isHost: false, started: false,
   players: [], entities: [], votes: [], events: [], phase: "等待", round: 0, role: "身份尚未揭晓",
   roleVisible: true, request: null, selected: [], modifier: "", reconnecting: false,
-  pendingSkills: [], pendingDrafts: {}, activePendingId: "", gameLog: null
+  pendingSkills: [], pendingDrafts: {}, activePendingId: "", gameLog: null,
+  timerDeadline: 0, timerApi: "", timerMode: ""
 };
 const e = (value = "") => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
 const socketUrl = () => state.server.trim() || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
@@ -32,8 +33,10 @@ function onMessage(message) {
   if (message.type === "player_remapped") state.playerId = message.playerId;
   if (message.type === "room_state") { if (!message.started || state.view !== "game") state.players = [...message.players]; state.started = message.started; if (message.started) state.view = "game"; }
   if (message.type === "game_message") handleGameMessage(message.payload);
-  if (message.type === "game_ended") { addEvent("SYSTEM", message.message, false); state.request = null; }
+  if (message.type === "game_ended") { addEvent("SYSTEM", message.message, false); state.request = null; clearTimer(); }
   if (message.type === "server_notice") addEvent("SERVER", message.message, true);
+  if (message.type === "request_timer") { state.timerDeadline = message.deadlineUtc || 0; state.timerApi = message.api || ""; state.timerMode = message.mode || "request"; }
+  if (message.type === "request_timeout_resolved") { notify(message.message); addEvent("TIMEOUT", message.message, message.api !== "request_vote"); state.request = null; state.selected = []; state.modifier = ""; clearTimer(); }
   if (message.type === "game_log_available") { state.gameLog = message; addEvent("SYSTEM", "本局日志已生成，所有玩家均可下载", false); }
   if (message.type === "input_accepted") notify(message.remaining ? `已暂存，还可提交 ${message.remaining} 次` : "已提交，等待其他玩家");
   render();
@@ -43,10 +46,11 @@ function handleGameMessage(msg) {
   if (api === "player_init" || api === "player_anonymous_init") state.players = (msg.data || []).map(p => ({ ...p, connected: true }));
   if (api === "player_notify_chara" || api === "player_notify_chara_reset") state.role = text || "未知身份";
   if (api === "leaf_notify_first_chara" || api === "leaf_notify_first_chara_reroll") state.role = `叶子 · ${text}`;
-  if (api === "night_start_broadcast") { state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
-  if (api === "day_start_broadcast") { state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
-  if (api === "vote_start_broadcast") { state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; }
-  if (api === "game_win_broadcast") state.phase = "终局";
+  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
+  if (api === "day_start_broadcast") { clearTimer(); state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
+  if (api === "vote_start_broadcast") { clearTimer(); state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; }
+  if (api === "vote_end_broadcast") clearTimer();
+  if (api === "game_win_broadcast") { clearTimer(); state.phase = "终局"; }
   if (api === "game_update_night" || api === "game_update_day") { state.entities = Array.isArray(msg.data) ? msg.data : msg.data?.entities || []; state.players = state.entities.map(entity => ({ ...entity.player, connected: true })); }
   if (api === "game_update_vote") updateVotes(msg);
   if (api === "pending_skill_created") rememberPending(msg.data);
@@ -54,6 +58,32 @@ function handleGameMessage(msg) {
   if (api.startsWith("request_") && !api.endsWith("_parse_error")) activateRequest(msg);
   if (api.endsWith("_parse_error")) { notify(text || "这个选择无效，请重试"); }
   if (text && !api.startsWith("request_") && !api.startsWith("game_update_")) addEvent(api, text, privateMessage);
+}
+function clearTimer() { state.timerDeadline = 0; state.timerApi = ""; state.timerMode = ""; }
+function timerText() {
+  if (!state.timerDeadline) return "";
+  const seconds = Math.max(0, Math.ceil((state.timerDeadline - Date.now()) / 1000));
+  const minutes = Math.floor(seconds / 60); const rest = seconds % 60;
+  return `${minutes}:${String(rest).padStart(2,"0")}`;
+}
+function timerBadge() { return state.timerDeadline ? `<span class="request-timer ${state.timerMode === "vote" ? "vote" : ""}" data-timer>${timerText()}</span>` : ""; }
+function syncDraft(value = state.selected.join(" ")) {
+  const skillId = state.request ? pendingId(state.request.data) : state.activePendingId;
+  const api = state.request?.api || "";
+  if (skillId || api) send({ type: "pending_draft", skillId, api, value: String(value).trim() });
+}
+function leafOptions(request = state.request) {
+  if (request?.api !== "request_leaf_charas") return [];
+  if (Array.isArray(request.data?.options)) return request.data.options;
+  return roles.filter(value => !["粉侠","彩怪","叶子"].includes(value)).map(value => ({ value, camp: "" }));
+}
+function leafSelectionValid(request = state.request) {
+  if (request?.api !== "request_leaf_charas") return true;
+  const options = leafOptions(request); const selected = state.selected;
+  const count = request.data?.choice_count || 4;
+  if (selected.length !== count || selected.some(value => !options.some(option => option.value === value))) return false;
+  const required = request.data?.required_camps || [];
+  return required.every(camp => selected.some(value => options.find(option => option.value === value)?.camp === camp));
 }
 function pendingId(data) { const raw = data?.skill_id ?? data?.id ?? data; return typeof raw === "object" ? raw?.id || "" : String(raw || ""); }
 function rememberPending(data) {
@@ -69,7 +99,7 @@ function activateRequest(msg) {
   state.request = msg; state.modifier = ""; const id = pendingId(msg.data); const draft = id ? [...(state.pendingDrafts[id] || [])] : [];
   const invalid = invalidIdsFor(msg); const removed = draft.filter(x => typeof x === "number" && invalid.has(x));
   state.selected = draft.filter(x => typeof x !== "number" || !invalid.has(x)); state.activePendingId = id || state.activePendingId;
-  if (removed.length) { const names = removed.map(id => state.players.find(x => x.id === id)?.name || `${id} 号`).join("、"); notify(`局面已变化，已取消无效选择：${names}`); }
+  if (removed.length) { const names = removed.map(id => state.players.find(x => x.id === id)?.name || `${id} 号`).join("、"); syncDraft(); notify(`局面已变化，已取消无效选择：${names}`); }
 }
 function voteTargetText(target) {
   if (target === 0) return "弃票";
@@ -126,7 +156,7 @@ function actionPanel() {
     const active = state.pendingSkills.find(x => x.id === state.activePendingId) || state.pendingSkills[0];
     return `<section class="panel action-panel pending"><div class="action-kicker">提前准备 · 尚不能提交</div><div class="choice-row">${state.pendingSkills.map(x=>`<button class="choice ${x.id===active.id?"selected":""}" data-pending="${e(x.id)}">${e(x.type)} · 优先级 ${x.priority}</button>`).join("")}</div><h2>预选「${e(active.type)}」技能目标</h2><p class="lobby-note">你可以现在选择目标；真正轮到该技能时才会开放提交。如果局面变化导致目标失效，系统会自动取消并提醒。</p><div class="action-footer"><button class="btn btn-ghost" data-clear-draft>清除预选</button><button class="btn btn-primary" disabled>等待技能结算顺序</button></div></section>`;
   }
-  if (!r) return `<section class="panel action-panel inactive"><div class="action-kicker">CURRENT ACTION</div><h2>等待其他玩家行动</h2><p class="lobby-note">轮到你时，选择面板会自动出现。</p></section>`;
+  if (!r) return `<section class="panel action-panel inactive"><div class="action-kicker">CURRENT ACTION ${timerBadge()}</div><h2>${state.timerMode === "vote" ? "投票进行中" : "等待其他玩家行动"}</h2><p class="lobby-note">${state.timerMode === "vote" ? "共享投票时间正在倒计时；每次有效投票都会扣减时间。" : "轮到你时，选择面板会自动出现。"}</p></section>`;
   const api = r.api; const boolRequest = /(?:reborn|drink_milk|give_mfa|red_ground|anonymous_game|leaf_game|leaf_chara_reroll|using_copy_skill|for_next_game|reroll_player)$/.test(api);
   const forceChoice = api.includes("force_threaten") && api !== "request_myz_skill_force_threaten"; const roleChoice = api === "request_leaf_charas" || api === "request_hechong_copy_leaf";
   let choices = "";
@@ -135,7 +165,14 @@ function actionPanel() {
     const opts = api === "request_xiansong_skill_force_threaten" ? [["m","强制索要 MFA"],["x","丢咸松球"],["0","放弃"]] : [["1","选项 1"],["0","选项 0"]];
     choices = `<div class="choice-row">${opts.map(x=>`<button class="choice" data-value="${x[0]}">${x[1]}</button>`).join("")}</div>`;
   }
-  else if (roleChoice) choices = `<div class="choice-row">${roles.map(x=>`<button class="choice" data-role="${e(x)}">${e(x)}</button>`).join("")}</div>`;
+  else if (roleChoice) {
+    const options = api === "request_leaf_charas" ? leafOptions(r) : roles.map(value => ({ value, camp: "" }));
+    choices = `<div class="choice-row">${options.map(option=>`<button class="choice ${state.selected.includes(option.value)?"selected":""}" data-role="${e(option.value)}">${e(option.value)}${option.camp ? ` · ${e(option.camp)}` : ""}</button>`).join("")}</div>`;
+    if (api === "request_leaf_charas") {
+      const camps = [...new Set(state.selected.map(value => options.find(option => option.value === value)?.camp).filter(Boolean))];
+      choices += `<p class="leaf-hint ${leafSelectionValid(r)?"valid":""}">已选 ${state.selected.length}/${r.data?.choice_count || 4} · ${camps.length ? `阵营：${camps.join("、")}` : "需同时包含吧方与爆方"} · 不可选择粉侠、彩怪、叶子</p>`;
+    }
+  }
   const modifierSets = {
     request_jiaohua_dead_skill: [["x","封住行动"],["p","保护玩家"]],
     request_rabi_skill: [["x","鲜奶"],["d","毒奶"]],
@@ -145,8 +182,8 @@ function actionPanel() {
     request_vote: (Array.isArray(r.data) && r.data.find(x=>x.id===state.playerId)?.can_suicide) ? [["","正常投票"],["b","脚滑人自爆"]] : [["","正常投票"]]
   };
   if (modifierSets[api]) choices += `<div class="choice-row" style="margin-top:10px">${modifierSets[api].map(x=>`<button class="choice ${state.modifier===x[0]?"selected":""}" data-modifier="${x[0]}">${x[1]}</button>`).join("")}</div>`;
-  const showSubmit = !boolRequest && !forceChoice; const requiredModifier = ["request_jiaohua_dead_skill","request_rabi_skill"].includes(api); const canSubmit = state.selected.length && (!requiredModifier || state.modifier);
-  return `<section class="panel action-panel"><div class="action-kicker">${r.web_concurrent ? `并发输入 · 剩余 ${r.web_remaining} 次` : "轮到你行动"}</div><h2>${e(r.message_content || "请做出选择")}</h2>${choices}${showSubmit ? `<div class="action-footer"><button class="btn btn-ghost" data-giveup>放弃</button><button class="btn btn-primary" data-submit ${canSubmit ? "" : "disabled"}>确认选择${state.selected.length ? ` · ${state.selected.join("、")}` : ""}</button></div>` : ""}<details class="manual"><summary>高级：按 CLI 格式输入</summary><div class="manual-row"><input class="input" id="manual-input" placeholder="输入原始指令"/><button class="btn" data-manual>发送</button></div></details></section>`;
+  const showSubmit = !boolRequest && !forceChoice; const requiredModifier = ["request_jiaohua_dead_skill","request_rabi_skill"].includes(api); const canSubmit = state.selected.length && (!requiredModifier || state.modifier) && leafSelectionValid(r);
+  return `<section class="panel action-panel"><div class="action-kicker">${r.web_concurrent ? `并发输入 · 剩余 ${r.web_remaining} 次` : "轮到你行动"} ${timerBadge()}</div><h2>${e(r.message_content || "请做出选择")}</h2>${choices}${showSubmit ? `<div class="action-footer">${api === "request_leaf_charas" ? "" : `<button class="btn btn-ghost" data-giveup>放弃</button>`}<button class="btn btn-primary" data-submit ${canSubmit ? "" : "disabled"}>确认选择${state.selected.length ? ` · ${state.selected.join("、")}` : ""}</button></div>` : ""}<details class="manual"><summary>高级：按 CLI 格式输入</summary><div class="manual-row"><input class="input" id="manual-input" placeholder="输入原始指令"/><button class="btn" data-manual>发送</button></div></details></section>`;
 }
 function game() {
   const players = state.players.length ? state.players : Array.from({length:7},(_,i)=>({id:i+1,name:`${i+1} 号玩家`}));
@@ -173,13 +210,23 @@ function bind() {
     if (!state.request && !state.activePendingId) return; const id = Number(el.dataset.player);
     if (state.request?.api === "request_vote") state.selected = state.selected.includes(id) ? [] : [id];
     else state.selected = state.selected.includes(id) ? state.selected.filter(x=>x!==id) : [...state.selected,id];
-    if (!state.request && state.activePendingId) state.pendingDrafts[state.activePendingId] = [...state.selected]; render();
+    if (!state.request && state.activePendingId) state.pendingDrafts[state.activePendingId] = [...state.selected];
+    syncDraft(formatSelection()); render();
   }));
-  document.querySelectorAll("[data-pending]").forEach(el => el.addEventListener("click", () => { state.pendingDrafts[state.activePendingId] = [...state.selected]; state.activePendingId = el.dataset.pending; state.selected = [...(state.pendingDrafts[state.activePendingId] || [])]; render(); }));
-  document.querySelector("[data-clear-draft]")?.addEventListener("click", () => { state.selected = []; state.pendingDrafts[state.activePendingId] = []; render(); });
+  document.querySelectorAll("[data-pending]").forEach(el => el.addEventListener("click", () => { state.pendingDrafts[state.activePendingId] = [...state.selected]; syncDraft(); state.activePendingId = el.dataset.pending; state.selected = [...(state.pendingDrafts[state.activePendingId] || [])]; render(); }));
+  document.querySelector("[data-clear-draft]")?.addEventListener("click", () => { state.selected = []; state.pendingDrafts[state.activePendingId] = []; syncDraft(""); render(); });
   document.querySelectorAll("[data-value]").forEach(el => el.addEventListener("click", () => submit(el.dataset.value)));
-  document.querySelectorAll("[data-role]").forEach(el => el.addEventListener("click", () => { const role = el.dataset.role; state.selected = state.selected.includes(role) ? state.selected.filter(x=>x!==role) : [...state.selected,role]; render(); }));
-  document.querySelectorAll("[data-modifier]").forEach(el => el.addEventListener("click", () => { state.modifier = el.dataset.modifier; render(); }));
+  document.querySelectorAll("[data-role]").forEach(el => el.addEventListener("click", () => {
+    const role = el.dataset.role;
+    if (state.selected.includes(role)) state.selected = state.selected.filter(x=>x!==role);
+    else {
+      const limit = state.request?.api === "request_leaf_charas" ? (state.request.data?.choice_count || 4) : Infinity;
+      if (state.selected.length >= limit) return notify(`最多选择 ${limit} 个角色`);
+      state.selected = [...state.selected,role];
+    }
+    syncDraft(formatSelection()); render();
+  }));
+  document.querySelectorAll("[data-modifier]").forEach(el => el.addEventListener("click", () => { state.modifier = el.dataset.modifier; syncDraft(formatSelection()); render(); }));
   document.querySelector("[data-submit]")?.addEventListener("click", () => submit(formatSelection()));
   document.querySelector("[data-giveup]")?.addEventListener("click", () => submit("0"));
   document.querySelector("[data-manual]")?.addEventListener("click", () => submit(document.querySelector("#manual-input").value));
@@ -192,9 +239,13 @@ function formatSelection() {
 }
 function submit(value) {
   if (value === "") return notify("请输入内容"); const request = state.request; send({ type: "game_input", value: String(value) });
-  const id = pendingId(request?.data); if (id) removePending(id); state.request = null; state.selected = []; state.modifier = ""; render();
+  const id = pendingId(request?.data); if (id) removePending(id); state.request = null; state.selected = []; state.modifier = ""; if (state.timerMode !== "vote") clearTimer(); render();
 }
 
 const saved = JSON.parse(localStorage.getItem("weremf.session") || "null");
 if (saved?.roomCode && saved?.token) { state.server = saved.server || ""; state.reconnecting = true; connect({ type: "reconnect", ...saved }); setTimeout(()=>state.reconnecting=false,1500); }
+if (typeof setInterval === "function") setInterval(() => {
+  if (!state.timerDeadline) return;
+  document.querySelectorAll("[data-timer]").forEach(node => node.textContent = timerText());
+}, 250);
 render();

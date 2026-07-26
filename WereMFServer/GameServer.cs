@@ -89,6 +89,7 @@ internal sealed class GameRoom : IAsyncDisposable
     private readonly List<PlayerSession> _players = []; private readonly List<JsonElement> _publicHistory = []; private readonly List<JsonElement> _hostHistory = [];
     private GameProcess? _game; private bool _started; private bool _exportingLog; private string? _expected;
     private ConcurrentInputPhase? _concurrentInput;
+    private CancellationTokenSource? _timerCts; private long _timerVersion; private int _aliveCount;
     public bool IsJoinable => !_started && _players.Count < 16;
     public GameRoom(string code, ServerOptions options, Func<string, Task> remove) => (_code, _options, _remove) = (code, options, remove);
     public object PublicState() => new { code = _code, players = _players.Count, maxPlayers = 16, started = _started };
@@ -119,6 +120,7 @@ internal sealed class GameRoom : IAsyncDisposable
     {
         if (msg.Type == "start_game") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以开始"); await StartAsync(ct); return; }
         if (msg.Type == "game_input") { await InputAsync(p, msg.Value ?? "", ct); return; }
+        if (msg.Type == "pending_draft") { SaveDraft(p, msg); return; }
         if (msg.Type == "command")
         {
             if (!p.IsHost || _game is null) throw new ClientVisibleException("只有房主可以使用管理命令");
@@ -130,6 +132,17 @@ internal sealed class GameRoom : IAsyncDisposable
         throw new ClientVisibleException("未知操作");
     }
 
+    private void SaveDraft(PlayerSession player, ClientMessage msg)
+    {
+        var key = !string.IsNullOrWhiteSpace(msg.SkillId) ? $"skill:{msg.SkillId.Trim()}" : !string.IsNullOrWhiteSpace(msg.Api) ? $"api:{msg.Api.Trim()}" : "";
+        var value = (msg.Value ?? "").Trim();
+        if (key.Length is 0 or > 100 || value.Length > 240) throw new ClientVisibleException("预选草稿无效");
+        lock (_gate)
+        {
+            if (player.Drafts.Count >= 64 && !player.Drafts.ContainsKey(key)) player.Drafts.Remove(player.Drafts.Keys.First());
+            player.Drafts[key] = value;
+        }
+    }
     private async Task StartAsync(CancellationToken ct)
     {
         PlayerSession[] players;
@@ -148,15 +161,21 @@ internal sealed class GameRoom : IAsyncDisposable
             await ConcurrentInputAsync(p, value, ct);
             return;
         }
-        var allowed = _expected == $"player_{p.GameId}" || _expected == "public" || (_expected == "internal" && p.IsHost);
-        if (!allowed) throw new ClientVisibleException("现在还没轮到你行动");
-        _expected = null; await _game.SendAsync(value, ct);
+        lock (_gate)
+        {
+            var allowed = _expected == $"player_{p.GameId}" || _expected == "public" || (_expected == "internal" && p.IsHost);
+            if (!allowed) throw new ClientVisibleException("现在还没轮到你行动");
+            _expected = null;
+            CancelTimerLocked();
+        }
+        await _game.SendAsync(value, ct);
     }
 
     private async Task ConcurrentInputAsync(PlayerSession player, string value, CancellationToken ct)
     {
         string? cliInput;
         JsonElement? repeatPrompt = null;
+        ConcurrentInputPhase? reschedule = null;
         int remaining;
         string api;
         lock (_gate)
@@ -196,10 +215,16 @@ internal sealed class GameRoom : IAsyncDisposable
             }
             remaining = --phase.Remaining[player.GameId];
             if (remaining > 0) repeatPrompt = phase.Prompt;
+            if (phase.Api == "request_vote" && !phase.TimedOut)
+            {
+                phase.Deadline = phase.Deadline.AddSeconds(-_options.VotePenaltySeconds);
+                reschedule = phase;
+            }
             cliInput = TakeConcurrentCliInputLocked(phase);
         }
         await SendAsync(player, new { type = "input_accepted", api, remaining }, ct);
         if (repeatPrompt is JsonElement prompt) await SendConcurrentPromptAsync(player, prompt, remaining, ct);
+        if (reschedule is not null) await ScheduleConcurrentTimerAsync(reschedule);
         if (cliInput is not null) await _game!.SendAsync(cliInput, ct);
     }
 
@@ -211,7 +236,8 @@ internal sealed class GameRoom : IAsyncDisposable
             phase.CliWaiting = false;
             return queued.Value;
         }
-        if (phase.Remaining.Values.All(x => x == 0))
+        if (phase.Remaining.Values.All(x => x == 0) &&
+            (phase.Api == "request_reroll_player" || phase.TimedOut))
         {
             phase.CliWaiting = false;
             return "0";
@@ -219,6 +245,191 @@ internal sealed class GameRoom : IAsyncDisposable
         return null;
     }
 
+    private void CancelTimerLocked()
+    {
+        _timerVersion++;
+        _timerCts?.Cancel();
+        _timerCts?.Dispose();
+        _timerCts = null;
+    }
+
+    private async Task StartRegularTimerAsync(JsonElement root, string api, string target)
+    {
+        CancellationToken token; long version; DateTimeOffset deadline;
+        lock (_gate)
+        {
+            CancelTimerLocked();
+            _timerCts = new CancellationTokenSource(); token = _timerCts.Token; version = _timerVersion;
+            deadline = DateTimeOffset.UtcNow.AddSeconds(_options.RequestTimeoutSeconds);
+        }
+        await SendToTargetAsync(target, new { type = "request_timer", api, deadlineUtc = deadline.ToUnixTimeMilliseconds(), mode = "request" });
+        _ = RunRegularTimeoutAsync(root, api, target, deadline, version, token);
+    }
+
+    private async Task RunRegularTimeoutAsync(JsonElement root, string api, string target, DateTimeOffset deadline, long version, CancellationToken token)
+    {
+        try { var delay = deadline - DateTimeOffset.UtcNow; if (delay > TimeSpan.Zero) await Task.Delay(delay, token); }
+        catch (OperationCanceledException) { return; }
+        PlayerSession? player;
+        lock (_gate)
+        {
+            if (version != _timerVersion || _expected != target) return;
+            _expected = null; player = PlayerForTarget(target); CancelTimerLocked();
+        }
+        var (value, source) = ResolveTimeoutInput(root, api, player);
+        var notice = new { type = "request_timeout_resolved", api, value, source, message = source == "draft" ? $"操作超时，已采用你的预选：{value}" : $"操作超时，系统已随机选择：{value}" };
+        await SendToTargetAsync(target, notice);
+        if (_game is not null) await _game.SendAsync(value);
+    }
+
+    private async Task ScheduleConcurrentTimerAsync(ConcurrentInputPhase phase)
+    {
+        CancellationToken token; long version;
+        lock (_gate)
+        {
+            if (_concurrentInput != phase || phase.TimedOut) return;
+            CancelTimerLocked(); _timerCts = new CancellationTokenSource(); token = _timerCts.Token; version = _timerVersion;
+        }
+        var timer = new { type = "request_timer", api = phase.Api, deadlineUtc = phase.Deadline.ToUnixTimeMilliseconds(), mode = phase.Api == "request_vote" ? "vote" : "request" };
+        if (phase.Api == "request_vote") await BroadcastAsync(timer);
+        else foreach (var id in phase.Remaining.Keys) { var p = _players.FirstOrDefault(x => x.GameId == id); if (p is not null) await SendAsync(p, timer); }
+        _ = RunConcurrentTimeoutAsync(phase, version, token);
+    }
+
+    private async Task RunConcurrentTimeoutAsync(ConcurrentInputPhase phase, long version, CancellationToken token)
+    {
+        try { var delay = phase.Deadline - DateTimeOffset.UtcNow; if (delay > TimeSpan.Zero) await Task.Delay(delay, token); }
+        catch (OperationCanceledException) { return; }
+        var privateNotices = new List<(PlayerSession Player, object Notice)>(); string? cliInput;
+        lock (_gate)
+        {
+            if (version != _timerVersion || _concurrentInput != phase || phase.TimedOut) return;
+            phase.TimedOut = true; CancelTimerLocked();
+            foreach (var (id, remaining) in phase.Remaining.ToArray())
+            {
+                if (remaining <= 0) continue;
+                var player = _players.FirstOrDefault(x => x.GameId == id); if (player is null) continue;
+                if (phase.Api == "request_reroll_player")
+                {
+                    var yes = RandomNumberGenerator.GetInt32(2) == 1;
+                    if (yes) phase.Queue.Enqueue((id, id.ToString()));
+                    privateNotices.Add((player, new { type = "request_timeout_resolved", api = phase.Api, value = yes ? "1" : "0", source = "random", message = yes ? "操作超时，系统随机选择了重抽身份" : "操作超时，系统随机选择了保留身份" }));
+                }
+                phase.Remaining[id] = 0;
+            }
+            cliInput = TakeConcurrentCliInputLocked(phase);
+        }
+        foreach (var (player, notice) in privateNotices) await SendAsync(player, notice);
+        if (phase.Api == "request_vote")
+            await BroadcastAsync(new { type = "request_timeout_resolved", api = phase.Api, value = "0", source = "cli_default", message = "投票时间结束，未完成的玩家由 CLI 按默认弃票处理" });
+        if (cliInput is not null && _game is not null) await _game.SendAsync(cliInput);
+    }
+
+    private PlayerSession? PlayerForTarget(string target)
+    {
+        if (target.StartsWith("player_") && int.TryParse(target[7..], out var id)) return _players.FirstOrDefault(x => x.GameId == id);
+        if (target == "internal") return _players.FirstOrDefault(x => x.IsHost);
+        return null;
+    }
+
+    private Task SendToTargetAsync(string target, object data)
+    {
+        if (target == "public") return BroadcastAsync(data);
+        var player = PlayerForTarget(target); return player is null ? Task.CompletedTask : SendAsync(player, data);
+    }
+
+    private (string Value, string Source) ResolveTimeoutInput(JsonElement root, string api, PlayerSession? player)
+    {
+        var skillId = ExtractSkillId(root);
+        string? draft = null;
+        lock (_gate)
+        {
+            if (player is not null && skillId is not null) player.Drafts.TryGetValue($"skill:{skillId}", out draft);
+            if (player is not null && string.IsNullOrWhiteSpace(draft)) player.Drafts.TryGetValue($"api:{api}", out draft);
+        }
+        if (!string.IsNullOrWhiteSpace(draft) && IsLegalTimeoutInput(root, api, draft)) return (draft, "draft");
+        return (RandomLegalInput(root, api), "random");
+    }
+
+    private static string? ExtractSkillId(JsonElement root)
+    {
+        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("skill_id", out var id)) return null;
+        if (id.ValueKind == JsonValueKind.String) return id.GetString();
+        return id.ValueKind == JsonValueKind.Object && id.TryGetProperty("id", out var nested) ? nested.GetString() : null;
+    }
+
+    private bool IsLegalTimeoutInput(JsonElement root, string api, string value)
+    {
+        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (api == "request_leaf_charas") return IsLegalLeafChoice(root, parts);
+        if (IsBooleanRequest(api)) return parts.Length == 1 && parts[0] is "0" or "1";
+        if (api == "request_hechong_copy_leaf") return parts.Length == 1 && RoleNames.Contains(parts[0]) && parts[0] is not ("叶子" or "合虫");
+        var ids = parts.Where(x => int.TryParse(x, out _)).Select(int.Parse).ToArray();
+        if (ids.Length == 0) return false;
+        var invalid = InvalidChoices(root, "invalid_choice");
+        if (ids.Any(x => x < 0 || x > _players.Count || invalid.Contains(x))) return false;
+        if (api == "request_myz_skill" && ids.Length < 2) return false;
+        if (api == "request_rabi_skill" && !parts.Any(x => x is "x" or "d")) return false;
+        if (api == "request_jiaohua_dead_skill" && !parts.Any(x => x is "x" or "p")) return false;
+        return true;
+    }
+
+    private string RandomLegalInput(JsonElement root, string api)
+    {
+        if (api == "request_leaf_charas") return RandomLeafChoice(root);
+        if (IsBooleanRequest(api)) return RandomNumberGenerator.GetInt32(2).ToString();
+        if (api == "request_hechong_copy_leaf") return RandomChoice(RoleNames.Where(x => x is not ("叶子" or "合虫")).ToArray());
+        var valid = Enumerable.Range(1, _players.Count).Except(InvalidChoices(root, "invalid_choice")).ToArray();
+        if (valid.Length == 0) return "0";
+        var first = valid[RandomNumberGenerator.GetInt32(valid.Length)];
+        if (api == "request_myz_skill")
+        {
+            var targets = Enumerable.Range(1, _players.Count).Except(InvalidChoices(root, "invalid_target_choice")).Where(x => x != first).ToArray();
+            return targets.Length == 0 ? "0" : $"{first} {targets[RandomNumberGenerator.GetInt32(targets.Length)]}";
+        }
+        if (api == "request_rabi_skill") return $"{first} {(RandomNumberGenerator.GetInt32(2) == 0 ? "x" : "d")}";
+        if (api == "request_jiaohua_dead_skill") return $"{first} {(RandomNumberGenerator.GetInt32(2) == 0 ? "x" : "p")}";
+        return first.ToString();
+    }
+
+    private static HashSet<int> InvalidChoices(JsonElement root, string property)
+    {
+        var result = new HashSet<int>(); if (!root.TryGetProperty("data", out var data)) return result;
+        JsonElement list;
+        if (data.ValueKind == JsonValueKind.Array) list = data;
+        else if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty(property, out var nested)) list = nested;
+        else return result;
+        if (list.ValueKind != JsonValueKind.Array) return result;
+        foreach (var item in list.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Number && item.TryGetInt32(out var direct)) result.Add(direct);
+            else if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("id", out var id) && id.TryGetInt32(out var value)) result.Add(value);
+        }
+        return result;
+    }
+
+    private static bool IsBooleanRequest(string api) => api is "request_anonymous_game" or "request_leaf_game" or "request_leaf_chara_reroll" or "request_drink_milk" or "request_fenxia_reborn" or "request_caimon_reborn" or "request_xiansong_give_mfa" or "request_kirby_using_copy_skill" or "request_for_next_game";
+    private static readonly string[] RoleNames = ["脚滑人","Doge","庸医","地鼠","兔子","铯郎","法猫","卡比","粉侠","爬行者","炮仙","实物","灰卡比","音魔","CTF","合虫","彩怪","贤松","江仙","myz","叶子"];
+    private static string RandomChoice(string[] values) => values[RandomNumberGenerator.GetInt32(values.Length)];
+
+    private static bool IsLegalLeafChoice(JsonElement root, string[] values)
+    {
+        if (values.Length != 4 || values.Distinct().Count() != 4 || !root.TryGetProperty("data", out var data) || !data.TryGetProperty("options", out var options)) return false;
+        var camps = options.EnumerateArray().ToDictionary(x => x.GetProperty("value").GetString()!, x => x.GetProperty("camp").GetString()!);
+        return values.All(camps.ContainsKey) && values.Select(x => camps[x]).Distinct().Count() >= 2;
+    }
+
+    private static string RandomLeafChoice(JsonElement root)
+    {
+        if (!root.TryGetProperty("data", out var data) || !data.TryGetProperty("options", out var options)) return "脚滑人 Doge 炮仙 实物";
+        var rows = options.EnumerateArray().Select(x => (Value: x.GetProperty("value").GetString()!, Camp: x.GetProperty("camp").GetString()!)).ToArray();
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var selected = rows.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).Take(4).ToArray();
+            if (selected.Select(x => x.Camp).Distinct().Count() >= 2) return string.Join(' ', selected.Select(x => x.Value));
+        }
+        return "脚滑人 Doge 炮仙 实物";
+    }
     private async Task RouteAsync(string line)
     {
         JsonDocument doc; try { doc = JsonDocument.Parse(line); } catch { await HostAsync(new { type = "server_notice", message = line }); return; }
@@ -237,15 +448,22 @@ internal sealed class GameRoom : IAsyncDisposable
             if (api == "request_for_next_game")
             {
                 _exportingLog = true;
-                await _game!.SendAsync("\\log null");
+                await _game!.SendAsync("0");
                 return;
             }
             if (api == "player_anonymous_init") { await ApplyAnonymousMappingAsync(root); return; }
             if (api == "pending_skill_created") { await RoutePendingSkillAsync(root); return; }
             if (api is "request_reroll_player" or "request_vote") { await RouteConcurrentRequestAsync(root, api); return; }
-            if (api is "vote_end_broadcast" or "day_start_broadcast" or "night_start_broadcast") _concurrentInput = null;
-            if (api.StartsWith("request_") && !api.EndsWith("_parse_error") && api is not ("request_reroll_player" or "request_vote")) _concurrentInput = null;
-            if (api.StartsWith("request_") && !api.EndsWith("_parse_error")) _expected = target;
+            if (api is "game_update_night" or "game_update_day") UpdateAliveCount(root);
+            if (api is "vote_end_broadcast" or "day_start_broadcast" or "night_start_broadcast")
+            {
+                lock (_gate) { _concurrentInput = null; _expected = null; CancelTimerLocked(); }
+            }
+            var regularRequest = api.StartsWith("request_") && !api.EndsWith("_parse_error") && api != "request_player_list";
+            if (regularRequest)
+            {
+                lock (_gate) { _concurrentInput = null; _expected = target; CancelTimerLocked(); }
+            }
             if (target == "public" && api is "game_update_night" or "game_update_day" or "cli_game_summary")
             {
                 PlayerSession[] recipients; lock (_gate) recipients = _players.Where(x => x.Connected).ToArray();
@@ -258,6 +476,7 @@ internal sealed class GameRoom : IAsyncDisposable
             if (target == "public") { Add(_publicHistory, envelope); await BroadcastAsync(envelope); }
             else if (target.StartsWith("player_") && int.TryParse(target[7..], out var id)) { var p = _players.FirstOrDefault(x => x.GameId == id); if (p is not null) { Add(p.History, envelope); await SendAsync(p, envelope); } }
             else { Add(_hostHistory, envelope); await HostAsync(envelope); }
+            if (regularRequest) await StartRegularTimerAsync(root, api, target);
         }
     }
     private async Task RoutePendingSkillAsync(JsonElement root)
@@ -276,20 +495,31 @@ internal sealed class GameRoom : IAsyncDisposable
     {
         List<(PlayerSession Player, int Remaining)> prompts = [];
         string? cliInput;
+        ConcurrentInputPhase phase;
+        var startTimer = false;
         lock (_gate)
         {
             if (_concurrentInput is null || _concurrentInput.Api != api)
             {
+                CancelTimerLocked();
                 _concurrentInput = ConcurrentInputPhase.Create(api, root);
-                prompts.AddRange(_players.Where(x => _concurrentInput.Remaining.ContainsKey(x.GameId)).Select(x => (x, _concurrentInput.Remaining[x.GameId])));
+                phase = _concurrentInput;
+                var seconds = api == "request_vote"
+                    ? Math.Max(_aliveCount, phase.Remaining.Count) * _options.VoteSecondsPerAlive
+                    : _options.RequestTimeoutSeconds;
+                phase.Deadline = DateTimeOffset.UtcNow.AddSeconds(seconds);
+                phase.TimerStarted = true;
+                startTimer = true;
+                prompts.AddRange(_players.Where(x => phase.Remaining.ContainsKey(x.GameId)).Select(x => (x, phase.Remaining[x.GameId])));
             }
-            var phase = _concurrentInput;
+            else phase = _concurrentInput;
             phase.Prompt = root;
             phase.RefreshVoteRules(root);
             phase.CliWaiting = true;
             cliInput = TakeConcurrentCliInputLocked(phase);
         }
         foreach (var (player, remaining) in prompts) await SendConcurrentPromptAsync(player, root, remaining);
+        if (startTimer) await ScheduleConcurrentTimerAsync(phase);
         if (cliInput is not null && _game is not null) await _game.SendAsync(cliInput);
     }
 
@@ -325,6 +555,18 @@ internal sealed class GameRoom : IAsyncDisposable
         await Task.WhenAll(sessions.Select(x => SendAsync(x, new { type = "player_remapped", playerId = x.GameId })));
     }
 
+    private void UpdateAliveCount(JsonElement root)
+    {
+        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) return;
+        var alive = 0;
+        foreach (var entity in data.EnumerateArray())
+        {
+            if (!entity.TryGetProperty("state", out var state)) continue;
+            var dead = state.TryGetProperty("is_dead_public", out var publicDead) && publicDead.ValueKind == JsonValueKind.True;
+            if (!dead) alive++;
+        }
+        if (alive > 0) lock (_gate) _aliveCount = alive;
+    }
     private static JsonElement RedactedEnvelope(JsonElement root, int playerId)
     {
         var payload = JsonNode.Parse(root.GetRawText())!.AsObject();
@@ -379,6 +621,9 @@ internal sealed class ConcurrentInputPhase
     public Dictionary<int, HashSet<int>> InvalidVotes { get; } = [];
     public HashSet<int> CanSuicide { get; } = [];
     public bool CliWaiting { get; set; } = true;
+    public DateTimeOffset Deadline { get; set; }
+    public bool TimerStarted { get; set; }
+    public bool TimedOut { get; set; }
 
     public static ConcurrentInputPhase Create(string api, JsonElement root)
     {
@@ -418,7 +663,7 @@ internal sealed class ConcurrentInputPhase
 internal sealed class PlayerSession(int id, string name, bool host, WebSocket socket)
 {
     public int Id { get; } = id; public int GameId { get; set; } = id; public string Name { get; } = name; public bool IsHost { get; } = host; public WebSocket Socket { get; set; } = socket; public bool Connected { get; set; } = true;
-    public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)); public SemaphoreSlim SendLock { get; } = new(1, 1); public List<JsonElement> History { get; } = [];
+    public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)); public SemaphoreSlim SendLock { get; } = new(1, 1); public List<JsonElement> History { get; } = []; public Dictionary<string, string> Drafts { get; } = [];
 }
-internal sealed record ClientMessage { public string Type { get; init; } = ""; public string? RoomCode { get; init; } public string? PlayerName { get; init; } public string? Token { get; init; } public string? Value { get; init; } }
+internal sealed record ClientMessage { public string Type { get; init; } = ""; public string? RoomCode { get; init; } public string? PlayerName { get; init; } public string? Token { get; init; } public string? Value { get; init; } public string? SkillId { get; init; } public string? Api { get; init; } }
 internal sealed class ClientVisibleException(string message) : Exception(message);

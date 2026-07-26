@@ -35,7 +35,7 @@ Console.WriteLine($"Game executable: {options.GamePath}");
 await app.RunAsync();
 return 0;
 
-internal sealed record ServerOptions(string GamePath, string Host, int Port, string? Config, int? Seed)
+internal sealed record ServerOptions(string GamePath, string Host, int Port, string? Config, int? Seed, int RequestTimeoutSeconds, int VoteSecondsPerAlive, int VotePenaltySeconds)
 {
     public static ServerOptions Parse(string[] args)
     {
@@ -44,6 +44,9 @@ internal sealed record ServerOptions(string GamePath, string Host, int Port, str
         var port = 5000;
         string? config = null;
         int? seed = null;
+        var requestTimeoutSeconds = 60;
+        var voteSecondsPerAlive = 60;
+        var votePenaltySeconds = 30;
         for (var i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} requires a value");
@@ -56,13 +59,16 @@ internal sealed record ServerOptions(string GamePath, string Host, int Port, str
                 case "--http-port": _ = Next(); break;
                 case "--config": config = Path.GetFullPath(Next()); break;
                 case "--seed": seed = int.Parse(Next()); break;
+                case "--request-timeout-seconds": requestTimeoutSeconds = Math.Max(1, int.Parse(Next())); break;
+                case "--vote-seconds-per-alive": voteSecondsPerAlive = Math.Max(1, int.Parse(Next())); break;
+                case "--vote-penalty-seconds": votePenaltySeconds = Math.Max(0, int.Parse(Next())); break;
                 case "--help":
                 case "-h":
-                    Console.WriteLine("WereMFServer: --path <file> --host <address> --port <number> --config <file> --seed <number>");
+                    Console.WriteLine("WereMFServer: --path <file> --host <address> --port <number> --config <file> --seed <number> --request-timeout-seconds <n> --vote-seconds-per-alive <n> --vote-penalty-seconds <n>");
                     Environment.Exit(0);
                     break;
             }
         }
-        return new ServerOptions(Path.GetFullPath(gamePath), host, port, config, seed);
+        return new ServerOptions(Path.GetFullPath(gamePath), host, port, config, seed, requestTimeoutSeconds, voteSecondsPerAlive, votePenaltySeconds);
     }
 }

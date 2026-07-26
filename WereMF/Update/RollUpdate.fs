@@ -141,8 +141,29 @@ let rollReset () = monad {
 }
 
 let rollInputLeaf (player: Player)=
-    let msg = { Type = ToPlayer player ; Content = "输入叶子的四个身份" }
     let isInvalidCharas c = c = FenXia || c = CaiMon || c = Leaf
+    let choices =
+        (barCharaPool @ boomCharaPool)
+        |> List.distinct
+        |> List.filter (isInvalidCharas >> not)
+        |> List.map (fun c -> JsonValue.Record [|
+            "value", c.ToJsonValue ()
+            "camp", c.GetCamp().ToJsonValue ()
+        |])
+        |> List.toArray
+        |> JsonValue.Array
+    let msg = {
+        Type = ToPlayer player
+        Content = "输入叶子的四个身份"
+        Api = ApiType.RequestLeafCharas
+        Data = JsonValue.Record [|
+            "kind", JsonValue.String "role_set"
+            "choice_count", JsonValue.Number 4M
+            "required_camps", JsonValue.Array [| JsonValue.String "吧方"; JsonValue.String "爆方" |]
+            "excluded", JsonValue.Array [| JsonValue.String "粉侠"; JsonValue.String "彩怪"; JsonValue.String "叶子" |]
+            "options", choices
+        |]
+    }
     let parser = parseCharaList >> (function
         | Ok list when list.Length <> 4 ->
             Error "请输入四个不重复的身份"
@@ -153,8 +174,7 @@ let rollInputLeaf (player: Player)=
             Error "必须同时包含吧方和爆方身份"
         | value -> value
     )
-    requestInputWithRawMessage msg ApiType.RequestLeafCharas parser
-
+    requestInputWithMessage msg parser
 let rollSetLeaf () = monad {
     let! main = Reader.ask
     let rng = main.Rng
