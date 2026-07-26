@@ -119,6 +119,10 @@ function onMessage(message) {
   if (message.type === "room_state") {
     state.botIds = [...(message.bots || [])];
     if (!message.started || !state.players.length) state.players = [...message.players];
+    if (!message.started) {
+      const me = (message.players || []).find(p => !p.isPermanentBot && p.name === state.playerName);
+      if (me) Object.assign(state, { playerId: me.id, isHost: me.isHost });
+    }
     state.started = message.started;
     if (message.started) state.view = "game";
     else if (state.view !== "landing") state.view = "room";
@@ -251,7 +255,10 @@ function playerCard(p) {
     st.myz_threaten ? ["❌ 被威胁 · 白天无法行动", "threatened"] : null,
     st.shiwu_kidnapped ? ["被实物绑架", "kidnapped"] : null
   ].filter(Boolean);
-  return `<button class="board-player ${dead ? "dead" : ""} ${selected ? "selected" : ""}" data-player="${p.id}" ${invalid ? "disabled" : ""}><div class="board-name"><span class="seat-no" style="display:inline-grid;width:25px;height:25px;border-radius:8px;margin-right:7px">${p.id}</span>${e(p.name)}</div><div class="board-role">${(entity?.role?.summary_name || entity?.role?.role?.summary_name) ? e(entity.role.summary_name || entity.role.role.summary_name) : dead ? e(st.dead_showing_name || "身份未公开") : "身份隐藏"}</div>${effects.length ? `<div class="state-badges">${effects.map(x => `<span class="state-badge ${x[1]}">${x[0]}</span>`).join("")}</div>` : ""}${voteText ? `<div class="vote-status ${vote.confirmed ? "confirmed" : ""}">${e(voteText)}${vote.confirmed ? " · 已确认" : " · 可改票"}</div>` : ""}${tokens.length ? `<div class="tokens">${tokens.map(x=>`<span class="token">${x[0]} × ${x[1]}</span>`).join("")}</div>` : ""}</button>`;
+  const visibleRole = entity?.role;
+  const roleName = visibleRole?.summary_name || visibleRole?.role?.summary_name;
+  const roleText = roleName ? `${roleName}${visibleRole?.public_reveal ? " · 已公开" : ""}` : dead ? (st.dead_showing_name || "身份未公开") : "身份隐藏";
+  return `<button class="board-player ${dead ? "dead" : ""} ${selected ? "selected" : ""}" data-player="${p.id}" ${invalid ? "disabled" : ""}><div class="board-name"><span class="seat-no" style="display:inline-grid;width:25px;height:25px;border-radius:8px;margin-right:7px">${p.id}</span>${e(p.name)}</div><div class="board-role ${visibleRole?.public_reveal ? "public" : ""}">${e(roleText)}</div>${effects.length ? `<div class="state-badges">${effects.map(x => `<span class="state-badge ${x[1]}">${x[0]}</span>`).join("")}</div>` : ""}${voteText ? `<div class="vote-status ${vote.confirmed ? "confirmed" : ""}">${e(voteText)}${vote.confirmed ? " · 已确认" : " · 可改票"}</div>` : ""}${tokens.length ? `<div class="tokens">${tokens.map(x=>`<span class="token">${x[0]} × ${x[1]}</span>`).join("")}</div>` : ""}</button>`;
 }
 function invalidIdsFor(request) {
   const data = request?.data; let list;

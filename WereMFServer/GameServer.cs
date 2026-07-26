@@ -205,6 +205,8 @@ internal sealed class GameRoom : IAsyncDisposable
         finally { _routeLock.Release(); }
         await game.DisposeAsync();
         await BroadcastAsync(new { type = "room_restarted", message = "房主已结束本局，返回等待大厅" }, ct);
+        PlayerSession[] sessions; lock (_gate) sessions = _players.Where(x => x.Connected && !x.IsPermanentBot).ToArray();
+        await Task.WhenAll(sessions.Select(x => SendAsync(x, new { type = "session_state", playerId = x.GameId, isHost = x.IsHost }, ct)));
         await StateAsync(ct);
     }
 
@@ -773,10 +775,23 @@ internal sealed class GameRoom : IAsyncDisposable
                 var id = item["player"]?["id"]?.GetValue<int>() ?? 0;
                 if (item["player"] is JsonObject player && player["anonymous"]?.GetValue<bool>() == true)
                     player["name"] = $"玩家{id}";
-                if (id != playerId) item["role"] = null;
+                var role = item["role"] as JsonObject;
+                var publicRole = CreatePublicRole(role);
+                if (id != playerId) item["role"] = publicRole;
+                else if (publicRole is not null && role is not null) role["public_reveal"] = true;
             }
         }
         return JsonSerializer.SerializeToElement(new { type = "game_message", payload });
+    }
+
+    private static JsonObject? CreatePublicRole(JsonObject? role)
+    {
+        if (role is null) return null;
+        var charaType = role["chara_type"]?.GetValue<string>();
+        var data = role["data"] as JsonObject;
+        if (charaType == "叶子" && data?["fury"]?.GetValue<bool>() == true)
+            return new JsonObject { ["chara_type"] = "叶子", ["summary_name"] = "叶子", ["data"] = new JsonObject { ["fury"] = true }, ["public_reveal"] = true };
+        return null;
     }
 
     private static void Add(List<JsonElement> list, JsonElement value) { lock (list) { list.Add(value); if (list.Count > 250) list.RemoveAt(0); } }
