@@ -12,6 +12,42 @@ const state = {
 const e = (value = "") => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
 const socketUrl = () => state.server.trim() || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
 const notify = message => { toast.textContent = message; toast.classList.add("show"); clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove("show"), 2600); };
+const defaultTitle = document.title || "MF 杀 · 今夜谁在说谎";
+let titleFlashTimer = null;
+function stopTitleFlash() {
+  if (titleFlashTimer) clearInterval(titleFlashTimer);
+  titleFlashTimer = null;
+  document.title = defaultTitle;
+}
+function flashTitle(message) {
+  if (state.reconnecting) return;
+  stopTitleFlash();
+  let tick = 0;
+  const update = () => {
+    document.title = tick++ % 2 ? defaultTitle : `● ${message} · MF 杀`;
+    if (tick >= 12) stopTitleFlash();
+  };
+  update();
+  if (typeof setInterval !== "function") return;
+  titleFlashTimer = setInterval(update, 650);
+}
+function requestBrowserNotifications() {
+  if (!("Notification" in globalThis) || Notification.permission !== "default") return;
+  Notification.requestPermission().catch(() => {});
+}
+function alertRequest(request) {
+  flashTitle("轮到你行动");
+  if (!("Notification" in globalThis) || Notification.permission !== "granted" || state.reconnecting) return;
+  const notification = new Notification("MF 杀 · 轮到你行动", {
+    body: String(request.message_content || "请返回游戏做出选择"),
+    icon: "/og.png",
+    tag: `weremf-${state.roomCode}-${request.api || "request"}`,
+    renotify: true
+  });
+  notification.onclick = () => globalThis.focus?.();
+}
+document.addEventListener?.("visibilitychange", () => { if (!document.hidden) stopTitleFlash(); });
+globalThis.addEventListener?.("focus", stopTitleFlash);
 
 function connect(firstMessage) {
   if (state.socket) try { state.socket.close(); } catch {}
@@ -50,7 +86,7 @@ function handleGameMessage(msg) {
   if (api === "player_init" || api === "player_anonymous_init") state.players = (msg.data || []).map(p => ({ ...p, connected: true }));
   if (api === "player_notify_chara" || api === "player_notify_chara_reset") state.role = text || "未知身份";
   if (api === "leaf_notify_first_chara" || api === "leaf_notify_first_chara_reroll") state.role = `叶子 · ${text}`;
-  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
+  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
   if (api === "day_start_broadcast") { clearTimer(); state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
   if (api === "vote_start_broadcast") { clearTimer(); state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; }
   if (api === "vote_end_broadcast") clearTimer();
@@ -104,6 +140,7 @@ function activateRequest(msg) {
   const invalid = invalidIdsFor(msg); const removed = draft.filter(x => typeof x === "number" && invalid.has(x));
   state.selected = draft.filter(x => typeof x !== "number" || !invalid.has(x)); state.activePendingId = id || state.activePendingId;
   if (removed.length) { const names = removed.map(id => state.players.find(x => x.id === id)?.name || `${id} 号`).join("、"); syncDraft(); notify(`局面已变化，已取消无效选择：${names}`); }
+  alertRequest(msg);
 }
 function voteTargetText(target) {
   if (target === 0) return "弃票";
@@ -126,6 +163,7 @@ function updateVotes(msg) {
 }function addEvent(api, text, privateMessage) {
   state.events.push({ api, text, private: privateMessage, time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) });
   if (state.events.length > 180) state.events.shift();
+  flashTitle("有新消息");
 }
 
 function landing() {
@@ -204,6 +242,7 @@ function bind() {
   document.querySelector("#entry-form")?.addEventListener("submit", event => {
     event.preventDefault(); const action = event.submitter?.value; const name = document.querySelector("#name").value.trim(); const roomCode = document.querySelector("#code").value.trim(); state.server = document.querySelector("#server").value.trim();
     if (!name) return notify("先填一个昵称"); if (action === "join" && !/^\d{6}$/.test(roomCode)) return notify("房间号是 6 位数字");
+    requestBrowserNotifications();
     connect({ type: action === "create" ? "create_room" : "join_room", playerName: name, roomCode });
   });
   document.querySelector("#copy-room")?.addEventListener("click", async () => { await navigator.clipboard.writeText(`来玩 MF 杀：房间 ${state.roomCode}`); notify("邀请信息已复制"); });
