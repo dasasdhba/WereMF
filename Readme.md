@@ -3,28 +3,15 @@
 MF 杀是由 [Mario Forever 社区](https://www.marioforever.net) 的大爷、xfx 等众多玩家共同设计的类狼人杀游戏
 本项目是该游戏的机器实现
 
-## Server
+## Server / Web
 
-Server 用于转发 CLI 程序的输入输出，通过 WebSocket 在 `ws://host:port` 连接，并且可以通过 `http://host:port` 查看已连接的对局状态
+`WereMFServer` 现在同时提供多人房间、WebSocket 消息路由和 Web 前端。每个房间只启动一个 WereMF CLI 规则进程；服务端按 `public`、`player_X`、`internal` 分发消息，并在公开状态快照中移除其他玩家的身份数据。
 
-### 选项
+```text
+WereMFServer --path <WereMF 可执行文件> --host 0.0.0.0 --port 5000 [--config <配置>] [--seed <种子>]
+```
 
-* `--help`: 显示帮助
-* `--path <path>`: Cli 程序路径，默认为 `weremf`
-* `--host <host>`: 默认为 127.0.01
-* `--websocket-port <port>`: 默认为 5000
-* `--http-port <port>`: 默认为 5001
-
-### 命令
-
-* `help`: 显示帮助
-* `ls`: 显示已创建的游戏
-* `seed`: 令下一局游戏使用随机种子
-* `seed <int>`: 令下一局游戏使用指定的种子
-* `config <path>`: 设置抽签配置文件
-* `kill <id>`: 终止指定的一局游戏
-* `exit` / `quit`: 退出
-
+浏览器访问 `http://host:port`，WebSocket 使用同源 `/ws`。详细的运行方式、界面设计和客户端协议见 [`WereMFWeb/README.md`](WereMFWeb/README.md)。
 ---
 
 ## Game

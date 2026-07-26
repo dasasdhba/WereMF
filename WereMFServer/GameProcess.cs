@@ -1,147 +1,71 @@
 using System.Diagnostics;
-using System.Text.Json;
+using System.Text;
 
 namespace WereMFServer;
 
-public class GameProcess
+internal sealed class GameProcess : IAsyncDisposable
 {
-    public Guid GameId { get; }
-    private readonly Process _proc;
-    private readonly StreamWriter _input;
-    private readonly StreamReader _output;
-    private readonly StreamReader _error;
-    private readonly Queue<string> _outputQueue = new();
-    private string _queuedLog = "";
-    private bool _running = true;
+    private readonly Process _process;
+    private readonly SemaphoreSlim _inputLock = new(1, 1);
+    private readonly CancellationTokenSource _shutdown = new();
+    private Task _outputTask = Task.CompletedTask;
+    private Task _errorTask = Task.CompletedTask;
+    public event Func<string, Task>? OutputReceived;
+    public event Func<int, Task>? Exited;
 
-    private void CaptureOutputs()
+    public GameProcess(string executable, string? config, int? seed)
     {
-        while (!_output.EndOfStream && _running)
+        var info = new ProcessStartInfo(executable)
         {
-            string? line;
-
-            lock (_output)
-            {
-                line = _output.ReadLine();
-            }
-            
-            if (line != null)
-            {
-                lock (_outputQueue)
-                {
-                    _outputQueue.Enqueue(line);
-                }
-
-                lock (_queuedLog)
-                {
-                    try
-                    {
-                        var json = JsonSerializer.Deserialize<Dictionary<string, string>>(line);
-                        if (json != null && json.TryGetValue("api", out string? value) && value == "cli_log")
-                        {
-                            _queuedLog = json["data"];
-                        }
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-                }
-            }
-        }
-    }
-    
-    private void CaptureErrors()
-    {
-        while (!_error.EndOfStream && _running)
-        {
-            lock (_error)
-            {
-                var line = _error.ReadLine();
-                if (line != null)
-                {
-                    Console.WriteLine($"[{DateTime.Now}] Error from game process {GameId}: {line}");
-                }
-            }
-        }
-    }
-    
-    public GameProcess(Guid gameId, Process proc)
-    {
-        GameId = gameId;
-        Console.WriteLine($"[{DateTime.Now}] Game process {gameId} started.");
-        
-        _proc = proc;
-        _input = proc.StandardInput;
-        _output = proc.StandardOutput;
-        _error = proc.StandardError;
-        
-        Task.Run(CaptureOutputs);
-        Task.Run(CaptureErrors);
+            UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true,
+            RedirectStandardError = true, CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(executable) ?? Environment.CurrentDirectory
+        };
+        info.ArgumentList.Add("--api");
+        if (!string.IsNullOrWhiteSpace(config)) { info.ArgumentList.Add("--config"); info.ArgumentList.Add(config); }
+        if (seed is not null) { info.ArgumentList.Add("--seed"); info.ArgumentList.Add(seed.Value.ToString()); }
+        info.StandardInputEncoding = new UTF8Encoding(false);
+        info.StandardOutputEncoding = new UTF8Encoding(false);
+        info.StandardErrorEncoding = new UTF8Encoding(false);
+        _process = Process.Start(info) ?? throw new InvalidOperationException("Unable to start WereMF.");
+        _process.EnableRaisingEvents = true;
+        _process.Exited += async (_, _) => { if (Exited is not null) await Exited(_process.ExitCode); };
     }
 
-    public string GetQueuedLog()
+    public void Start()
     {
-        lock (_queuedLog)
-        {
-            return _queuedLog;
-        }
+        _outputTask = PumpAsync(_process.StandardOutput, false, _shutdown.Token);
+        _errorTask = PumpAsync(_process.StandardError, true, _shutdown.Token);
     }
-    
-    public bool SendInput(string input)
+
+    private async Task PumpAsync(StreamReader reader, bool error, CancellationToken ct)
     {
-        if (_proc.HasExited)
+        while (!ct.IsCancellationRequested)
         {
-            Console.WriteLine($"[{DateTime.Now}] Game process of {GameId} has probably crashed, failed Sending {input} to game process {GameId}.");
-            return false;
-        }
-        try
-        {
-            lock (_input)
+            var line = await reader.ReadLineAsync(ct);
+            if (line is null) break;
+            if (error) Console.Error.WriteLine($"[WereMF] {line}");
+            else if (OutputReceived is not null)
             {
-                _input.WriteLine(input);
-                _input.Flush();
-                Console.WriteLine($"[{DateTime.Now}] Sent {input} to game process {GameId}.");
-                return true;
+                try { await OutputReceived(line); }
+                catch (Exception ex) { Console.Error.WriteLine($"[WereMF route] {ex}"); }
             }
         }
-        catch (Exception e)
-        {
-            Console.WriteLine($"[{DateTime.Now}] {e}, failed Sending {input} to game process {GameId}.");
-            return false;
-        }
     }
-    
-    public List<string> GetOutput()
+
+    public async Task SendAsync(string input, CancellationToken ct = default)
     {
-        List<string> outputs = [];
-        lock (_outputQueue)
-        {
-            while (_outputQueue.Count > 0)
-            {
-                outputs.Add(_outputQueue.Dequeue());
-            }
-        }
-        return outputs;
+        if (_process.HasExited) throw new InvalidOperationException("Game process has exited.");
+        await _inputLock.WaitAsync(ct);
+        try { await _process.StandardInput.WriteLineAsync(input); await _process.StandardInput.FlushAsync(ct); }
+        finally { _inputLock.Release(); }
     }
-    
-    public void Kill()
+
+    public async ValueTask DisposeAsync()
     {
-        _running = false;
-        try
-        {
-            if (!_proc.HasExited)
-            {
-                _proc.Kill(true);
-                lock(_input) _input.Dispose();
-                lock(_output) _output.Dispose();
-                lock(_error) _error.Dispose();
-                _proc.Dispose();
-            }
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine($"[{DateTime.Now}] {e}, failed killing game process {GameId}.");
-        }
+        _shutdown.Cancel();
+        if (!_process.HasExited) { _process.Kill(true); await _process.WaitForExitAsync(); }
+        try { await Task.WhenAll(_outputTask, _errorTask); } catch (OperationCanceledException) { }
+        _process.Dispose(); _shutdown.Dispose(); _inputLock.Dispose();
     }
 }
