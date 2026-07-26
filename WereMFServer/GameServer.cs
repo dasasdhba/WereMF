@@ -27,6 +27,14 @@ internal sealed class GameServer : IDisposable
                 {
                     var msg = JsonSerializer.Deserialize<ClientMessage>(text, JsonOptions) ?? new();
                     if (player is null) (room, player) = await AttachAsync(socket, msg, ct);
+                    else if (msg.Type == "leave_room")
+                    {
+                        await room!.LeaveAsync(player);
+                        await SendRawAsync(socket, new { type = "left_room" }, ct);
+                        room = null; player = null;
+                        if (socket.State == WebSocketState.Open) await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "left room", ct);
+                        break;
+                    }
                     else await room!.HandleAsync(player, msg, ct);
                 }
                 catch (ClientVisibleException e) { await SendRawAsync(socket, new { type = "error", message = e.Message }, ct); }
@@ -89,7 +97,8 @@ internal sealed class GameRoom : IAsyncDisposable
     private readonly List<PlayerSession> _players = []; private readonly List<JsonElement> _publicHistory = []; private readonly List<JsonElement> _hostHistory = [];
     private GameProcess? _game; private bool _started; private bool _exportingLog; private string? _expected;
     private ConcurrentInputPhase? _concurrentInput;
-    private CancellationTokenSource? _timerCts; private long _timerVersion; private int _aliveCount;
+    private readonly SemaphoreSlim _routeLock = new(1, 1);
+    private CancellationTokenSource? _timerCts; private long _timerVersion; private int _aliveCount; private long _gameVersion;
     public bool IsJoinable => !_started && _players.Count < 16;
     public GameRoom(string code, ServerOptions options, Func<string, Task> remove) => (_code, _options, _remove) = (code, options, remove);
     public object PublicState() => new { code = _code, players = _players.Count, maxPlayers = 16, started = _started };
@@ -103,7 +112,7 @@ internal sealed class GameRoom : IAsyncDisposable
         PlayerSession p;
         lock (_gate)
         {
-            p = token is null ? null! : _players.FirstOrDefault(x => x.Token == token)!;
+            p = token is null ? null! : _players.FirstOrDefault(x => x.Token == token && !x.HasLeft)!;
             if (p is not null) { p.Socket = socket; p.Connected = true; if (!p.IsPermanentBot) { p.IsBot = false; p.MissedRequests = 0; } }
             else
             {
@@ -121,17 +130,82 @@ internal sealed class GameRoom : IAsyncDisposable
         if (msg.Type == "start_game") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以开始"); await StartAsync(ct); return; }
         if (msg.Type == "add_bot") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以增加 Bot"); await AddBotAsync(ct); return; }
         if (msg.Type == "remove_bot") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以删除 Bot"); await RemoveBotAsync(ct); return; }
+        if (msg.Type == "restart_room") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以重开"); await RestartRoomAsync(ct); return; }
         if (msg.Type == "game_input") { await InputAsync(p, msg.Value ?? "", ct); return; }
         if (msg.Type == "pending_draft") { SaveDraft(p, msg); return; }
         if (msg.Type == "command")
         {
             if (!p.IsHost || _game is null) throw new ClientVisibleException("只有房主可以使用管理命令");
             if (msg.Value != "\\restart") throw new ClientVisibleException("房主只能使用重开命令");
-            await _game.SendAsync(msg.Value, ct);
+            await RestartRoomAsync(ct);
             return;
         }
         if (msg.Type == "ping") { await SendAsync(p, new { type = "pong" }, ct); return; }
         throw new ClientVisibleException("未知操作");
+    }
+
+    public async Task LeaveAsync(PlayerSession player)
+    {
+        var removeRoom = false;
+        var becameBot = false;
+        PlayerSession[] remaining;
+        lock (_gate)
+        {
+            player.Connected = false;
+            player.Socket = null;
+            if (_started)
+            {
+                player.HasLeft = true;
+                player.IsBot = true;
+                player.MissedRequests = 0;
+                becameBot = true;
+            }
+            else
+            {
+                _players.Remove(player);
+                for (var i = 0; i < _players.Count; i++) _players[i].Id = _players[i].GameId = i + 1;
+            }
+            if (player.IsHost)
+            {
+                player.IsHost = false;
+                var candidates = _players.Where(x => x != player && x.Connected && !x.IsBot && !x.HasLeft).ToArray();
+                if (candidates.Length > 0) candidates[Random.Shared.Next(candidates.Length)].IsHost = true;
+                else if (!_started) removeRoom = true;
+            }
+            remaining = _players.Where(x => x.Connected && !x.IsPermanentBot && !x.HasLeft).ToArray();
+        }
+        if (removeRoom) { await _remove(_code); return; }
+        if (becameBot)
+            await BroadcastAsync(new { type = "bot_takeover", playerId = player.GameId, playerName = player.Name, message = $"{player.Name} 已彻底退出，本局剩余操作由 Bot 接管" });
+        await Task.WhenAll(remaining.Select(x => SendAsync(x, new { type = "session_state", playerId = x.GameId, isHost = x.IsHost })));
+        await StateAsync();
+    }
+    private async Task RestartRoomAsync(CancellationToken ct)
+    {
+        GameProcess? game;
+        await _routeLock.WaitAsync(ct);
+        try
+        {
+            lock (_gate)
+            {
+                if (!_started || _game is null) throw new ClientVisibleException("当前没有正在进行的对局");
+                _gameVersion++;
+                game = _game; _game = null; _started = false; _exportingLog = false; _expected = null; _concurrentInput = null; _aliveCount = 0;
+                CancelTimerLocked();
+                _publicHistory.Clear(); _hostHistory.Clear();
+                _players.RemoveAll(x => x.HasLeft);
+                for (var i = 0; i < _players.Count; i++)
+                {
+                    var player = _players[i];
+                    player.Id = player.GameId = i + 1; player.MissedRequests = 0; player.History.Clear(); player.Drafts.Clear();
+                    if (!player.IsPermanentBot) player.IsBot = false;
+                }
+            }
+        }
+        finally { _routeLock.Release(); }
+        await game.DisposeAsync();
+        await BroadcastAsync(new { type = "room_restarted", message = "房主已结束本局，返回等待大厅" }, ct);
+        await StateAsync(ct);
     }
 
     private async Task AddBotAsync(CancellationToken ct)
@@ -173,11 +247,21 @@ internal sealed class GameRoom : IAsyncDisposable
     }
     private async Task StartAsync(CancellationToken ct)
     {
-        PlayerSession[] players;
-        lock (_gate) { if (_started) throw new ClientVisibleException("对局已经开始"); if (_players.Count < 7) throw new ClientVisibleException("至少需要 7 名玩家"); _started = true; players = _players.ToArray(); }
-        _game = new GameProcess(_options.GamePath, _options.Config, _options.Seed);
-        _game.OutputReceived += RouteAsync; _game.Exited += code => BroadcastAsync(new { type = "game_ended", message = code == 0 ? "对局已结束" : "规则进程意外退出" }); _game.Start();
-        await StateAsync(ct); await _game.SendAsync(string.Join(" ", players.Select(x => $"\"{x.Name.Replace("\"", "”")}\"")), ct);
+        PlayerSession[] players; GameProcess game; long version;
+        lock (_gate)
+        {
+            if (_started) throw new ClientVisibleException("对局已经开始");
+            if (_players.Count < 7) throw new ClientVisibleException("至少需要 7 名玩家");
+            _started = true; players = _players.ToArray(); version = ++_gameVersion;
+            _game = game = new GameProcess(_options.GamePath, _options.Config, _options.Seed);
+        }
+        game.OutputReceived += line => RouteAsync(line, version);
+        game.Exited += code => version == Interlocked.Read(ref _gameVersion) && _started
+            ? BroadcastAsync(new { type = "game_ended", message = code == 0 ? "对局已结束" : "规则进程意外退出" })
+            : Task.CompletedTask;
+        game.Start();
+        await StateAsync(ct);
+        await game.SendAsync(string.Join(" ", players.Select(x => $"\"{x.Name.Replace("\"", "”")}\"")), ct);
     }
     private async Task InputAsync(PlayerSession p, string value, CancellationToken ct)
     {
@@ -523,12 +607,17 @@ internal sealed class GameRoom : IAsyncDisposable
         }
         return "脚滑人 Doge 炮仙 实物";
     }
-    private async Task RouteAsync(string line)
+    private async Task RouteAsync(string line, long version)
     {
+        await _routeLock.WaitAsync();
+        try
+        {
+            lock (_gate) if (version != _gameVersion || !_started) return;
         JsonDocument doc; try { doc = JsonDocument.Parse(line); } catch { await HostAsync(new { type = "server_notice", message = line }); return; }
         using (doc)
         {
             var root = doc.RootElement.Clone(); var target = root.GetProperty("message_type").GetString() ?? "internal"; var api = root.GetProperty("api").GetString() ?? ""; if (_exportingLog && api != "cli_log") return; if (api == "cli_log") _exportingLog = false;
+            if (api == "request_player_list") return;
             var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload = root });
             if (api == "cli_log")
             {
@@ -576,6 +665,8 @@ internal sealed class GameRoom : IAsyncDisposable
                 else await StartRegularTimerAsync(root, api, target);
             }
         }
+        }
+        finally { _routeLock.Release(); }
     }
     private async Task RoutePendingSkillAsync(JsonElement root)
     {
@@ -762,8 +853,8 @@ internal sealed class ConcurrentInputPhase
 }
 internal sealed class PlayerSession(int id, string name, bool host, WebSocket? socket)
 {
-    public int Id { get; set; } = id; public int GameId { get; set; } = id; public string Name { get; } = name; public bool IsHost { get; } = host; public WebSocket? Socket { get; set; } = socket; public bool Connected { get; set; } = true;
-    public bool IsBot { get; set; } public bool IsPermanentBot { get; set; } public int MissedRequests { get; set; }
+    public int Id { get; set; } = id; public int GameId { get; set; } = id; public string Name { get; } = name; public bool IsHost { get; set; } = host; public WebSocket? Socket { get; set; } = socket; public bool Connected { get; set; } = true;
+    public bool IsBot { get; set; } public bool IsPermanentBot { get; set; } public bool HasLeft { get; set; } public int MissedRequests { get; set; }
     public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)); public SemaphoreSlim SendLock { get; } = new(1, 1); public List<JsonElement> History { get; } = []; public Dictionary<string, string> Drafts { get; } = [];
 }
 internal sealed record ClientMessage { public string Type { get; init; } = ""; public string? RoomCode { get; init; } public string? PlayerName { get; init; } public string? Token { get; init; } public string? Value { get; init; } public string? SkillId { get; init; } public string? Api { get; init; } }
