@@ -87,6 +87,14 @@ function connect(firstMessage) {
   ws.addEventListener("error", () => notify("无法连接游戏服务器"));
 }
 function send(data) { if (state.socket?.readyState === WebSocket.OPEN) state.socket.send(JSON.stringify(data)); else notify("尚未连接服务器"); }
+function clearNewGamePresentation() {
+  clearTransitionQueue(); clearTimer();
+  Object.assign(state, {
+    entities: [], votes: [], events: [], phase: "准备", round: 0, role: "身份尚未揭晓", roleVisible: true,
+    request: null, selected: [], modifier: "", pendingSkills: [], pendingDrafts: {}, pendingModifiers: {},
+    preSubmittedDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0
+  });
+}
 function resetGameToLobby() {
   clearTimer();
   clearTransitionQueue();
@@ -132,6 +140,7 @@ function onMessage(message) {
   if (message.type === "session_state") Object.assign(state, { playerId: message.playerId, isHost: message.isHost });
   if (message.type === "room_restarted") { resetGameToLobby(); notify(message.message || "已返回等待大厅"); }
   if (message.type === "room_state") {
+    const startingNewGame = message.started && !state.started;
     state.botIds = [...(message.bots || [])];
     if (message.settings) state.roomSettings = { ...defaultRoomSettings, ...message.settings };
     if (!message.started || !state.players.length) state.players = [...message.players];
@@ -139,6 +148,7 @@ function onMessage(message) {
       const me = (message.players || []).find(p => !p.isPermanentBot && p.name === state.playerName);
       if (me) Object.assign(state, { playerId: me.id, isHost: me.isHost });
     }
+    if (startingNewGame) clearNewGamePresentation();
     state.started = message.started;
     if (message.started) state.view = "game";
     else if (state.view !== "landing") state.view = "room";
@@ -157,7 +167,10 @@ function onMessage(message) {
 }
 function handleGameMessage(msg, recordEvent = true) {
   const api = msg.api || ""; const text = String(msg.message_content || "").trim(); const privateMessage = msg.message_type !== "public";
-  if (api === "player_init" || api === "player_anonymous_init") state.players = (msg.data || []).map(p => ({ ...p, connected: true, isBot: state.botIds.includes(p.id) }));
+if (api === "player_init" || api === "player_anonymous_init") {
+    clearNewGamePresentation();
+    state.players = (msg.data || []).map(p => ({ ...p, connected: true, isBot: state.botIds.includes(p.id) }));
+  }
   if (api === "player_notify_chara" || api === "player_notify_chara_reset") state.role = text || "未知身份";
   if (api === "leaf_notify_first_chara" || api === "leaf_notify_first_chara_reroll") state.role = `叶子 · ${text}`;
   if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
@@ -375,8 +388,69 @@ function room() {
   <aside class="panel"><div class="panel-title"><h3>开局之前</h3></div><p class="lobby-note">需要至少 <strong>7 名玩家</strong>。开始后，系统会私下发送身份与行动面板。建议所有人保持页面开启，并在语音或线下完成白天讨论。</p><div class="divider"></div><p class="lobby-note">你是 <strong>${state.isHost ? "房主" : `${state.playerId} 号玩家`}</strong>${state.isHost ? "，玩家到齐后由你开局。" : "，等待房主开局。"}</p>${settingsPanel}${state.isHost ? `<div class="bot-controls"><button class="btn btn-ghost" data-add-bot ${state.players.length >= 16 ? "disabled" : ""}>＋ 增加 Bot</button><button class="btn btn-ghost" data-remove-bot ${state.players.some(p=>p.isPermanentBot) ? "" : "disabled"}>－ 删除 Bot</button></div>` : ""}<div class="start-wrap">${state.isHost ? `<button class="btn btn-primary" id="start-game" ${state.players.length < 7 ? "disabled" : ""}>${state.players.length < 7 ? `还差 ${7-state.players.length} 人` : "所有人准备好 · 开始"}</button>` : `<button class="btn" disabled>等待房主开始</button>`}</div></aside></section></main>`;
 }
 function entityFor(id) { return state.entities.find(x => (x.player?.id ?? x.player?.Id) === id); }
+const roleStateLabels = {
+  cai_count: ["彩量", "🎨"], reborn_list: ["复活名单", "↻"], bomb_count: ["炸弹", "💣"],
+  placed_list: ["已放置", "💣"], bug_count: ["虫量", "🐞"], capsule: ["胶囊", "💊"],
+  fen_count: ["粉量", "🌸"], ground_pool: ["地池", "🕳"], round: ["技能轮次", "◷"],
+  mfa_list: ["MFA", "🔑"], disc_count: ["光盘", "💿"]
+};
+const roleBooleanLabels = {
+  reborn: ["已触发复活", "尚未复活"], self_selected: ["已选择自己", null],
+  first_round: ["首轮状态", "非首轮状态"], dead_voted: ["死后票已使用", "死后票可用"],
+  fury: ["叶子二阶段", "叶子一阶段"], red_ground: ["红地状态", "普通地状态"],
+  revealed: ["已自爆身份", "尚未自爆"], broadcasted: ["绑架已公开", null],
+  can_reborn: ["可以复活", "暂不可复活"], can_force_choice: ["可以强制选择", null],
+  disabled: ["角色技能被禁用", null]
+};
+function playerRef(id) {
+  const player = state.players.find(x => x.id === Number(id));
+  return player ? `${id}号·${player.name}` : `${id}号`;
+}
+function roleStateItems(data) {
+  if (!data || typeof data !== "object") return [];
+  const items = [];
+  for (const [key, value] of Object.entries(data)) {
+    if (value == null) continue;
+    if (key === "copied_role" && typeof value === "object") {
+      const name = value.chara_type || "未知角色";
+      items.push({ text: `复制：${name}`, kind: "nested" }, ...roleStateItems(value.data));
+      continue;
+    }
+    if ((key === "copied_roles" || key === "roles") && Array.isArray(value)) {
+      for (const role of value) {
+        const name = role?.chara_type || "未知角色";
+        items.push({ text: `${key === "roles" ? "叶子" : "复制"}：${name}`, kind: "nested" }, ...roleStateItems(role?.data));
+      }
+      continue;
+    }
+    if (key === "last_selected" && typeof value === "object") {
+      if (value.tonight?.length) items.push({ text: `今晚已选：${value.tonight.map(playerRef).join("、")}`, kind: "players" });
+      if (value.last_night?.length) items.push({ text: `昨晚已选：${value.last_night.map(playerRef).join("、")}`, kind: "players" });
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (!value.length) continue;
+      const [label, icon] = roleStateLabels[key] || [key.replaceAll("_", " "), "•"];
+      items.push({ text: `${icon} ${label}：${value.map(x => typeof x === "number" ? playerRef(x) : String(x)).join("、")}`, kind: "value" });
+      continue;
+    }
+    if (typeof value === "boolean") {
+      const labels = roleBooleanLabels[key];
+      if (labels) {
+        const text = value ? labels[0] : labels[1];
+        if (text) items.push({ text, kind: value ? "active" : "inactive" });
+      } else items.push({ text: `${key.replaceAll("_", " ")}：${value ? "是" : "否"}`, kind: value ? "active" : "inactive" });
+      continue;
+    }
+    if (typeof value === "object") { items.push(...roleStateItems(value)); continue; }
+    const [label, icon] = roleStateLabels[key] || [key.replaceAll("_", " "), "•"];
+    items.push({ text: `${icon} ${label}：${value}`, kind: "value" });
+  }
+  return items;
+}
 function playerCard(p) {
   const entity = entityFor(p.id); const st = entity?.state || {}; const dead = st.is_dead_public || st.is_dead; const invalid = invalidIds().has(p.id); const selected = state.selected.includes(p.id);
+  const displayName = `${st.reversed ? "反·" : ""}${p.name}`;
   const vote = state.votes.find(x => x.id === p.id); const voteText = vote?.target == null ? "" : vote.target === 0 ? "弃票" : `投给 ${voteTargetText(vote.target)}`;
   const tokens = [["☁",st.smog_count],["🐞",st.bug_count],["🍪",st.xian_song_count],["💊",st.capsule_count],["💧",st.potion_count]].filter(x => x[1]>0);
   const effects = [
@@ -391,7 +465,7 @@ function playerCard(p) {
   const visibleRole = entity?.role;
   const roleName = visibleRole?.summary_name || visibleRole?.role?.summary_name;
   const roleText = roleName ? `${roleName}${visibleRole?.public_reveal ? " · 已公开" : ""}` : dead ? (st.dead_showing_name || "身份未公开") : "身份隐藏";
-  return `<button class="board-player ${dead ? "dead" : ""} ${selected ? "selected" : ""}" data-player="${p.id}" ${invalid ? "disabled" : ""}><div class="board-name"><span class="seat-no" style="display:inline-grid;width:25px;height:25px;border-radius:8px;margin-right:7px">${p.id}</span>${e(p.name)}</div><div class="board-role ${visibleRole?.public_reveal ? "public" : ""}">${e(roleText)}</div>${effects.length ? `<div class="state-badges">${effects.map(x => `<span class="state-badge ${x[1]}">${x[0]}</span>`).join("")}</div>` : ""}${voteText ? `<div class="vote-status ${vote.confirmed ? "confirmed" : ""}">${e(voteText)}${vote.confirmed ? " · 已确认" : " · 可改票"}</div>` : ""}${tokens.length ? `<div class="tokens">${tokens.map(x=>`<span class="token">${x[0]} × ${x[1]}</span>`).join("")}</div>` : ""}</button>`;
+  return `<button class="board-player ${dead ? "dead" : ""} ${selected ? "selected" : ""}" data-player="${p.id}" ${invalid ? "disabled" : ""}><div class="board-name"><span class="seat-no" style="display:inline-grid;width:25px;height:25px;border-radius:8px;margin-right:7px">${p.id}</span>${e(displayName)}</div><div class="board-role ${visibleRole?.public_reveal ? "public" : ""}">${e(roleText)}</div>${effects.length ? `<div class="state-badges">${effects.map(x => `<span class="state-badge ${x[1]}">${x[0]}</span>`).join("")}</div>` : ""}${voteText ? `<div class="vote-status ${vote.confirmed ? "confirmed" : ""}">${e(voteText)}${vote.confirmed ? " · 已确认" : " · 可改票"}</div>` : ""}${tokens.length ? `<div class="tokens">${tokens.map(x=>`<span class="token">${x[0]} × ${x[1]}</span>`).join("")}</div>` : ""}</button>`;
 }
 function invalidIdsFor(request) {
   const data = request?.data; let list;
@@ -442,8 +516,14 @@ function actionPanel() {
 }
 function game() {
   const players = state.players.length ? state.players : Array.from({length:7},(_,i)=>({id:i+1,name:`${i+1} 号玩家`}));
+  const me = entityFor(state.playerId); const myRole = me?.role;
+  const personalStates = [
+    me?.state?.is_bar_leader ? { text: "🍺 你是吧主", kind: "bar-leader" } : null,
+    ...roleStateItems(myRole?.data ?? myRole?.role?.data)
+  ].filter(Boolean);
+  const personalStateHtml = personalStates.length ? `<div class="role-states personal-role-states">${personalStates.map(x => `<span class="role-state ${x.kind}">${e(x.text)}</span>`).join("")}</div>` : "";
   return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> 房间 ${e(state.roomCode)}</div><div class="top-actions"><div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.playerId} 号 · ${e(state.playerName)}</div><button class="btn btn-ghost leave-room" data-leave-room>彻底退出</button></div></header>
-  <div class="game-layout"><aside class="panel phase-panel"><div class="phase-orb ${state.phase === "夜晚" ? "night" : ""}"></div><div><div class="phase-name">${e(state.phase)}</div><div class="phase-sub">${state.round ? `第 ${state.round} 夜 · ` : ""}${state.phase === "夜晚" ? "请保持安静" : "信息公开"}</div></div><div class="identity-card ${state.roleVisible ? "" : "hidden"}"><div class="identity-main"><div><small>你的身份</small><strong>${e(state.role)}</strong></div><div class="game-seat"><small>本局编号</small><b>${state.playerId}</b><span>号</span></div></div><button class="identity-toggle" id="toggle-role">${state.roleVisible ? "隐藏身份" : "显示身份"}</button></div>${state.isHost ? `<div class="host-tools"><button class="btn" data-restart-room>重开并返回大厅</button></div>` : ""}${state.gameLog ? `<button class="btn log-download" id="download-log">下载本局日志</button>` : ""}</aside>
+  <div class="game-layout"><aside class="panel phase-panel"><div class="phase-orb ${state.phase === "夜晚" ? "night" : ""}"></div><div><div class="phase-name">${e(state.phase)}</div><div class="phase-sub">${state.round ? `第 ${state.round} 夜 · ` : ""}${state.phase === "夜晚" ? "请保持安静" : "信息公开"}</div></div><div class="identity-card ${state.roleVisible ? "" : "hidden"}"><div class="identity-main"><div><small>你的身份</small><strong>${e(state.role)}</strong></div><div class="game-seat"><small>本局编号</small><b>${state.playerId}</b><span>号</span></div></div>${personalStateHtml}<button class="identity-toggle" id="toggle-role">${state.roleVisible ? "隐藏身份" : "显示身份"}</button></div>${state.isHost ? `<div class="host-tools"><button class="btn" data-restart-room>重开并返回大厅</button></div>` : ""}${state.gameLog ? `<button class="btn log-download" id="download-log">下载本局日志</button>` : ""}</aside>
   <section class="panel board-panel"><div class="panel-title"><h2>在场玩家</h2><span class="count">点击玩家以选择目标</span></div><div class="board-list">${players.map(playerCard).join("")}</div></section>
   <aside class="right-stack">${actionPanel()}<section class="panel"><div class="panel-title"><h3>事件记录</h3><span class="count">仅你可见的消息已标红</span></div><div class="feed">${state.events.length ? state.events.map(x=>`<article class="event ${x.private ? "private" : ""}"><div class="event-meta">${e(x.time)} · ${e(x.api.replaceAll("_"," "))}</div><div class="event-text">${e(x.text)}</div></article>`).join("") : '<div class="empty-state">夜幕尚未降临</div>'}</div></section></aside></div></main>`;
 }

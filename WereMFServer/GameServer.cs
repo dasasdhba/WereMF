@@ -852,6 +852,8 @@ internal sealed class GameRoom : IAsyncDisposable
                 var id = item["player"]?["id"]?.GetValue<int>() ?? 0;
                 if (item["player"] is JsonObject player && player["anonymous"]?.GetValue<bool>() == true)
                     player["name"] = $"玩家{id}";
+                if (id != playerId && item["state"] is JsonObject state)
+                    state["is_bar_leader"] = false;
                 var role = item["role"] as JsonObject;
                 var publicRole = CreatePublicRole(role);
                 if (id != playerId) item["role"] = publicRole;
