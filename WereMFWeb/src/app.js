@@ -421,6 +421,16 @@ function roleStateItems(data) {
     }
     if (Array.isArray(value)) {
       if (!value.length) continue;
+      if (key === "ground_pool") {
+        const groundNames = { 0: "花岗岩", 1: "土地", 2: "红土地" };
+        const counts = value.reduce((result, ground) => {
+          const name = groundNames[ground] || `未知土地(${ground})`;
+          result[name] = (result[name] || 0) + 1;
+          return result;
+        }, {});
+        items.push({ text: `🕳 土地池：${Object.entries(counts).map(([name, count]) => `${name}×${count}`).join("、")}`, kind: "value" });
+        continue;
+      }
       const [label, icon] = roleStateLabels[key] || [key.replaceAll("_", " "), "•"];
       items.push({ text: `${icon} ${label}：${value.map(x => typeof x === "number" ? playerRef(x) : String(x)).join("、")}`, kind: "value" });
       continue;
