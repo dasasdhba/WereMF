@@ -39,6 +39,7 @@ const transitionDeferred = [];
 let transitionTimer = null;
 let transitionEndApi = "";
 let transitionClosing = false;
+let preserveUrgentRequest = false;
 let pendingTransitionBoundary = null;
 function stopTitleFlash() {
   if (titleFlashTimer) clearInterval(titleFlashTimer);
@@ -155,6 +156,7 @@ function onMessage(message) {
   }
   if (message.type === "bot_takeover") { state.botIds = [...new Set([...state.botIds, message.playerId])]; notify(message.message); addEvent("BOT", message.message, false); }
   if (message.type === "game_message") handleGameMessage(message.payload);
+  if (message.type === "chat_message") appendChat(message);
   if (message.type === "game_ended") { addEvent("SYSTEM", message.message, false); state.request = null; clearTimer(); }
   if (message.type === "server_notice") addEvent("SERVER", message.message, true);
   if (message.type === "request_timer") { state.timerDeadline = message.deadlineUtc || 0; state.timerApi = message.api || ""; state.timerMode = message.mode || "request"; }
@@ -167,14 +169,14 @@ function onMessage(message) {
 }
 function handleGameMessage(msg, recordEvent = true) {
   const api = msg.api || ""; const text = String(msg.message_content || "").trim(); const privateMessage = msg.message_type !== "public";
-if (api === "player_init" || api === "player_anonymous_init") {
+  if (api === "player_init" || api === "player_anonymous_init") {
     clearNewGamePresentation();
     state.players = (msg.data || []).map(p => ({ ...p, connected: true, isBot: state.botIds.includes(p.id) }));
   }
   if (api === "player_notify_chara" || api === "player_notify_chara_reset") state.role = text || "未知身份";
   if (api === "leaf_notify_first_chara" || api === "leaf_notify_first_chara_reroll") state.role = `叶子 · ${text}`;
-  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
-  if (api === "day_start_broadcast") { clearTimer(); state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
+  if (api === "night_start_broadcast") { const keep = preserveUrgentRequest && state.request; if (!keep) clearTimer(); state.phase = "夜晚"; state.round++; state.request = keep ? state.request : null; state.selected = keep ? state.selected : []; state.modifier = keep ? state.modifier : ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
+  if (api === "day_start_broadcast") { const keep = preserveUrgentRequest && state.request; if (!keep) clearTimer(); state.phase = "白天"; state.request = keep ? state.request : null; state.selected = keep ? state.selected : []; state.modifier = keep ? state.modifier : ""; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
   if (api === "vote_start_broadcast") { clearTimer(); state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; }
   if (api === "vote_end_broadcast") clearTimer();
   if (api === "game_win_broadcast") { clearTimer(); state.phase = "终局"; }
@@ -259,6 +261,7 @@ function requestChoiceInvalid(msg, value, index) {
   return list.some(item => (typeof item === "number" ? item : item.id) === value);
 }
 function activateRequest(msg) {
+  if (transitionEndApi || transitionClosing) preserveUrgentRequest = true;
   const id = pendingId(msg.data); const draft = id ? [...(state.pendingDrafts[id] || [])] : [];
   state.request = msg; state.modifier = id ? state.pendingModifiers[id] || "" : "";
   const invalid = draft.filter((value, index) => requestChoiceInvalid(msg, value, index));
@@ -302,7 +305,30 @@ function appendEvent(api, text, privateMessage) {
   if (browsingHistory && !state.reconnecting)
     notify(`${privateMessage ? "私密消息" : "新消息"}：${String(text).replace(/\s+/g, " ").slice(0, 48)}`);
 }
+function appendChat(message) {
+  const text = String(message.text || "").trim(); if (!text) return;
+  const browsingHistory = !isFeedAtBottom();
+  const sentAt = Number(message.sentAt); const date = Number.isFinite(sentAt) ? new Date(sentAt) : new Date();
+  state.events.push({ api: "聊天", text, chat: true, playerId: Number(message.playerId), private: false, time: date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) });
+  if (state.events.length > 180) state.events.shift();
+  flashTitle("有新消息");
+  if (browsingHistory && !state.reconnecting) {
+    const sender = state.players.find(x => x.id === Number(message.playerId));
+    notify(`${sender?.name || `${message.playerId} 号玩家`}：${text.replace(/\s+/g, " ").slice(0, 48)}`);
+  }
+}
+function chatAvailability() {
+  if (!state.started || !["白天", "投票"].includes(state.phase)) return { allowed: false, reason: "仅白天可以发言" };
+  const me = entityFor(state.playerId); const st = me?.state;
+  if (!st) return { allowed: false, reason: "正在同步发言状态" };
+  if (st.is_dead || st.is_dead_public) return { allowed: false, reason: "已出局玩家不能发言" };
+  if (state.botIds.includes(state.playerId)) return { allowed: false, reason: "BOT 托管中，不能发言" };
+  return { allowed: true, reason: "输入白天发言" };
+}
 function queueTransitionEnvelope(message) {
+  const requestApi = message.type === "game_message" ? message.payload?.api || "" : "";
+  const urgentTypes = new Set(["request_timer", "request_timeout_resolved", "input_accepted", "pre_submit_accepted", "pre_submit_rejected", "error"]);
+  if (requestApi.startsWith("request_") || urgentTypes.has(message.type)) return false;
   if (transitionClosing) { transitionDeferred.push(message); return true; }
   if (message.type !== "game_message") {
     if (!transitionEndApi) return false;
@@ -360,6 +386,7 @@ function finishTransitionQueue() {
     if (message.type === "game_message" && message.payload === boundary) handleGameMessage(message.payload, false);
     else onMessage(message);
   }
+  preserveUrgentRequest = false;
   render();
 }
 function clearTransitionQueue() {
@@ -369,6 +396,7 @@ function clearTransitionQueue() {
   transitionDeferred.length = 0;
   transitionEndApi = "";
   transitionClosing = false;
+  preserveUrgentRequest = false;
   pendingTransitionBoundary = null;
 }
 function addEvent(api, text, privateMessage) { appendEvent(api, text, privateMessage); }
@@ -516,6 +544,16 @@ function actionPanel() {
 }
 function game() {
   const players = state.players.length ? state.players : Array.from({length:7},(_,i)=>({id:i+1,name:`${i+1} 号玩家`}));
+  const chat = chatAvailability();
+  const timelineHtml = state.events.length ? state.events.map(x => {
+    if (x.chat) {
+      const sender = state.players.find(player => player.id === x.playerId);
+      const senderText = `${x.playerId} 号 · ${sender?.name || "玩家"}`;
+      return `<article class="event chat-message ${x.playerId === state.playerId ? "mine" : ""}"><div class="event-meta">${e(x.time)} · ${e(senderText)}</div><div class="event-text">${e(x.text)}</div></article>`;
+    }
+    return `<article class="event ${x.private ? "private" : ""}"><div class="event-meta">${e(x.time)} · ${e(x.api.replaceAll("_"," "))}</div><div class="event-text">${e(x.text)}</div></article>`;
+  }).join("") : '<div class="empty-state">还没有聊天或事件</div>';
+  const chatForm = `<form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" autocomplete="off" placeholder="${e(chat.reason)}" ${chat.allowed ? "" : "disabled"}/><button class="btn btn-primary" ${chat.allowed ? "" : "disabled"}>发送</button></form>`;
   const me = entityFor(state.playerId); const myRole = me?.role;
   const personalStates = [
     me?.state?.is_bar_leader ? { text: "🍺 你是吧主", kind: "bar-leader" } : null,
@@ -525,7 +563,7 @@ function game() {
   return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> 房间 ${e(state.roomCode)}</div><div class="top-actions"><div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.playerId} 号 · ${e(state.playerName)}</div><button class="btn btn-ghost leave-room" data-leave-room>彻底退出</button></div></header>
   <div class="game-layout"><aside class="panel phase-panel"><div class="phase-orb ${state.phase === "夜晚" ? "night" : ""}"></div><div><div class="phase-name">${e(state.phase)}</div><div class="phase-sub">${state.round ? `第 ${state.round} 夜 · ` : ""}${state.phase === "夜晚" ? "请保持安静" : "信息公开"}</div></div><div class="identity-card ${state.roleVisible ? "" : "hidden"}"><div class="identity-main"><div><small>你的身份</small><strong>${e(state.role)}</strong></div><div class="game-seat"><small>本局编号</small><b>${state.playerId}</b><span>号</span></div></div>${personalStateHtml}<button class="identity-toggle" id="toggle-role">${state.roleVisible ? "隐藏身份" : "显示身份"}</button></div>${state.isHost ? `<div class="host-tools"><button class="btn" data-restart-room>重开并返回大厅</button></div>` : ""}${state.gameLog ? `<button class="btn log-download" id="download-log">下载本局日志</button>` : ""}</aside>
   <section class="panel board-panel"><div class="panel-title"><h2>在场玩家</h2><span class="count">点击玩家以选择目标</span></div><div class="board-list">${players.map(playerCard).join("")}</div></section>
-  <aside class="right-stack">${actionPanel()}<section class="panel"><div class="panel-title"><h3>事件记录</h3><span class="count">仅你可见的消息已标红</span></div><div class="feed">${state.events.length ? state.events.map(x=>`<article class="event ${x.private ? "private" : ""}"><div class="event-meta">${e(x.time)} · ${e(x.api.replaceAll("_"," "))}</div><div class="event-text">${e(x.text)}</div></article>`).join("") : '<div class="empty-state">夜幕尚未降临</div>'}</div></section></aside></div></main>`;
+  <aside class="right-stack">${actionPanel()}<section class="panel chat-panel"><div class="panel-title"><h3>聊天与事件</h3><span class="count">白天存活玩家可以发言</span></div><div class="feed">${timelineHtml}</div>${chatForm}</section></aside></div></main>`;
 }
 function render() {
   const currentFeed = document.querySelector(".feed");
@@ -575,6 +613,10 @@ function bind() {
   document.querySelector("[data-add-bot]")?.addEventListener("click", () => send({ type: "add_bot" }));
   document.querySelector("[data-remove-bot]")?.addEventListener("click", () => send({ type: "remove_bot" }));
   document.querySelector("#toggle-role")?.addEventListener("click", () => { state.roleVisible = !state.roleVisible; render(); });
+  document.querySelector("#chat-form")?.addEventListener("submit", event => {
+    event.preventDefault(); const input = document.querySelector("#chat-input"); const value = input?.value.trim();
+    if (!value) return; send({ type: "chat", value }); input.value = "";
+  });
   document.querySelector("#download-log")?.addEventListener("click", () => { const blob = new Blob(["\uFEFF", state.gameLog.content], { type: "text/plain;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = state.gameLog.fileName || "WereMF.log"; link.click(); URL.revokeObjectURL(url); });
   document.querySelectorAll("[data-player]").forEach(el => el.addEventListener("click", () => choosePlayer(Number(el.dataset.player))));
 

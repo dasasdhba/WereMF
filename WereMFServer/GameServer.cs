@@ -98,6 +98,7 @@ internal sealed class GameRoom : IAsyncDisposable
     private readonly List<PlayerSession> _players = []; private readonly List<JsonElement> _publicHistory = []; private readonly List<JsonElement> _hostHistory = [];
     private GameProcess? _game; private bool _started; private bool _finished; private bool _exportingLog; private string? _expected;
     private ConcurrentInputPhase? _concurrentInput;
+    private bool _dayChatOpen; private HashSet<int> _chatEligible = [];
     private readonly SemaphoreSlim _routeLock = new(1, 1);
     private CancellationTokenSource? _timerCts; private long _timerVersion; private long _gameVersion;
     public bool IsJoinable => !_started && !_finished && _players.Count < 16;
@@ -140,6 +141,7 @@ internal sealed class GameRoom : IAsyncDisposable
         if (msg.Type == "update_room_settings") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以修改房间设置"); await UpdateSettingsAsync(msg, ct); return; }
         if (msg.Type == "game_input") { await InputAsync(p, msg.Value ?? "", ct); return; }
         if (msg.Type == "pending_draft") { SaveDraft(p, msg); return; }
+        if (msg.Type == "chat") { await ChatAsync(p, msg.Value ?? "", ct); return; }
         if (msg.Type == "command")
         {
             if (!p.IsHost || _game is null) throw new ClientVisibleException("只有房主可以使用管理命令");
@@ -197,7 +199,7 @@ internal sealed class GameRoom : IAsyncDisposable
             {
                 if (!_started || _game is null) throw new ClientVisibleException("当前没有正在进行的对局");
                 _gameVersion++;
-                game = _game; _game = null; _started = false; _finished = false; _exportingLog = false; _expected = null; _concurrentInput = null;
+                game = _game; _game = null; _started = false; _finished = false; _exportingLog = false; _expected = null; _concurrentInput = null; _dayChatOpen = false; _chatEligible.Clear();
                 CancelTimerLocked();
                 _publicHistory.Clear(); _hostHistory.Clear();
                 _players.RemoveAll(x => x.HasLeft);
@@ -274,6 +276,45 @@ internal sealed class GameRoom : IAsyncDisposable
             player.Drafts[key] = new DraftEntry(value, msg.PreSubmit == true);
         }
     }
+    private async Task ChatAsync(PlayerSession player, string value, CancellationToken ct)
+    {
+        var text = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (text.Length is < 1 or > 300) throw new ClientVisibleException("聊天消息需要 1–300 个字符");
+        JsonElement envelope;
+        lock (_gate)
+        {
+            if (!_started || _finished || !_dayChatOpen) throw new ClientVisibleException("当前不是白天，不能发言");
+            if (player.IsBot || player.HasLeft) throw new ClientVisibleException("Bot 托管席位不能发言");
+            if (!_chatEligible.Contains(player.GameId)) throw new ClientVisibleException("已出局玩家不能发言");
+            var now = DateTimeOffset.UtcNow;
+            if (now - player.LastChatAt < TimeSpan.FromMilliseconds(500)) throw new ClientVisibleException("发言太快了，请稍后再试");
+            player.LastChatAt = now;
+            envelope = JsonSerializer.SerializeToElement(new { type = "chat_message", playerId = player.GameId, text, sentAt = now.ToUnixTimeMilliseconds() });
+            Add(_publicHistory, envelope);
+        }
+        await BroadcastAsync(envelope, ct);
+    }
+
+    private void UpdateChatPermission(JsonElement root, string api)
+    {
+        lock (_gate)
+        {
+            if (api == "day_start_broadcast") { _dayChatOpen = true; return; }
+            if (api is "night_start_broadcast" or "game_win_broadcast") { _dayChatOpen = false; _chatEligible.Clear(); return; }
+            if (api != "game_update_day") return;
+            var entities = root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array ? data : default;
+            var eligible = new HashSet<int>();
+            if (entities.ValueKind == JsonValueKind.Array)
+                foreach (var entity in entities.EnumerateArray())
+                {
+                    if (!entity.TryGetProperty("player", out var playerNode) || !playerNode.TryGetProperty("id", out var idNode) || !idNode.TryGetInt32(out var id)) continue;
+                    if (!entity.TryGetProperty("state", out var stateNode)) continue;
+                    var dead = stateNode.TryGetProperty("is_dead", out var deadNode) && deadNode.ValueKind == JsonValueKind.True;
+                    if (!dead) eligible.Add(id);
+                }
+            _chatEligible = eligible;
+        }
+    }
     private async Task StartAsync(CancellationToken ct)
     {
         PlayerSession[] players; GameProcess game; long version;
@@ -281,7 +322,7 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             if (_started) throw new ClientVisibleException("对局已经开始");
             if (_players.Count < 7) throw new ClientVisibleException("至少需要 7 名玩家");
-            _started = true; _finished = false; players = _players.ToArray(); version = ++_gameVersion;
+            _started = true; _finished = false; _dayChatOpen = false; _chatEligible.Clear(); players = _players.ToArray(); version = ++_gameVersion;
             _game = game = new GameProcess(_options.GamePath, _options.Config, _options.Seed);
         }
         game.OutputReceived += line => RouteAsync(line, version);
@@ -296,6 +337,7 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             if (version != _gameVersion || !_started) return;
             _finished = true;
+            _dayChatOpen = false; _chatEligible.Clear();
             _expected = null;
             _concurrentInput = null;
             CancelTimerLocked();
@@ -693,6 +735,7 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             var root = doc.RootElement.Clone(); var target = root.GetProperty("message_type").GetString() ?? "internal"; var api = root.GetProperty("api").GetString() ?? ""; if (_exportingLog && api != "cli_log") return; if (api == "cli_log") _exportingLog = false;
             if (api == "request_player_list") return;
+            UpdateChatPermission(root, api);
             var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload = root });
             if (api == "cli_log")
             {
@@ -982,6 +1025,7 @@ internal sealed class PlayerSession(int id, string name, bool host, WebSocket? s
 {
     public int Id { get; set; } = id; public int GameId { get; set; } = id; public string Name { get; } = name; public bool IsHost { get; set; } = host; public WebSocket? Socket { get; set; } = socket; public bool Connected { get; set; } = true;
     public bool IsBot { get; set; } public bool IsPermanentBot { get; set; } public bool HasLeft { get; set; } public int MissedRequests { get; set; }
+    public DateTimeOffset LastChatAt { get; set; } = DateTimeOffset.MinValue;
     public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)); public SemaphoreSlim SendLock { get; } = new(1, 1); public List<JsonElement> History { get; } = []; public Dictionary<string, DraftEntry> Drafts { get; } = [];
 }
 internal sealed record ClientMessage

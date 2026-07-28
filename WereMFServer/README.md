@@ -71,6 +71,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `leave_room` | - | 彻底退出；大厅立即释放席位，进行中则由 Bot 接管至本局结束 |
 | `game_input` | `value` | 提交 CLI 格式输入；服务端校验当前可提交玩家 |
 | `pending_draft` | `skillId`, `api`, `value`, `preSubmit` | 保存技能预选；`preSubmit: true` 表示玩家主动预提交 |
+| `chat` | `value` | 白天发言，1–300 字；仅存活真人玩家可发送，服务端裁决权限 |
 | `ping` | - | 返回 `pong` |
 | `command` | `value` | 旧客户端兼容；房主只允许 `\restart`，效果等同 `restart_room` |
 
@@ -85,6 +86,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `session_state` | `playerId`, `isHost` | 编号重排或房主移交后的当前会话状态 |
 | `player_remapped` | `playerId` | 匿名第一晚后，该浏览器实际使用的游戏编号 |
 | `game_message` | `payload` | WereMF CLI API 消息，格式见 [`../WereMF/README.md`](../WereMF/README.md) |
+| `chat_message` | `playerId`, `text`, `sentAt` | 公开聊天消息；昵称由客户端按当前匿名映射解析，不传真实昵称 |
 | `input_accepted` | `api`, `remaining` | 并发输入已接受；`remaining` 是该玩家还可提交次数 |
 | `pre_submit_accepted` | `api`, `skillId`, `value`, `message` | 预提交经最新请求数据复核合法，已自动发送给 CLI |
 | `pre_submit_rejected` | `api`, `skillId`, `message` | 预提交因局面变化或数量/格式不合法而解除，玩家需重新确认 |
@@ -113,6 +115,8 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 - `game_update_night`、`game_update_day`、`cli_game_summary`：逐玩家脱敏；其他玩家的身份不会发送到该浏览器。匿名玩家名也按当前接收者可见范围处理。
 
 重连时会重放最多 250 条公开历史、该玩家的私密历史，以及房主专属历史（仅当前房主）。
+
+白天聊天从 `day_start_broadcast` 开启，到 `night_start_broadcast` 或终局关闭。服务端根据最新 `game_update_day` 的 `state.is_dead` 维护发言资格；myz 威胁不影响聊天。聊天记录进入公开历史，因此断线重连后会一并回放。
 
 ## 计时器与 Bot
 
