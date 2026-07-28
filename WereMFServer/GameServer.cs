@@ -271,7 +271,7 @@ internal sealed class GameRoom : IAsyncDisposable
         lock (_gate)
         {
             if (player.Drafts.Count >= 64 && !player.Drafts.ContainsKey(key)) player.Drafts.Remove(player.Drafts.Keys.First());
-            player.Drafts[key] = value;
+            player.Drafts[key] = new DraftEntry(value, msg.PreSubmit == true);
         }
     }
     private async Task StartAsync(CancellationToken ct)
@@ -552,16 +552,33 @@ internal sealed class GameRoom : IAsyncDisposable
     private (string Value, string Source) ResolveTimeoutInput(JsonElement root, string api, PlayerSession? player)
     {
         var skillId = ExtractSkillId(root);
-        string? draft = null;
+        DraftEntry? draft = null;
         lock (_gate)
         {
             if (player is not null && skillId is not null) player.Drafts.TryGetValue($"skill:{skillId}", out draft);
-            if (player is not null && string.IsNullOrWhiteSpace(draft)) player.Drafts.TryGetValue($"api:{api}", out draft);
+            if (player is not null && (draft is null || string.IsNullOrWhiteSpace(draft.Value))) player.Drafts.TryGetValue($"api:{api}", out draft);
         }
-        if (!string.IsNullOrWhiteSpace(draft) && IsLegalTimeoutInput(root, api, draft)) return (draft, "draft");
+        if (draft is not null && !string.IsNullOrWhiteSpace(draft.Value) && IsLegalTimeoutInput(root, api, draft.Value)) return (draft.Value, "draft");
         return (RandomLegalInput(root, api), "random");
     }
 
+    private (bool Armed, bool Valid, string Value, string? SkillId) TakePreSubmit(JsonElement root, string api, PlayerSession player)
+    {
+        var skillId = ExtractSkillId(root);
+        var keys = skillId is null ? new[] { $"api:{api}" } : new[] { $"skill:{skillId}", $"api:{api}" };
+        DraftEntry? draft = null;
+        lock (_gate)
+        {
+            foreach (var key in keys)
+            {
+                if (!player.Drafts.TryGetValue(key, out draft) || !draft.PreSubmit) continue;
+                player.Drafts[key] = draft with { PreSubmit = false };
+                break;
+            }
+        }
+        if (draft is null || !draft.PreSubmit) return (false, false, "", skillId);
+        return (true, IsLegalTimeoutInput(root, api, draft.Value), draft.Value, skillId);
+    }
     private static string? ExtractSkillId(JsonElement root)
     {
         if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("skill_id", out var id)) return null;
@@ -577,16 +594,36 @@ internal sealed class GameRoom : IAsyncDisposable
         if (api.Contains("force_threaten") && api != "request_myz_skill_force_threaten") return parts.Length == 1 && parts[0] is "0" or "1";
         if (IsBooleanRequest(api)) return parts.Length == 1 && parts[0] is "0" or "1";
         if (api == "request_hechong_copy_leaf") return parts.Length == 1 && RoleNames.Contains(parts[0]) && parts[0] is not ("叶子" or "合虫");
+        if (parts.Length == 1 && parts[0] == "0") return true;
         var ids = parts.Where(x => int.TryParse(x, out _)).Select(int.Parse).ToArray();
-        if (ids.Length == 0) return false;
-        var invalid = InvalidChoices(root, "invalid_choice");
-        if (ids.Any(x => x < 0 || x > _players.Count || invalid.Contains(x))) return false;
-        if (api == "request_myz_skill" && ids.Length < 2) return false;
+        var (minimum, maximum) = SelectionRange(root, api);
+        if (ids.Length < minimum || ids.Length > maximum || (api != "request_myz_skill" && ids.Distinct().Count() != ids.Length)) return false;
+        if (ids.Any(x => x <= 0 || x > _players.Count)) return false;
+        if (api == "request_myz_skill")
+        {
+            if (InvalidChoices(root, "invalid_choice").Contains(ids[0])) return false;
+            if (InvalidChoices(root, "invalid_target_choice").Contains(ids[1])) return false;
+        }
+        else if (ids.Any(InvalidChoices(root, "invalid_choice").Contains)) return false;
         if (api == "request_rabi_skill" && !parts.Any(x => x is "x" or "d")) return false;
         if (api == "request_jiaohua_dead_skill" && !parts.Any(x => x is "x" or "p")) return false;
         return true;
     }
 
+    private static (int Minimum, int Maximum) SelectionRange(JsonElement root, string api)
+    {
+        if (api == "request_leaf_charas") return (4, 4);
+        if (api == "request_myz_skill") return (2, 2);
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
+        {
+            if (data.TryGetProperty("choice_count", out var count) && count.TryGetInt32(out var exact)) return (exact, exact);
+            var minimum = data.TryGetProperty("choice_min", out var min) && min.TryGetInt32(out var minValue) ? minValue : 1;
+            if (data.TryGetProperty("choice_max", out var max) && max.TryGetInt32(out var maxValue)) return (minimum, maxValue);
+        }
+        var text = root.TryGetProperty("message_content", out var content) ? content.GetString() ?? "" : "";
+        var match = System.Text.RegularExpressions.Regex.Match(text, @"最多\s*(\d+)\s*个");
+        return match.Success && int.TryParse(match.Groups[1].Value, out var parsed) ? (1, parsed) : (1, 1);
+    }
     private string RandomLegalInput(JsonElement root, string api)
     {
         if (api == "request_leaf_charas") return RandomLeafChoice(root);
@@ -599,7 +636,7 @@ internal sealed class GameRoom : IAsyncDisposable
         var first = valid[RandomNumberGenerator.GetInt32(valid.Length)];
         if (api == "request_myz_skill")
         {
-            var targets = Enumerable.Range(1, _players.Count).Except(InvalidChoices(root, "invalid_target_choice")).Where(x => x != first).ToArray();
+            var targets = Enumerable.Range(1, _players.Count).Except(InvalidChoices(root, "invalid_target_choice")).ToArray();
             return targets.Length == 0 ? "0" : $"{first} {targets[RandomNumberGenerator.GetInt32(targets.Length)]}";
         }
         if (api == "request_rabi_skill") return $"{first} {(RandomNumberGenerator.GetInt32(2) == 0 ? "x" : "d")}";
@@ -684,6 +721,20 @@ internal sealed class GameRoom : IAsyncDisposable
             if (regularRequest)
             {
                 lock (_gate) { _concurrentInput = null; _expected = target; CancelTimerLocked(); }
+                var requestPlayer = PlayerForTarget(target);
+                if (requestPlayer is not null && !requestPlayer.IsBot)
+                {
+                    var preSubmit = TakePreSubmit(root, api, requestPlayer);
+                    if (preSubmit.Armed && preSubmit.Valid)
+                    {
+                        lock (_gate) { _expected = null; requestPlayer.MissedRequests = 0; CancelTimerLocked(); }
+                        await SendAsync(requestPlayer, new { type = "pre_submit_accepted", api, skillId = preSubmit.SkillId, value = preSubmit.Value, message = $"已按预提交自动行动：{preSubmit.Value}" });
+                        await _game!.SendAsync(preSubmit.Value);
+                        return;
+                    }
+                    if (preSubmit.Armed)
+                        await SendAsync(requestPlayer, new { type = "pre_submit_rejected", api, skillId = preSubmit.SkillId, message = "局面已变化，预提交不再合法，请重新确认" });
+                }
             }
             if (target == "public" && api is "game_update_night" or "game_update_day" or "cli_game_summary")
             {
@@ -929,7 +980,7 @@ internal sealed class PlayerSession(int id, string name, bool host, WebSocket? s
 {
     public int Id { get; set; } = id; public int GameId { get; set; } = id; public string Name { get; } = name; public bool IsHost { get; set; } = host; public WebSocket? Socket { get; set; } = socket; public bool Connected { get; set; } = true;
     public bool IsBot { get; set; } public bool IsPermanentBot { get; set; } public bool HasLeft { get; set; } public int MissedRequests { get; set; }
-    public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)); public SemaphoreSlim SendLock { get; } = new(1, 1); public List<JsonElement> History { get; } = []; public Dictionary<string, string> Drafts { get; } = [];
+    public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)); public SemaphoreSlim SendLock { get; } = new(1, 1); public List<JsonElement> History { get; } = []; public Dictionary<string, DraftEntry> Drafts { get; } = [];
 }
 internal sealed record ClientMessage
 {
@@ -940,10 +991,12 @@ internal sealed record ClientMessage
     public string? Value { get; init; }
     public string? SkillId { get; init; }
     public string? Api { get; init; }
+    public bool? PreSubmit { get; init; }
     public int? RequestTimeoutSeconds { get; init; }
     public int? VoteSecondsPerAlive { get; init; }
     public int? VotePenaltySeconds { get; init; }
     public int? EventIntervalSeconds { get; init; }
 }
+internal sealed record DraftEntry(string Value, bool PreSubmit);
 internal sealed record RoomSettings(int RequestTimeoutSeconds, int VoteSecondsPerAlive, int VotePenaltySeconds, int EventIntervalSeconds);
 internal sealed class ClientVisibleException(string message) : Exception(message);

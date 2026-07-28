@@ -7,7 +7,7 @@ const state = {
   roomCode: "", playerId: null, playerName: "", token: "", isHost: false, started: false,
   players: [], entities: [], votes: [], events: [], phase: "等待", round: 0, role: "身份尚未揭晓",
   roleVisible: true, request: null, selected: [], modifier: "", reconnecting: false,
-  pendingSkills: [], pendingDrafts: {}, activePendingId: "", gameLog: null,
+  pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null,
   timerDeadline: 0, timerApi: "", timerMode: "", feedPinned: true, feedScrollTop: 0, botIds: [], leaving: false,
   roomSettings: { ...defaultRoomSettings }
 };
@@ -92,7 +92,7 @@ function resetGameToLobby() {
   clearTransitionQueue();
   Object.assign(state, { view: "room", started: false, entities: [], votes: [], events: [], phase: "等待", round: 0,
     role: "身份尚未揭晓", roleVisible: true, request: null, selected: [], modifier: "", pendingSkills: [],
-    pendingDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0 });
+    pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0 });
 }
 function finishLeave() {
   clearTransitionQueue();
@@ -100,7 +100,7 @@ function finishLeave() {
   const socket = state.socket;
   Object.assign(state, { view: "landing", socket: null, connected: false, roomCode: "", playerId: null,
     playerName: "", token: "", isHost: false, started: false, players: [], entities: [], votes: [], events: [],
-    request: null, selected: [], pendingSkills: [], pendingDrafts: {}, activePendingId: "", gameLog: null,
+    request: null, selected: [], pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null,
     botIds: [], leaving: false });
   try { socket?.close(); } catch {}
   stopTitleFlash();
@@ -151,6 +151,8 @@ function onMessage(message) {
   if (message.type === "request_timeout_resolved") { notify(message.message); addEvent("TIMEOUT", message.message, message.api !== "request_vote"); state.request = null; state.selected = []; state.modifier = ""; clearTimer(); }
   if (message.type === "game_log_available") { state.gameLog = message; addEvent("SYSTEM", "本局日志已生成，所有玩家均可下载", false); }
   if (message.type === "input_accepted") notify(message.remaining ? `已暂存，还可提交 ${message.remaining} 次` : "已提交，等待其他玩家");
+  if (message.type === "pre_submit_accepted") { const id = message.skillId || pendingId(state.request?.data); if (id) removePending(id); state.request = null; state.selected = []; state.modifier = ""; clearTimer(); notify(message.message || "预提交已自动发送"); }
+  if (message.type === "pre_submit_rejected") { if (message.skillId) state.preSubmittedDrafts[message.skillId] = false; notify(message.message || "预提交已失效，请重新确认"); }
   render();
 }
 function handleGameMessage(msg, recordEvent = true) {
@@ -158,8 +160,8 @@ function handleGameMessage(msg, recordEvent = true) {
   if (api === "player_init" || api === "player_anonymous_init") state.players = (msg.data || []).map(p => ({ ...p, connected: true, isBot: state.botIds.includes(p.id) }));
   if (api === "player_notify_chara" || api === "player_notify_chara_reset") state.role = text || "未知身份";
   if (api === "leaf_notify_first_chara" || api === "leaf_notify_first_chara_reroll") state.role = `叶子 · ${text}`;
-  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
-  if (api === "day_start_broadcast") { clearTimer(); state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.activePendingId = ""; }
+  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
+  if (api === "day_start_broadcast") { clearTimer(); state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
   if (api === "vote_start_broadcast") { clearTimer(); state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; }
   if (api === "vote_end_broadcast") clearTimer();
   if (api === "game_win_broadcast") { clearTimer(); state.phase = "终局"; }
@@ -180,10 +182,39 @@ function timerText() {
   return `${minutes}:${String(rest).padStart(2,"0")}`;
 }
 function timerBadge() { return state.timerDeadline ? `<span class="request-timer ${state.timerMode === "vote" ? "vote" : ""}" data-timer>${timerText()}</span>` : ""; }
-function syncDraft(value = state.selected.join(" ")) {
+function syncDraft(value = state.selected.join(" "), preSubmit) {
   const skillId = state.request ? pendingId(state.request.data) : state.activePendingId;
   const api = state.request?.api || "";
-  if (skillId || api) send({ type: "pending_draft", skillId, api, value: String(value).trim() });
+  const armed = preSubmit ?? Boolean(skillId && state.preSubmittedDrafts[skillId]);
+  if (skillId || api) send({ type: "pending_draft", skillId, api, value: String(value).trim(), preSubmit: armed });
+}
+function activePending() { return state.pendingSkills.find(x => x.id === state.activePendingId) || state.pendingSkills[0] || null; }
+function selectionRule(context = state.request || activePending()) {
+  const api = context?.api || ""; const type = context?.type || ""; const data = context?.data;
+  if (api === "request_leaf_charas") { const count = Number(data?.choice_count) || 4; return { min: count, max: count }; }
+  if (api === "request_myz_skill" || (!api && type === "myz")) return { min: 2, max: 2 };
+  const exact = Number(data?.choice_count);
+  if (exact > 0) return { min: exact, max: exact };
+  const minimum = Math.max(1, Number(data?.choice_min) || 1);
+  const explicitMax = Number(data?.choice_max);
+  if (explicitMax > 0) return { min: minimum, max: explicitMax };
+  const match = String(context?.message_content || "").match(/最多\s*(\d+)\s*个/);
+  if (match) return { min: 1, max: Number(match[1]) };
+  const pendingMaximum = ({ "庸医": 3, "法猫": 2, "灰卡比": 2 })[type];
+  return { min: 1, max: pendingMaximum || 1 };
+}
+function selectionCountValid(context = state.request || activePending()) {
+  const rule = selectionRule(context);
+  return state.selected.length >= rule.min && state.selected.length <= rule.max;
+}
+function requiredModifier(context = state.request || activePending()) {
+  const api = context?.api || ""; const type = context?.type || "";
+  return api ? ["request_jiaohua_dead_skill","request_rabi_skill"].includes(api) : type === "兔子";
+}
+function pendingModifierOptions(type) {
+  return ({
+    "兔子": [["x","鲜奶"],["d","毒奶"]]
+  })[type] || [];
 }
 function leafOptions(request = state.request) {
   if (request?.api !== "request_leaf_charas") return [];
@@ -202,17 +233,30 @@ function pendingId(data) { const raw = data?.skill_id ?? data?.id ?? data; retur
 function rememberPending(data) {
   const id = pendingId(data); if (!id || state.pendingSkills.some(x => x.id === id)) return;
   state.pendingSkills.push({ ...data, id }); state.pendingSkills.sort((a,b) => b.priority - a.priority);
-  if (!state.activePendingId) { state.activePendingId = id; state.selected = [...(state.pendingDrafts[id] || [])]; }
+  if (!state.activePendingId) { state.activePendingId = id; state.selected = [...(state.pendingDrafts[id] || [])]; state.modifier = state.pendingModifiers[id] || ""; }
 }
 function removePending(id) {
-  if (!id) return; state.pendingSkills = state.pendingSkills.filter(x => x.id !== id); delete state.pendingDrafts[id];
-  if (state.activePendingId === id) { state.activePendingId = state.pendingSkills[0]?.id || ""; state.selected = [...(state.pendingDrafts[state.activePendingId] || [])]; }
+  if (!id) return; state.pendingSkills = state.pendingSkills.filter(x => x.id !== id); delete state.pendingDrafts[id]; delete state.pendingModifiers[id]; delete state.preSubmittedDrafts[id];
+  if (state.activePendingId === id) { state.activePendingId = state.pendingSkills[0]?.id || ""; state.selected = [...(state.pendingDrafts[state.activePendingId] || [])]; state.modifier = state.pendingModifiers[state.activePendingId] || ""; }
+}
+function requestChoiceInvalid(msg, value, index) {
+  if (typeof value !== "number") return false;
+  const property = msg.api === "request_myz_skill" && index === 1 ? "invalid_target_choice" : "invalid_choice";
+  const list = msg.data?.[property] || [];
+  return list.some(item => (typeof item === "number" ? item : item.id) === value);
 }
 function activateRequest(msg) {
-  state.request = msg; state.modifier = ""; const id = pendingId(msg.data); const draft = id ? [...(state.pendingDrafts[id] || [])] : [];
-  const invalid = invalidIdsFor(msg); const removed = draft.filter(x => typeof x === "number" && invalid.has(x));
-  state.selected = draft.filter(x => typeof x !== "number" || !invalid.has(x)); state.activePendingId = id || state.activePendingId;
-  if (removed.length) { const names = removed.map(id => state.players.find(x => x.id === id)?.name || `${id} 号`).join("、"); syncDraft(); notify(`局面已变化，已取消无效选择：${names}`); }
+  const id = pendingId(msg.data); const draft = id ? [...(state.pendingDrafts[id] || [])] : [];
+  state.request = msg; state.modifier = id ? state.pendingModifiers[id] || "" : "";
+  const invalid = draft.filter((value, index) => requestChoiceInvalid(msg, value, index));
+  const valid = draft.filter((value, index) => !requestChoiceInvalid(msg, value, index)); const rule = selectionRule(msg);
+  const removed = [...invalid, ...valid.slice(rule.max)];
+  state.selected = valid.slice(0, rule.max); state.activePendingId = id || state.activePendingId;
+  if (removed.length || !selectionCountValid(msg) || (requiredModifier(msg) && !state.modifier)) {
+    if (id) state.preSubmittedDrafts[id] = false;
+    syncDraft(formatSelection(), false);
+    if (removed.length) { const names = removed.map(value => state.players.find(x => x.id === value)?.name || `${value} 号`).join("、"); notify(`局面已变化，已取消无效选择：${names}`); }
+  }
   alertRequest(msg);
 }
 function voteTargetText(target) {
@@ -352,6 +396,7 @@ function playerCard(p) {
 function invalidIdsFor(request) {
   const data = request?.data; let list;
   if (request?.api === "request_vote" && Array.isArray(data)) list = data.find(x => x.id === state.playerId)?.invalid_vote || [];
+  else if (request?.api === "request_myz_skill" && state.selected.length === 1) list = data?.invalid_target_choice || [];
   else list = data?.invalid_choice || data?.invalid_vote || [];
   return new Set(list.map(x => typeof x === "number" ? x : x.id));
 }
@@ -359,8 +404,12 @@ function invalidIds() { return invalidIdsFor(state.request); }
 function actionPanel() {
   const r = state.request;
   if (!r && state.pendingSkills.length) {
-    const active = state.pendingSkills.find(x => x.id === state.activePendingId) || state.pendingSkills[0];
-    return `<section class="panel action-panel pending"><div class="action-kicker">提前准备 · 尚不能提交</div><div class="choice-row">${state.pendingSkills.map(x=>`<button class="choice ${x.id===active.id?"selected":""}" data-pending="${e(x.id)}">${e(x.type)} · 优先级 ${x.priority}</button>`).join("")}</div><h2>预选「${e(active.type)}」技能目标</h2><p class="lobby-note">你可以现在选择目标；真正轮到该技能时才会开放提交。如果局面变化导致目标失效，系统会自动取消并提醒。</p><div class="action-footer"><button class="btn btn-ghost" data-clear-draft>清除预选</button><button class="btn btn-primary" disabled>等待技能结算顺序</button></div></section>`;
+    const active = activePending(); const rule = selectionRule(active); const armed = Boolean(state.preSubmittedDrafts[active.id]);
+    const modifierChoices = pendingModifierOptions(active.type);
+    const modifierHtml = modifierChoices.length ? `<div class="choice-row" style="margin-top:10px">${modifierChoices.map(x=>`<button class="choice ${state.modifier===x[0]?"selected":""}" data-modifier="${x[0]}">${x[1]}</button>`).join("")}</div>` : "";
+    const canPreSubmit = selectionCountValid(active) && (!requiredModifier(active) || state.modifier);
+    const countHint = rule.min === rule.max ? `请选择 ${rule.max} 名玩家` : `可选择 ${rule.min}–${rule.max} 名玩家`;
+    return `<section class="panel action-panel pending"><div class="action-kicker">提前准备 · ${armed ? "已预提交" : "尚不能正式提交"}</div><div class="choice-row">${state.pendingSkills.map(x=>`<button class="choice ${x.id===active.id?"selected":""}" data-pending="${e(x.id)}">${e(x.type)} · 优先级 ${x.priority}${state.preSubmittedDrafts[x.id] ? " · 已预提交" : ""}</button>`).join("")}</div><h2>预选「${e(active.type)}」技能目标</h2><p class="lobby-note">${countHint}。点击“预提交”后，真正轮到该技能时会按最新局面复核；合法则自动行动，失效则取消并提醒。</p>${modifierHtml}<div class="action-footer"><button class="btn btn-ghost" data-clear-draft>清除预选</button><button class="btn btn-primary" data-pre-submit ${armed || canPreSubmit ? "" : "disabled"}>${armed ? "取消预提交" : `预提交${state.selected.length ? ` · ${state.selected.join("、")}` : ""}`}</button></div></section>`;
   }
   if (!r) return `<section class="panel action-panel inactive"><div class="action-kicker">CURRENT ACTION ${timerBadge()}</div><h2>${state.timerMode === "vote" ? "投票进行中" : "等待其他玩家行动"}</h2><p class="lobby-note">${state.timerMode === "vote" ? "共享投票时间正在倒计时；每次有效投票都会扣减时间。" : "轮到你时，选择面板会自动出现。"}</p></section>`;
   const api = r.api; const boolRequest = /(?:reborn|drink_milk|give_mfa|red_ground|anonymous_game|leaf_game|leaf_chara_reroll|using_copy_skill|for_next_game|reroll_player)$/.test(api);
@@ -388,7 +437,7 @@ function actionPanel() {
     request_vote: (Array.isArray(r.data) && r.data.find(x=>x.id===state.playerId)?.can_suicide) ? [["","正常投票"],["b","脚滑人自爆"]] : [["","正常投票"]]
   };
   if (modifierSets[api]) choices += `<div class="choice-row" style="margin-top:10px">${modifierSets[api].map(x=>`<button class="choice ${state.modifier===x[0]?"selected":""}" data-modifier="${x[0]}">${x[1]}</button>`).join("")}</div>`;
-  const showSubmit = !boolRequest && !forceChoice; const requiredModifier = ["request_jiaohua_dead_skill","request_rabi_skill"].includes(api); const canSubmit = state.selected.length && (!requiredModifier || state.modifier) && leafSelectionValid(r);
+  const showSubmit = !boolRequest && !forceChoice; const canSubmit = selectionCountValid(r) && (!requiredModifier(r) || state.modifier) && leafSelectionValid(r);
   return `<section class="panel action-panel"><div class="action-kicker">${r.web_concurrent ? `并发输入 · 剩余 ${r.web_remaining} 次` : "轮到你行动"} ${timerBadge()}</div><h2>${e(r.message_content || "请做出选择")}</h2>${choices}${showSubmit ? `<div class="action-footer">${api === "request_leaf_charas" ? "" : `<button class="btn btn-ghost" data-giveup>放弃</button>`}<button class="btn btn-primary" data-submit ${canSubmit ? "" : "disabled"}>确认选择${state.selected.length ? ` · ${state.selected.join("、")}` : ""}</button></div>` : ""}<details class="manual"><summary>高级：按 CLI 格式输入</summary><div class="manual-row"><input class="input" id="manual-input" placeholder="输入原始指令"/><button class="btn" data-manual>发送</button></div></details></section>`;
 }
 function game() {
@@ -406,6 +455,20 @@ function render() {
   }
   app.innerHTML = state.view === "landing" ? landing() : state.view === "room" ? room() : game();
   bind();
+}
+function choosePlayer(id) {
+  if (!state.request && !state.activePendingId) return;
+  const rule = selectionRule(); const myz = state.request?.api === "request_myz_skill" || (!state.request && activePending()?.type === "myz");
+  if (myz) state.selected = state.selected.length >= rule.max ? [id] : [...state.selected, id];
+  else if (state.selected.includes(id)) state.selected = state.selected.filter(x => x !== id);
+  else if (rule.max === 1) state.selected = [id];
+  else if (state.selected.length >= rule.max) return notify(`最多选择 ${rule.max} 名玩家`);
+  else state.selected = [...state.selected, id];
+  if (!state.request && state.activePendingId) {
+    state.pendingDrafts[state.activePendingId] = [...state.selected]; state.pendingModifiers[state.activePendingId] = state.modifier;
+    state.preSubmittedDrafts[state.activePendingId] = false;
+  }
+  syncDraft(formatSelection(), false); render();
 }
 function bind() {
   document.querySelector("#entry-form")?.addEventListener("submit", event => {
@@ -433,27 +496,33 @@ function bind() {
   document.querySelector("[data-remove-bot]")?.addEventListener("click", () => send({ type: "remove_bot" }));
   document.querySelector("#toggle-role")?.addEventListener("click", () => { state.roleVisible = !state.roleVisible; render(); });
   document.querySelector("#download-log")?.addEventListener("click", () => { const blob = new Blob(["\uFEFF", state.gameLog.content], { type: "text/plain;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = state.gameLog.fileName || "WereMF.log"; link.click(); URL.revokeObjectURL(url); });
-  document.querySelectorAll("[data-player]").forEach(el => el.addEventListener("click", () => {
-    if (!state.request && !state.activePendingId) return; const id = Number(el.dataset.player);
-    if (state.request?.api === "request_vote") state.selected = state.selected.includes(id) ? [] : [id];
-    else state.selected = state.selected.includes(id) ? state.selected.filter(x=>x!==id) : [...state.selected,id];
-    if (!state.request && state.activePendingId) state.pendingDrafts[state.activePendingId] = [...state.selected];
-    syncDraft(formatSelection()); render();
+  document.querySelectorAll("[data-player]").forEach(el => el.addEventListener("click", () => choosePlayer(Number(el.dataset.player))));
+
+  document.querySelectorAll("[data-pending]").forEach(el => el.addEventListener("click", () => {
+    if (state.activePendingId) { state.pendingDrafts[state.activePendingId] = [...state.selected]; state.pendingModifiers[state.activePendingId] = state.modifier; syncDraft(formatSelection()); }
+    state.activePendingId = el.dataset.pending; state.selected = [...(state.pendingDrafts[state.activePendingId] || [])]; state.modifier = state.pendingModifiers[state.activePendingId] || ""; render();
   }));
-  document.querySelectorAll("[data-pending]").forEach(el => el.addEventListener("click", () => { state.pendingDrafts[state.activePendingId] = [...state.selected]; syncDraft(); state.activePendingId = el.dataset.pending; state.selected = [...(state.pendingDrafts[state.activePendingId] || [])]; render(); }));
-  document.querySelector("[data-clear-draft]")?.addEventListener("click", () => { state.selected = []; state.pendingDrafts[state.activePendingId] = []; syncDraft(""); render(); });
+  document.querySelector("[data-clear-draft]")?.addEventListener("click", () => {
+    state.selected = []; state.modifier = ""; state.pendingDrafts[state.activePendingId] = []; state.pendingModifiers[state.activePendingId] = ""; state.preSubmittedDrafts[state.activePendingId] = false; syncDraft("", false); render();
+  });
+  document.querySelector("[data-pre-submit]")?.addEventListener("click", () => {
+    const id = state.activePendingId; if (!id) return;
+    const armed = !state.preSubmittedDrafts[id]; state.preSubmittedDrafts[id] = armed;
+    state.pendingDrafts[id] = [...state.selected]; state.pendingModifiers[id] = state.modifier;
+    syncDraft(formatSelection(), armed); notify(armed ? "已预提交；轮到该技能时会自动复核并行动" : "已取消预提交"); render();
+  });
   document.querySelectorAll("[data-value]").forEach(el => el.addEventListener("click", () => submit(el.dataset.value)));
   document.querySelectorAll("[data-role]").forEach(el => el.addEventListener("click", () => {
     const role = el.dataset.role;
     if (state.selected.includes(role)) state.selected = state.selected.filter(x=>x!==role);
     else {
-      const limit = state.request?.api === "request_leaf_charas" ? (state.request.data?.choice_count || 4) : Infinity;
+      const limit = selectionRule().max;
       if (state.selected.length >= limit) return notify(`最多选择 ${limit} 个角色`);
       state.selected = [...state.selected,role];
     }
     syncDraft(formatSelection()); render();
   }));
-  document.querySelectorAll("[data-modifier]").forEach(el => el.addEventListener("click", () => { state.modifier = el.dataset.modifier; syncDraft(formatSelection()); render(); }));
+  document.querySelectorAll("[data-modifier]").forEach(el => el.addEventListener("click", () => { state.modifier = el.dataset.modifier; if (!state.request && state.activePendingId) { state.pendingModifiers[state.activePendingId] = state.modifier; state.preSubmittedDrafts[state.activePendingId] = false; } syncDraft(formatSelection(), false); render(); }));
   document.querySelector("[data-submit]")?.addEventListener("click", () => submit(formatSelection()));
   document.querySelector("[data-giveup]")?.addEventListener("click", () => submit("0"));
   document.querySelector("[data-manual]")?.addEventListener("click", () => submit(document.querySelector("#manual-input").value));

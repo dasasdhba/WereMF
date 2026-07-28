@@ -70,7 +70,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `update_room_settings` | `requestTimeoutSeconds`, `voteSecondsPerAlive`, `votePenaltySeconds`, `eventIntervalSeconds` | 仅房主、仅大厅；更新本房间计时与消息展示间隔 |
 | `leave_room` | - | 彻底退出；大厅立即释放席位，进行中则由 Bot 接管至本局结束 |
 | `game_input` | `value` | 提交 CLI 格式输入；服务端校验当前可提交玩家 |
-| `pending_draft` | `skillId`, `api`, `value` | 保存尚未轮到提交的技能预选 |
+| `pending_draft` | `skillId`, `api`, `value`, `preSubmit` | 保存技能预选；`preSubmit: true` 表示玩家主动预提交 |
 | `ping` | - | 返回 `pong` |
 | `command` | `value` | 旧客户端兼容；房主只允许 `\restart`，效果等同 `restart_room` |
 
@@ -86,6 +86,8 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `player_remapped` | `playerId` | 匿名第一晚后，该浏览器实际使用的游戏编号 |
 | `game_message` | `payload` | WereMF CLI API 消息，格式见 [`../WereMF/README.md`](../WereMF/README.md) |
 | `input_accepted` | `api`, `remaining` | 并发输入已接受；`remaining` 是该玩家还可提交次数 |
+| `pre_submit_accepted` | `api`, `skillId`, `value`, `message` | 预提交经最新请求数据复核合法，已自动发送给 CLI |
+| `pre_submit_rejected` | `api`, `skillId`, `message` | 预提交因局面变化或数量/格式不合法而解除，玩家需重新确认 |
 | `request_timer` | `api`, `deadlineUtc`, `mode` | 当前请求或投票阶段的绝对截止时间 |
 | `request_timeout_resolved` | `api`, `value`, `source`, `message` | 超时已按预选、随机合法项、Bot 或弃票处理 |
 | `bot_takeover` | `playerId`, `playerName?`, `message` | 玩家断线超限或彻底退出后由 Bot 接管 |
@@ -107,7 +109,7 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 - `request_player_list`：由服务端自动提交房间玩家列表，不转发给浏览器。
 - `request_reroll_player`：展开为所有有资格玩家各一次的并发输入。
 - `request_vote`：展开为所有有资格玩家各最多两次的并发输入，每次投票仍由 CLI 作为公开信息广播。
-- `pending_skill_created`：按 `source_player_id` 提前发给技能拥有者，允许先预选；CLI 仍按优先级轮流接受最终提交。
+- `pending_skill_created`：按 `source_player_id` 提前发给技能拥有者，允许先预选。玩家可主动将草稿标为预提交；真正轮到该技能时服务端用最新请求数据复核，合法才自动发送，否则解除预提交并展示正常请求。叶子的各身份技能仍分别 pending、按优先级轮流处理。
 - `game_update_night`、`game_update_day`、`cli_game_summary`：逐玩家脱敏；其他玩家的身份不会发送到该浏览器。匿名玩家名也按当前接收者可见范围处理。
 
 重连时会重放最多 250 条公开历史、该玩家的私密历史，以及房主专属历史（仅当前房主）。
@@ -116,6 +118,7 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 
 - 普通请求默认限时 60 秒。截止时若预选仍合法则优先采用；否则随机选择一个合法项并通知玩家。房主可在开局前覆盖本房间的默认值。
 - 叶子选角的随机回退遵守角色限制：不能选粉侠和彩怪，并且不能只选择同一阵营。
+- myz 的两个玩家编号有顺序，分别表示“被威胁者”和“其技能接收者”，两项必须分别按 API 的 `invalid_choice` 与 `invalid_target_choice` 校验，不能合并不可选集合；只要各自在对应位置合法，就允许两者相同，例如 `2 2`。
 - 投票总时限为“本轮 `can_vote: true` 的玩家数 × 本房间每人投票秒数”；死亡、被 myz 威胁或被禁票而无法参与本轮投票的玩家不计入，每接受一票扣除本房间设置的秒数；所有人完成后 CLI 会自然进入下一阶段，服务端不会再补输入。
 - 投票超时且玩家一票未投时，服务端向 CLI 发送 `0`，即 CLI 的默认弃票。
 - 永久 Bot 对请求立即选择随机合法输入。真人断线后若连续两轮请求未响应，会转为临时 Bot；使用原令牌重连后立即恢复真人控制。
