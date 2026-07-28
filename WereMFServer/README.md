@@ -7,11 +7,10 @@ WereMFServer 是 WereMF 的联网房间服务：托管静态 Web 客户端，通
 从仓库根目录执行：
 
 ```powershell
-cd .\WereMFWeb
-npm run build
-cd ..
 dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-contained false
 ```
+
+`WereMFServer.csproj` 会通过 MSBuild 自动执行 WereMFWeb 的生产构建，因此需要预先安装 Node.js 22；无需手动生成或维护 `WereMFServer/wwwroot/`。
 
 启动示例：
 
@@ -36,7 +35,8 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `--request-timeout-seconds <n>` | `30` | 普通请求限时 |
 | `--vote-seconds-per-alive <n>` | `60` | 投票阶段每名本轮可投票玩家提供的秒数 |
 | `--vote-penalty-seconds <n>` | `30` | 每次有效投票后扣除的秒数 |
-| `--event-interval-seconds <n>` | `2` | 连续公开消息的默认展示间隔；0 表示不延迟 |
+| `--event-interval-seconds <n>` | `2` | 两段演出区间内相邻消息的默认放行间隔；0 表示不延迟 |
+| `--debug-api` | 关闭 | 注册仅供临时排错使用的无鉴权房间日志接口 |
 
 `--http-port` 仅为旧命令行兼容参数，其值会被忽略；当前服务只使用 `--port`。
 
@@ -46,6 +46,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 |---|---|
 | `GET /api/health` | `{ status, activeRooms, version }` 健康状态 |
 | `GET /api/rooms` | 当前仍可加入的房间：`{ code, players, maxPlayers, started }[]` |
+| `GET /api/rooms/{roomCode}/log` | 仅 `--debug-api`：下载指定房间的进行中双向 CLI 记录或终局正式日志 |
 | `GET /ws` | WebSocket 升级端点 |
 | 其他路径 | 静态文件；未知前端路由回退到 `index.html` |
 
@@ -131,3 +132,5 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 ## 日志
 
 终局时服务端向 CLI 请求 `cli_log`，再以 `game_log_available` 发给所有仍在房间的玩家。服务端不把日志写入固定服务器目录，持久化由客户端下载完成。Web 客户端在下载内容前添加 UTF-8 BOM，避免 Windows 编辑器把中文日志误判为本地代码页。
+
+临时排错可在启动时添加 `--debug-api`，随后访问 `GET /api/rooms/{roomCode}/log`。进行中的下载内容按实际顺序包含 CLI 的每条原始 JSON 输出，以及服务端写入 CLI stdin 的 `debug_direction: "input"` 记录；因此即使 CLI 卡在 request、尚未生成 `cli_log`，也能看到最后一次请求和服务端是否实际提交了输入。终局后同一路径改为返回 CLI 正式日志。该接口无鉴权且可能暴露所有身份与私密消息，只应在可信网络临时启用。

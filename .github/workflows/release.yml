@@ -42,9 +42,6 @@ jobs:
           node-version: '22'
           package-manager-cache: false
 
-      - name: Build WereMFWeb
-        run: npm --prefix WereMFWeb run build
-
       - name: Build WereMFServer
         run: dotnet publish WereMFServer/WereMFServer.csproj -c Release -r ${{ matrix.target }} --self-contained true -p:PublishSingleFile=true -o ./publish
 

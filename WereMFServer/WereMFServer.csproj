@@ -6,7 +6,14 @@
     <Nullable>enable</Nullable>
     <PublishSingleFile>true</PublishSingleFile>
   </PropertyGroup>
-  <ItemGroup>
-    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
+  <PropertyGroup>
+    <WebClientDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../WereMFWeb'))</WebClientDirectory>
+  </PropertyGroup>
+  <Target Name="BuildWebClient" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec WorkingDirectory="$(WebClientDirectory)" Command="npm run build" />
+    <ItemGroup>
+      <Content Remove="wwwroot\**\*" />
+      <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 </Project>

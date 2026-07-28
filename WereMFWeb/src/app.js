@@ -3,6 +3,12 @@ const toast = document.querySelector("#toast");
 const roles = ["脚滑人","Doge","庸医","地鼠","兔子","铯郎","法猫","卡比","粉侠","爬行者","炮仙","实物","灰卡比","音魔","CTF","合虫","彩怪","贤松","江仙","myz","叶子"];
 const defaultRoomSettings = { requestTimeoutSeconds: 30, voteSecondsPerAlive: 60, votePenaltySeconds: 30, eventIntervalSeconds: 2 };
 const isReservedNickname = name => roles.some(role => role.toLocaleLowerCase() === String(name).trim().toLocaleLowerCase());
+const soundFiles = Object.freeze({
+  gameReady: "/sounds/game_ready.ogg", dayReady: "/sounds/day_ready.ogg", nightReady: "/sounds/night_ready.ogg",
+  nightSummary: "/sounds/night_summary.ogg", voteSummary: "/sounds/vote_summary.ogg", request: "/sounds/request.wav",
+  requestTimeout: "/sounds/request_timeout.wav", barWin: "/sounds/gameover_bar_win.ogg", bombWin: "/sounds/gameover_bomb_win.ogg",
+  leafWin: "/sounds/gameover_leaf_win.ogg", allDead: "/sounds/gameover_all_dead.ogg"
+});
 const state = {
   view: "landing", socket: null, connected: false, server: new URLSearchParams(location.search).get("server") || "",
   roomCode: "", playerId: null, playerName: "", token: "", isHost: false, started: false,
@@ -10,9 +16,42 @@ const state = {
   roleVisible: true, request: null, selected: [], modifier: "", reconnecting: false,
   pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null,
   timerDeadline: 0, timerApi: "", timerMode: "", feedPinned: true, feedScrollTop: 0, botIds: [], leaving: false,
-  roomSettings: { ...defaultRoomSettings }
+  roomSettings: { ...defaultRoomSettings }, soundEnabled: localStorage.getItem("weremf.sound") !== "off"
 };
 const e = (value = "") => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+const soundPlayers = new Set();
+function soundForGameMessage(msg) {
+  const api = msg?.api || ""; const text = String(msg?.message_content || "");
+  if (api === "night_summary_broadcast") return "nightSummary";
+  if (api === "day_start_broadcast") return "dayReady";
+  if (api === "night_start_broadcast") return "nightReady";
+  if (api === "vote_end_broadcast") return "voteSummary";
+  if (api !== "game_win_broadcast") return "";
+  if (text.includes("无人生还")) return "allDead";
+  if (text.includes("吧方获胜")) return "barWin";
+  if (text.includes("爆方获胜")) return "bombWin";
+  if (text.includes("叶子获胜")) return "leafWin";
+  return "";
+}
+function playSound(name) {
+  const source = soundFiles[name];
+  if (!source || !state.soundEnabled || state.reconnecting || !("Audio" in globalThis)) return false;
+  const audio = new globalThis.Audio(source); audio.preload = "auto"; audio.volume = 0.8;
+  soundPlayers.add(audio);
+  const release = () => soundPlayers.delete(audio);
+  audio.addEventListener?.("ended", release, { once: true }); audio.addEventListener?.("error", release, { once: true });
+  const playback = audio.play(); playback?.catch?.(release);
+  return true;
+}
+function unlockAudio() {
+  if (!state.soundEnabled || !("Audio" in globalThis)) return;
+  const audio = new globalThis.Audio(soundFiles.request); audio.muted = true;
+  const release = () => { try { audio.pause(); audio.currentTime = 0; } catch {} };
+  const playback = audio.play(); playback?.then?.(release).catch?.(release);
+}
+function stopSounds() { for (const audio of soundPlayers) { try { audio.pause(); } catch {} } soundPlayers.clear(); }
+function playGameMessageSound(msg) { const sound = soundForGameMessage(msg); if (sound) playSound(sound); }
+function soundToggleButton() { return `<button class="btn btn-ghost sound-toggle" data-toggle-sound title="${state.soundEnabled ? "关闭" : "开启"}游戏音效">${state.soundEnabled ? "🔊 音效" : "🔇 静音"}</button>`; }
 const socketUrl = () => state.server.trim() || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
 const notify = message => { toast.textContent = message; toast.classList.add("show"); clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove("show"), 2600); };
 async function copyText(text) {
@@ -34,14 +73,7 @@ async function copyText(text) {
 }
 const defaultTitle = document.title || "MF 杀 · 今夜谁在说谎";
 let titleFlashTimer = null;
-const transitionRanges = { night_summary_broadcast: "day_start_broadcast", vote_end_broadcast: "night_start_broadcast" };
-const transitionQueue = [];
-const transitionDeferred = [];
-let transitionTimer = null;
-let transitionEndApi = "";
-let transitionClosing = false;
-let preserveUrgentRequest = false;
-let pendingTransitionBoundary = null;
+
 function stopTitleFlash() {
   if (titleFlashTimer) clearInterval(titleFlashTimer);
   titleFlashTimer = null;
@@ -64,6 +96,7 @@ function requestBrowserNotifications() {
   Notification.requestPermission().catch(() => {});
 }
 function alertRequest(request) {
+  playSound("request");
   flashTitle("轮到你行动");
   if (document.visibilityState === "visible" && !state.reconnecting)
     notify(`轮到你行动：${String(request.message_content || "请做出选择").replace(/\s+/g, " ").slice(0, 48)}`);
@@ -90,7 +123,7 @@ function connect(firstMessage) {
 }
 function send(data) { if (state.socket?.readyState === WebSocket.OPEN) state.socket.send(JSON.stringify(data)); else notify("尚未连接服务器"); }
 function clearNewGamePresentation() {
-  clearTransitionQueue(); clearTimer();
+  clearTimer();
   Object.assign(state, {
     entities: [], votes: [], events: [], phase: "准备", round: 0, role: "身份尚未揭晓", roleVisible: true,
     request: null, selected: [], modifier: "", pendingSkills: [], pendingDrafts: {}, pendingModifiers: {},
@@ -99,13 +132,11 @@ function clearNewGamePresentation() {
 }
 function resetGameToLobby() {
   clearTimer();
-  clearTransitionQueue();
   Object.assign(state, { view: "room", started: false, entities: [], votes: [], events: [], phase: "等待", round: 0,
     role: "身份尚未揭晓", roleVisible: true, request: null, selected: [], modifier: "", pendingSkills: [],
     pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0 });
 }
 function finishLeave() {
-  clearTransitionQueue();
   localStorage.removeItem("weremf.session");
   const socket = state.socket;
   Object.assign(state, { view: "landing", socket: null, connected: false, roomCode: "", playerId: null,
@@ -128,7 +159,6 @@ function leaveRoom() {
 }
 
 function onMessage(message) {
-  if (queueTransitionEnvelope(message)) return;
   if (message.type === "error") {
     if (state.reconnecting && message.message?.includes("会话已失效")) finishLeave();
     notify(message.message); return;
@@ -142,7 +172,7 @@ function onMessage(message) {
   if (message.type === "session_state") Object.assign(state, { playerId: message.playerId, isHost: message.isHost });
   if (message.type === "room_restarted") { resetGameToLobby(); notify(message.message || "已返回等待大厅"); }
   if (message.type === "room_state") {
-    const startingNewGame = message.started && !state.started;
+    const startingNewGame = message.started && !state.started; const replaying = state.reconnecting;
     state.botIds = [...(message.bots || [])];
     if (message.settings) state.roomSettings = { ...defaultRoomSettings, ...message.settings };
     if (!message.started || !state.players.length) state.players = [...message.players];
@@ -150,10 +180,11 @@ function onMessage(message) {
       const me = (message.players || []).find(p => !p.isPermanentBot && p.name === state.playerName);
       if (me) Object.assign(state, { playerId: me.id, isHost: me.isHost });
     }
-    if (startingNewGame) clearNewGamePresentation();
+    if (startingNewGame) { clearNewGamePresentation(); if (!replaying) playSound("gameReady"); }
     state.started = message.started;
     if (message.started) state.view = "game";
     else if (state.view !== "landing") state.view = "room";
+    state.reconnecting = false;
   }
   if (message.type === "bot_takeover") { state.botIds = [...new Set([...state.botIds, message.playerId])]; notify(message.message); addEvent("BOT", message.message, false); }
   if (message.type === "game_message") handleGameMessage(message.payload);
@@ -161,14 +192,15 @@ function onMessage(message) {
   if (message.type === "game_ended") { addEvent("SYSTEM", message.message, false); state.request = null; clearTimer(); }
   if (message.type === "server_notice") addEvent("SERVER", message.message, true);
   if (message.type === "request_timer") { state.timerDeadline = message.deadlineUtc || 0; state.timerApi = message.api || ""; state.timerMode = message.mode || "request"; }
-  if (message.type === "request_timeout_resolved") { notify(message.message); addEvent("TIMEOUT", message.message, message.api !== "request_vote"); state.request = null; state.selected = []; state.modifier = ""; clearTimer(); }
+  if (message.type === "request_timeout_resolved") { playSound("requestTimeout"); notify(message.message); addEvent("TIMEOUT", message.message, message.api !== "request_vote"); state.request = null; state.selected = []; state.modifier = ""; clearTimer(); }
   if (message.type === "game_log_available") { state.gameLog = message; addEvent("SYSTEM", "本局日志已生成，所有玩家均可下载", false); }
   if (message.type === "input_accepted") notify(message.remaining ? `已暂存，还可提交 ${message.remaining} 次` : "已提交，等待其他玩家");
   if (message.type === "pre_submit_accepted") { const id = message.skillId || pendingId(state.request?.data); if (id) removePending(id); state.request = null; state.selected = []; state.modifier = ""; clearTimer(); notify(message.message || "预提交已自动发送"); }
   if (message.type === "pre_submit_rejected") { if (message.skillId) state.preSubmittedDrafts[message.skillId] = false; notify(message.message || "预提交已失效，请重新确认"); }
   render();
 }
-function handleGameMessage(msg, recordEvent = true) {
+function handleGameMessage(msg, recordEvent = true, playCue = true) {
+  if (playCue) playGameMessageSound(msg);
   const api = msg.api || ""; const text = String(msg.message_content || "").trim(); const privateMessage = msg.message_type !== "public";
   if (api === "player_init" || api === "player_anonymous_init") {
     clearNewGamePresentation();
@@ -176,8 +208,8 @@ function handleGameMessage(msg, recordEvent = true) {
   }
   if (api === "player_notify_chara" || api === "player_notify_chara_reset") state.role = text || "未知身份";
   if (api === "leaf_notify_first_chara" || api === "leaf_notify_first_chara_reroll") state.role = `叶子 · ${text}`;
-  if (api === "night_start_broadcast") { const keep = preserveUrgentRequest && state.request; if (!keep) clearTimer(); state.phase = "夜晚"; state.round++; state.request = keep ? state.request : null; state.selected = keep ? state.selected : []; state.modifier = keep ? state.modifier : ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
-  if (api === "day_start_broadcast") { const keep = preserveUrgentRequest && state.request; if (!keep) clearTimer(); state.phase = "白天"; state.request = keep ? state.request : null; state.selected = keep ? state.selected : []; state.modifier = keep ? state.modifier : ""; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
+  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
+  if (api === "day_start_broadcast") { clearTimer(); state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
   if (api === "vote_start_broadcast") { clearTimer(); state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; }
   if (api === "vote_end_broadcast") clearTimer();
   if (api === "game_win_broadcast") { clearTimer(); state.phase = "终局"; }
@@ -232,6 +264,11 @@ function pendingModifierOptions(type) {
     "兔子": [["x","鲜奶"],["d","毒奶"]]
   })[type] || [];
 }
+function copyLeafOptions(request = state.request) {
+  if (request?.api !== "request_hechong_copy_leaf") return [];
+  return [...String(request.message_content || "").matchAll(/(\d+)\s*[：:]\s*([^；;]+)/g)]
+    .map(match => ({ value: match[1], label: match[2].trim() }));
+}
 function leafOptions(request = state.request) {
   if (request?.api !== "request_leaf_charas") return [];
   if (Array.isArray(request.data?.options)) return request.data.options;
@@ -262,7 +299,6 @@ function requestChoiceInvalid(msg, value, index) {
   return list.some(item => (typeof item === "number" ? item : item.id) === value);
 }
 function activateRequest(msg) {
-  if (transitionEndApi || transitionClosing) preserveUrgentRequest = true;
   const id = pendingId(msg.data); const draft = id ? [...(state.pendingDrafts[id] || [])] : [];
   state.request = msg; state.modifier = id ? state.pendingModifiers[id] || "" : "";
   const invalid = draft.filter((value, index) => requestChoiceInvalid(msg, value, index));
@@ -326,80 +362,6 @@ function chatAvailability() {
   if (state.botIds.includes(state.playerId)) return { allowed: false, reason: "BOT 托管中，不能发言" };
   return { allowed: true, reason: "输入白天发言" };
 }
-function queueTransitionEnvelope(message) {
-  const requestApi = message.type === "game_message" ? message.payload?.api || "" : "";
-  const urgentTypes = new Set(["request_timer", "request_timeout_resolved", "input_accepted", "pre_submit_accepted", "pre_submit_rejected", "error"]);
-  if (requestApi.startsWith("request_") || urgentTypes.has(message.type)) return false;
-  if (transitionClosing) { transitionDeferred.push(message); return true; }
-  if (message.type !== "game_message") {
-    if (!transitionEndApi) return false;
-    transitionDeferred.push(message);
-    return true;
-  }
-  const api = message.payload?.api || "";
-  if (!transitionEndApi) {
-    const endApi = transitionRanges[api];
-    if (!endApi) return false;
-    clearTransitionQueue();
-    transitionEndApi = endApi;
-  }
-  const boundary = api === transitionEndApi || api === "game_win_broadcast";
-  const text = String(message.payload?.message_content || "").trim();
-  const visible = text && !api.startsWith("request_") && !api.startsWith("game_update_");
-  if (boundary) {
-    transitionClosing = true;
-    pendingTransitionBoundary = message.payload;
-    transitionDeferred.push(message);
-  } else if (!visible) {
-    transitionDeferred.push(message);
-    return true;
-  }
-  transitionQueue.push(message.payload);
-  if (!transitionTimer) showNextTransitionMessage();
-  return true;
-}
-function showNextTransitionMessage() {
-  const message = transitionQueue.shift();
-  if (message && message === pendingTransitionBoundary) {
-    const text = String(message.message_content || "").trim();
-    if (text) appendEvent(message.api, text, false);
-  } else if (message) handleGameMessage(message);
-  if (message) render();
-  const delay = Math.max(0, Number(state.roomSettings.eventIntervalSeconds) || 0) * 1000;
-  if (!delay) {
-    if (transitionQueue.length) showNextTransitionMessage();
-    else if (transitionClosing) finishTransitionQueue();
-    return;
-  }
-  transitionTimer = setTimeout(() => {
-    transitionTimer = null;
-    if (transitionQueue.length) showNextTransitionMessage();
-    else if (transitionClosing) finishTransitionQueue();
-  }, delay);
-}
-function finishTransitionQueue() {
-  const boundary = pendingTransitionBoundary;
-  const deferred = transitionDeferred.splice(0);
-  transitionEndApi = "";
-  transitionClosing = false;
-  pendingTransitionBoundary = null;
-  for (const message of deferred) {
-    if (message.type === "game_message" && message.payload === boundary) handleGameMessage(message.payload, false);
-    else onMessage(message);
-  }
-  preserveUrgentRequest = false;
-  render();
-}
-function clearTransitionQueue() {
-  if (transitionTimer) clearTimeout(transitionTimer);
-  transitionTimer = null;
-  transitionQueue.length = 0;
-  transitionDeferred.length = 0;
-  transitionEndApi = "";
-  transitionClosing = false;
-  preserveUrgentRequest = false;
-  pendingTransitionBoundary = null;
-}
 function addEvent(api, text, privateMessage) { appendEvent(api, text, privateMessage); }
 
 function landing() {
@@ -411,7 +373,7 @@ function room() {
   const seats = [...state.players]; while (seats.length < Math.max(7, state.players.length)) seats.push(null);
   const settings = state.roomSettings;
   const settingsPanel = state.isHost ? `<form class="room-settings" id="room-settings"><label>普通请求限时<input class="input" id="setting-request-timeout" type="number" min="5" max="600" value="${settings.requestTimeoutSeconds}"/><span>秒</span></label><label>每名可投票玩家时长<input class="input" id="setting-vote-per-alive" type="number" min="5" max="600" value="${settings.voteSecondsPerAlive}"/><span>秒</span></label><label>每次投票扣减<input class="input" id="setting-vote-penalty" type="number" min="0" max="600" value="${settings.votePenaltySeconds}"/><span>秒</span></label><label>连续消息展示间隔<input class="input" id="setting-event-interval" type="number" min="0" max="10" value="${settings.eventIntervalSeconds}"/><span>秒</span></label><button class="btn btn-ghost" type="submit">保存房间设置</button></form>` : `<div class="settings-summary">普通请求 ${settings.requestTimeoutSeconds}s · 投票每人 ${settings.voteSecondsPerAlive}s · 每票扣 ${settings.votePenaltySeconds}s · 消息间隔 ${settings.eventIntervalSeconds}s</div>`;
-  return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> MF 杀 ONLINE</div><div class="top-actions"><div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.connected ? "房间在线" : "连接中断"}</div><button class="btn btn-ghost leave-room" data-leave-room>彻底退出</button></div></header>
+  return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> MF 杀 ONLINE</div><div class="top-actions">${soundToggleButton()}<div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.connected ? "房间在线" : "连接中断"}</div><button class="btn btn-ghost leave-room" data-leave-room>彻底退出</button></div></header>
   <section class="room-head"><div><div class="eyebrow">私人房间</div><div class="room-code" id="copy-room-code" role="button" tabindex="0">${e(state.roomCode)} <small>点击复制</small></div></div><button class="btn btn-ghost" id="copy-room">复制邀请信息</button></section>
   <section class="lobby"><div class="panel"><div class="panel-title"><h2>玩家席位</h2><span class="count">${state.players.length} / 16</span></div><div class="players-grid">${seats.map((p,i) => p ? `<div class="player-seat ${p.connected ? "" : "offline"}"><span class="seat-no">${p.id}</span><div>${e(p.name)}${p.isHost ? '<span class="host-tag">房主</span>' : ""}${p.isBot ? '<span class="bot-tag">BOT</span>' : ""}${p.id === state.playerId ? '<span class="you-tag">你</span>' : ""}</div></div>` : `<div class="player-seat empty-seat"><span class="seat-no">${i+1}</span><div>等待加入</div></div>`).join("")}</div></div>
   <aside class="panel"><div class="panel-title"><h3>开局之前</h3></div><p class="lobby-note">需要至少 <strong>7 名玩家</strong>。开始后，系统会私下发送身份与行动面板。建议所有人保持页面开启，并在语音或线下完成白天讨论。</p><div class="divider"></div><p class="lobby-note">你是 <strong>${state.isHost ? "房主" : `${state.playerId} 号玩家`}</strong>${state.isHost ? "，玩家到齐后由你开局。" : "，等待房主开局。"}</p>${settingsPanel}${state.isHost ? `<div class="bot-controls"><button class="btn btn-ghost" data-add-bot ${state.players.length >= 16 ? "disabled" : ""}>＋ 增加 Bot</button><button class="btn btn-ghost" data-remove-bot ${state.players.some(p=>p.isPermanentBot) ? "" : "disabled"}>－ 删除 Bot</button></div>` : ""}<div class="start-wrap">${state.isHost ? `<button class="btn btn-primary" id="start-game" ${state.players.length < 7 ? "disabled" : ""}>${state.players.length < 7 ? `还差 ${7-state.players.length} 人` : "所有人准备好 · 开始"}</button>` : `<button class="btn" disabled>等待房主开始</button>`}</div></aside></section></main>`;
@@ -516,9 +478,10 @@ function actionPanel() {
   }
   if (!r) return `<section class="panel action-panel inactive"><div class="action-kicker">CURRENT ACTION ${timerBadge()}</div><h2>${state.timerMode === "vote" ? "投票进行中" : "等待其他玩家行动"}</h2><p class="lobby-note">${state.timerMode === "vote" ? "共享投票时间正在倒计时；每次有效投票都会扣减时间。" : "轮到你时，选择面板会自动出现。"}</p></section>`;
   const api = r.api; const boolRequest = /(?:reborn|drink_milk|give_mfa|red_ground|anonymous_game|leaf_game|leaf_chara_reroll|using_copy_skill|for_next_game|reroll_player)$/.test(api);
-  const forceChoice = api.includes("force_threaten") && api !== "request_myz_skill_force_threaten"; const roleChoice = api === "request_leaf_charas" || api === "request_hechong_copy_leaf";
+  const forceChoice = api.includes("force_threaten") && api !== "request_myz_skill_force_threaten"; const roleChoice = api === "request_leaf_charas"; const copyLeafChoice = api === "request_hechong_copy_leaf";
   let choices = "";
   if (boolRequest) choices = `<div class="choice-row"><button class="choice" data-value="1">确认 / 是</button><button class="choice" data-value="0">放弃 / 否</button></div>`;
+  else if (copyLeafChoice) { const options = copyLeafOptions(r); choices = `<div class="choice-row">${options.map(option=>`<button class="choice" data-value="${e(option.value)}">${e(option.value)}：${e(option.label)}</button>`).join("")}</div>`; }
   else if (forceChoice) {
     const opts = api === "request_xiansong_skill_force_threaten" ? [["m","强制索要 MFA"],["x","丢咸松球"],["0","放弃"]] : [["1","选项 1"],["0","选项 0"]];
     choices = `<div class="choice-row">${opts.map(x=>`<button class="choice" data-value="${x[0]}">${x[1]}</button>`).join("")}</div>`;
@@ -561,7 +524,7 @@ function game() {
     ...roleStateItems(myRole?.data ?? myRole?.role?.data)
   ].filter(Boolean);
   const personalStateHtml = personalStates.length ? `<div class="role-states personal-role-states">${personalStates.map(x => `<span class="role-state ${x.kind}">${e(x.text)}</span>`).join("")}</div>` : "";
-  return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> 房间 ${e(state.roomCode)}</div><div class="top-actions"><div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.playerId} 号 · ${e(state.playerName)}</div><button class="btn btn-ghost leave-room" data-leave-room>彻底退出</button></div></header>
+  return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> 房间 ${e(state.roomCode)}</div><div class="top-actions">${soundToggleButton()}<div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.playerId} 号 · ${e(state.playerName)}</div><button class="btn btn-ghost leave-room" data-leave-room>彻底退出</button></div></header>
   <div class="game-layout"><aside class="panel phase-panel"><div class="phase-orb ${state.phase === "夜晚" ? "night" : ""}"></div><div><div class="phase-name">${e(state.phase)}</div><div class="phase-sub">${state.round ? `第 ${state.round} 夜 · ` : ""}${state.phase === "夜晚" ? "请保持安静" : "信息公开"}</div></div><div class="identity-card ${state.roleVisible ? "" : "hidden"}"><div class="identity-main"><div><small>你的身份</small><strong>${e(state.role)}</strong></div><div class="game-seat"><small>本局编号</small><b>${state.playerId}</b><span>号</span></div></div>${personalStateHtml}<button class="identity-toggle" id="toggle-role">${state.roleVisible ? "隐藏身份" : "显示身份"}</button></div>${state.isHost ? `<div class="host-tools"><button class="btn" data-restart-room>重开并返回大厅</button></div>` : ""}${state.gameLog ? `<button class="btn log-download" id="download-log">下载本局日志</button>` : ""}</aside>
   <section class="panel board-panel"><div class="panel-title"><h2>在场玩家</h2><span class="count">点击玩家以选择目标</span></div><div class="board-list">${players.map(playerCard).join("")}</div></section>
   <aside class="right-stack">${actionPanel()}<section class="panel chat-panel"><div class="panel-title"><h3>聊天与事件</h3><span class="count">白天存活玩家可以发言</span></div><div class="feed">${timelineHtml}</div>${chatForm}</section></aside></div></main>`;
@@ -593,7 +556,7 @@ function bind() {
   document.querySelector("#entry-form")?.addEventListener("submit", event => {
     event.preventDefault(); const action = event.submitter?.value; const name = document.querySelector("#name").value.trim(); const roomCode = document.querySelector("#code").value.trim(); state.server = document.querySelector("#server").value.trim();
     if (!name) return notify("先填一个昵称"); if (isReservedNickname(name)) return notify("昵称不能与身份名相同"); if (action === "join" && !/^\d{6}$/.test(roomCode)) return notify("房间号是 6 位数字");
-    requestBrowserNotifications();
+    unlockAudio(); requestBrowserNotifications();
     connect({ type: action === "create" ? "create_room" : "join_room", playerName: name, roomCode });
   });
   const copyRoomCode = async () => notify(await copyText(state.roomCode) ? "房间号已复制" : "复制失败，请手动选择房间号");
@@ -606,6 +569,7 @@ function bind() {
     const seconds = id => Number(document.querySelector(id).value);
     send({ type: "update_room_settings", requestTimeoutSeconds: seconds("#setting-request-timeout"), voteSecondsPerAlive: seconds("#setting-vote-per-alive"), votePenaltySeconds: seconds("#setting-vote-penalty"), eventIntervalSeconds: seconds("#setting-event-interval") });
   });
+  document.querySelector("[data-toggle-sound]")?.addEventListener("click", () => { state.soundEnabled = !state.soundEnabled; localStorage.setItem("weremf.sound", state.soundEnabled ? "on" : "off"); if (state.soundEnabled) playSound("request"); else stopSounds(); notify(state.soundEnabled ? "音效已开启" : "音效已关闭"); render(); });
   document.querySelector("[data-leave-room]")?.addEventListener("click", leaveRoom);
   document.querySelector("[data-restart-room]")?.addEventListener("click", () => {
     if (globalThis.confirm?.("结束当前对局并让所有仍在房间的玩家返回等待大厅？") === false) return;
@@ -670,7 +634,7 @@ function submit(value) {
 }
 
 const saved = JSON.parse(localStorage.getItem("weremf.session") || "null");
-if (saved?.roomCode && saved?.token) { state.server = saved.server || ""; state.reconnecting = true; connect({ type: "reconnect", ...saved }); setTimeout(()=>state.reconnecting=false,1500); }
+if (saved?.roomCode && saved?.token) { state.server = saved.server || ""; state.reconnecting = true; connect({ type: "reconnect", ...saved }); }
 if (typeof setInterval === "function") setInterval(() => {
   if (!state.timerDeadline) return;
   document.querySelectorAll("[data-timer]").forEach(node => node.textContent = timerText());

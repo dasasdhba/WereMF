@@ -1,3 +1,4 @@
+using System.Text;
 using WereMFServer;
 
 var options = ServerOptions.Parse(args);
@@ -18,6 +19,16 @@ var server = new GameServer(options);
 app.Lifetime.ApplicationStopping.Register(server.Dispose);
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", activeRooms = server.ActiveRoomCount, version = "2" }));
 app.MapGet("/api/rooms", () => Results.Ok(server.GetPublicRooms()));
+if (options.DebugApi)
+{
+    app.MapGet("/api/rooms/{roomCode}/log", (string roomCode) =>
+    {
+        var log = server.GetRoomLog(roomCode);
+        return log is null
+            ? Results.NotFound()
+            : Results.File(new UTF8Encoding(true).GetBytes(log.Content), "text/plain; charset=utf-8", log.FileName);
+    });
+}
 app.Map("/ws", async context =>
 {
     if (!context.WebSockets.IsWebSocketRequest)
@@ -35,7 +46,7 @@ Console.WriteLine($"Game executable: {options.GamePath}");
 await app.RunAsync();
 return 0;
 
-internal sealed record ServerOptions(string GamePath, string Host, int Port, string? Config, int? Seed, int RequestTimeoutSeconds, int VoteSecondsPerAlive, int VotePenaltySeconds, int EventIntervalSeconds)
+internal sealed record ServerOptions(string GamePath, string Host, int Port, string? Config, int? Seed, int RequestTimeoutSeconds, int VoteSecondsPerAlive, int VotePenaltySeconds, int EventIntervalSeconds, bool DebugApi)
 {
     public static ServerOptions Parse(string[] args)
     {
@@ -48,6 +59,7 @@ internal sealed record ServerOptions(string GamePath, string Host, int Port, str
         var voteSecondsPerAlive = 60;
         var votePenaltySeconds = 30;
         var eventIntervalSeconds = 2;
+        var debugApi = false;
         for (var i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} requires a value");
@@ -64,13 +76,14 @@ internal sealed record ServerOptions(string GamePath, string Host, int Port, str
                 case "--vote-seconds-per-alive": voteSecondsPerAlive = Math.Max(1, int.Parse(Next())); break;
                 case "--vote-penalty-seconds": votePenaltySeconds = Math.Max(0, int.Parse(Next())); break;
                 case "--event-interval-seconds": eventIntervalSeconds = Math.Clamp(int.Parse(Next()), 0, 10); break;
+                case "--debug-api": debugApi = true; break;
                 case "--help":
                 case "-h":
-                    Console.WriteLine("WereMFServer: --path <file> --host <address> --port <number> --config <file> --seed <number> --request-timeout-seconds <n> --vote-seconds-per-alive <n> --vote-penalty-seconds <n> --event-interval-seconds <n>");
+                    Console.WriteLine("WereMFServer: --path <file> --host <address> --port <number> --config <file> --seed <number> --request-timeout-seconds <n> --vote-seconds-per-alive <n> --vote-penalty-seconds <n> --event-interval-seconds <n> --debug-api");
                     Environment.Exit(0);
                     break;
             }
         }
-        return new ServerOptions(Path.GetFullPath(gamePath), host, port, config, seed, requestTimeoutSeconds, voteSecondsPerAlive, votePenaltySeconds, eventIntervalSeconds);
+        return new ServerOptions(Path.GetFullPath(gamePath), host, port, config, seed, requestTimeoutSeconds, voteSecondsPerAlive, votePenaltySeconds, eventIntervalSeconds, debugApi);
     }
 }
