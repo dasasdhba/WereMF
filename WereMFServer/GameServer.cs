@@ -43,7 +43,7 @@ internal sealed class GameServer : IDisposable
         }
         catch (OperationCanceledException) { }
         catch (WebSocketException) { }
-        finally { if (room is not null && player is not null) await room.DisconnectAsync(player); }
+        finally { if (room is not null && player is not null) await room.DisconnectAsync(player, socket); }
     }
 
     private async Task<(GameRoom, PlayerSession)> AttachAsync(WebSocket socket, ClientMessage msg, CancellationToken ct)
@@ -58,7 +58,7 @@ internal sealed class GameServer : IDisposable
         {
             var code = (msg.RoomCode ?? "").Trim();
             if (!_rooms.TryGetValue(code, out var room)) throw new ClientVisibleException("房间不存在或已经结束");
-            return (room, await room.JoinAsync(socket, name, msg.Token, ct));
+            return (room, await room.JoinAsync(socket, name, msg.Token, msg.Type == "reconnect", ct));
         }
         throw new ClientVisibleException("请先创建或加入房间");
     }
@@ -94,25 +94,31 @@ internal sealed class GameRoom : IAsyncDisposable
 {
     private readonly object _gate = new();
     private readonly string _code; private readonly ServerOptions _options; private readonly Func<string, Task> _remove;
+    private RoomSettings _settings;
     private readonly List<PlayerSession> _players = []; private readonly List<JsonElement> _publicHistory = []; private readonly List<JsonElement> _hostHistory = [];
-    private GameProcess? _game; private bool _started; private bool _exportingLog; private string? _expected;
+    private GameProcess? _game; private bool _started; private bool _finished; private bool _exportingLog; private string? _expected;
     private ConcurrentInputPhase? _concurrentInput;
     private readonly SemaphoreSlim _routeLock = new(1, 1);
-    private CancellationTokenSource? _timerCts; private long _timerVersion; private int _aliveCount; private long _gameVersion;
-    public bool IsJoinable => !_started && _players.Count < 16;
-    public GameRoom(string code, ServerOptions options, Func<string, Task> remove) => (_code, _options, _remove) = (code, options, remove);
+    private CancellationTokenSource? _timerCts; private long _timerVersion; private long _gameVersion;
+    public bool IsJoinable => !_started && !_finished && _players.Count < 16;
+    public GameRoom(string code, ServerOptions options, Func<string, Task> remove)
+    {
+        (_code, _options, _remove) = (code, options, remove);
+        _settings = new RoomSettings(options.RequestTimeoutSeconds, options.VoteSecondsPerAlive, options.VotePenaltySeconds, options.EventIntervalSeconds);
+    }
     public object PublicState() => new { code = _code, players = _players.Count, maxPlayers = 16, started = _started };
 
     public async Task<PlayerSession> CreateHostAsync(WebSocket socket, string name, CancellationToken ct)
     {
         var p = new PlayerSession(1, name, true, socket); lock (_gate) _players.Add(p); await WelcomeAsync(p, ct); await StateAsync(ct); return p;
     }
-    public async Task<PlayerSession> JoinAsync(WebSocket socket, string name, string? token, CancellationToken ct)
+    public async Task<PlayerSession> JoinAsync(WebSocket socket, string name, string? token, bool reconnect, CancellationToken ct)
     {
         PlayerSession p;
         lock (_gate)
         {
             p = token is null ? null! : _players.FirstOrDefault(x => x.Token == token && !x.HasLeft)!;
+            if (p is null && reconnect) throw new ClientVisibleException("会话已失效，请重新加入房间");
             if (p is not null) { p.Socket = socket; p.Connected = true; if (!p.IsPermanentBot) { p.IsBot = false; p.MissedRequests = 0; } }
             else
             {
@@ -131,6 +137,7 @@ internal sealed class GameRoom : IAsyncDisposable
         if (msg.Type == "add_bot") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以增加 Bot"); await AddBotAsync(ct); return; }
         if (msg.Type == "remove_bot") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以删除 Bot"); await RemoveBotAsync(ct); return; }
         if (msg.Type == "restart_room") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以重开"); await RestartRoomAsync(ct); return; }
+        if (msg.Type == "update_room_settings") { if (!p.IsHost) throw new ClientVisibleException("只有房主可以修改房间设置"); await UpdateSettingsAsync(msg, ct); return; }
         if (msg.Type == "game_input") { await InputAsync(p, msg.Value ?? "", ct); return; }
         if (msg.Type == "pending_draft") { SaveDraft(p, msg); return; }
         if (msg.Type == "command")
@@ -190,7 +197,7 @@ internal sealed class GameRoom : IAsyncDisposable
             {
                 if (!_started || _game is null) throw new ClientVisibleException("当前没有正在进行的对局");
                 _gameVersion++;
-                game = _game; _game = null; _started = false; _exportingLog = false; _expected = null; _concurrentInput = null; _aliveCount = 0;
+                game = _game; _game = null; _started = false; _finished = false; _exportingLog = false; _expected = null; _concurrentInput = null;
                 CancelTimerLocked();
                 _publicHistory.Clear(); _hostHistory.Clear();
                 _players.RemoveAll(x => x.HasLeft);
@@ -236,6 +243,26 @@ internal sealed class GameRoom : IAsyncDisposable
         await StateAsync(ct);
     }
 
+    private async Task UpdateSettingsAsync(ClientMessage msg, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            if (_started) throw new ClientVisibleException("对局开始后不能修改房间设置");
+            _settings = new RoomSettings(
+                SettingValue(msg.RequestTimeoutSeconds, _settings.RequestTimeoutSeconds, 5, 600, "普通请求限时"),
+                SettingValue(msg.VoteSecondsPerAlive, _settings.VoteSecondsPerAlive, 5, 600, "每名存活玩家投票时长"),
+                SettingValue(msg.VotePenaltySeconds, _settings.VotePenaltySeconds, 0, 600, "每次投票扣减时长"),
+                SettingValue(msg.EventIntervalSeconds, _settings.EventIntervalSeconds, 0, 10, "消息展示间隔"));
+        }
+        await StateAsync(ct);
+    }
+
+    private static int SettingValue(int? value, int current, int min, int max, string name)
+    {
+        if (value is null) return current;
+        if (value < min || value > max) throw new ClientVisibleException($"{name}需要在 {min}–{max} 秒之间");
+        return value.Value;
+    }
     private void SaveDraft(PlayerSession player, ClientMessage msg)
     {
         var key = !string.IsNullOrWhiteSpace(msg.SkillId) ? $"skill:{msg.SkillId.Trim()}" : !string.IsNullOrWhiteSpace(msg.Api) ? $"api:{msg.Api.Trim()}" : "";
@@ -254,16 +281,26 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             if (_started) throw new ClientVisibleException("对局已经开始");
             if (_players.Count < 7) throw new ClientVisibleException("至少需要 7 名玩家");
-            _started = true; players = _players.ToArray(); version = ++_gameVersion;
+            _started = true; _finished = false; players = _players.ToArray(); version = ++_gameVersion;
             _game = game = new GameProcess(_options.GamePath, _options.Config, _options.Seed);
         }
         game.OutputReceived += line => RouteAsync(line, version);
-        game.Exited += code => version == Interlocked.Read(ref _gameVersion) && _started
-            ? BroadcastAsync(new { type = "game_ended", message = code == 0 ? "对局已结束" : "规则进程意外退出" })
-            : Task.CompletedTask;
+        game.Exited += code => OnGameExitedAsync(code, version);
         game.Start();
         await StateAsync(ct);
         await game.SendAsync(string.Join(" ", players.Select(x => $"\"{x.Name.Replace("\"", "”")}\"")), ct);
+    }
+    private async Task OnGameExitedAsync(int code, long version)
+    {
+        lock (_gate)
+        {
+            if (version != _gameVersion || !_started) return;
+            _finished = true;
+            _expected = null;
+            _concurrentInput = null;
+            CancelTimerLocked();
+        }
+        await BroadcastAsync(new { type = "game_ended", message = code == 0 ? "对局已结束" : "规则进程意外退出" });
     }
     private async Task InputAsync(PlayerSession p, string value, CancellationToken ct)
     {
@@ -336,7 +373,7 @@ internal sealed class GameRoom : IAsyncDisposable
             if (remaining > 0) repeatPrompt = phase.Prompt;
             if (phase.Api == "request_vote" && !phase.TimedOut)
             {
-                phase.Deadline = phase.Deadline.AddSeconds(-_options.VotePenaltySeconds);
+                phase.Deadline = phase.Deadline.AddSeconds(-_settings.VotePenaltySeconds);
                 reschedule = phase;
             }
             cliInput = TakeConcurrentCliInputLocked(phase);
@@ -410,7 +447,7 @@ internal sealed class GameRoom : IAsyncDisposable
                     if (i == remaining - 1 && phase.CanSuicide.Contains(player.GameId)) choices.Add("b");
                     var choice = choices[RandomNumberGenerator.GetInt32(choices.Count)];
                     phase.Queue.Enqueue((player.GameId, $"{player.GameId} {choice}"));
-                    if (!phase.TimedOut) phase.Deadline = phase.Deadline.AddSeconds(-_options.VotePenaltySeconds);
+                    if (!phase.TimedOut) phase.Deadline = phase.Deadline.AddSeconds(-_settings.VotePenaltySeconds);
                 }
             }
             phase.Remaining[player.GameId] = 0;
@@ -432,7 +469,7 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             CancelTimerLocked();
             _timerCts = new CancellationTokenSource(); token = _timerCts.Token; version = _timerVersion;
-            deadline = DateTimeOffset.UtcNow.AddSeconds(_options.RequestTimeoutSeconds);
+            deadline = DateTimeOffset.UtcNow.AddSeconds(_settings.RequestTimeoutSeconds);
         }
         await SendToTargetAsync(target, new { type = "request_timer", api, deadlineUtc = deadline.ToUnixTimeMilliseconds(), mode = "request" });
         _ = RunRegularTimeoutAsync(root, api, target, deadline, version, token);
@@ -495,8 +532,7 @@ internal sealed class GameRoom : IAsyncDisposable
         }
         foreach (var player in takeovers) await AnnounceBotTakeoverAsync(player);
         foreach (var (player, notice) in privateNotices) await SendAsync(player, notice);
-        if (phase.Api == "request_vote")
-            await BroadcastAsync(new { type = "request_timeout_resolved", api = phase.Api, value = "0", source = "cli_default", message = "投票时间结束，未完成的玩家由 CLI 按默认弃票处理" });
+
         if (cliInput is not null && _game is not null) await _game.SendAsync(cliInput);
     }
 
@@ -623,6 +659,7 @@ internal sealed class GameRoom : IAsyncDisposable
             var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload = root });
             if (api == "cli_log")
             {
+                lock (_gate) { _finished = true; _expected = null; _concurrentInput = null; CancelTimerLocked(); }
                 var content = root.TryGetProperty("data", out var logData) && logData.ValueKind == JsonValueKind.String ? logData.GetString() ?? "" : "";
                 var download = JsonSerializer.SerializeToElement(new { type = "game_log_available", fileName = $"WereMF_{DateTime.Now:yyMMdd_HHmmss}_{_code}.log", content });
                 Add(_publicHistory, download);
@@ -638,7 +675,7 @@ internal sealed class GameRoom : IAsyncDisposable
             if (api == "player_anonymous_init") { await ApplyAnonymousMappingAsync(root); return; }
             if (api == "pending_skill_created") { await RoutePendingSkillAsync(root); return; }
             if (api is "request_reroll_player" or "request_vote") { await RouteConcurrentRequestAsync(root, api); return; }
-            if (api is "game_update_night" or "game_update_day") UpdateAliveCount(root);
+
             if (api is "vote_end_broadcast" or "day_start_broadcast" or "night_start_broadcast")
             {
                 lock (_gate) { _concurrentInput = null; _expected = null; CancelTimerLocked(); }
@@ -696,8 +733,8 @@ internal sealed class GameRoom : IAsyncDisposable
                 _concurrentInput = ConcurrentInputPhase.Create(api, root);
                 phase = _concurrentInput;
                 var seconds = api == "request_vote"
-                    ? Math.Max(_aliveCount, phase.Remaining.Count) * _options.VoteSecondsPerAlive
-                    : _options.RequestTimeoutSeconds;
+                    ? phase.Remaining.Count * _settings.VoteSecondsPerAlive
+                    : _settings.RequestTimeoutSeconds;
                 phase.Deadline = DateTimeOffset.UtcNow.AddSeconds(seconds);
                 phase.TimerStarted = true;
                 startTimer = true;
@@ -741,24 +778,13 @@ internal sealed class GameRoom : IAsyncDisposable
             item["name"] = $"玩家{id}";
         }
         payload["message_type"] = "public";
+        await StateAsync();
         var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload });
         Add(_publicHistory, envelope);
         await BroadcastAsync(envelope);
         await Task.WhenAll(sessions.Select(x => SendAsync(x, new { type = "player_remapped", playerId = x.GameId })));
     }
 
-    private void UpdateAliveCount(JsonElement root)
-    {
-        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) return;
-        var alive = 0;
-        foreach (var entity in data.EnumerateArray())
-        {
-            if (!entity.TryGetProperty("state", out var state)) continue;
-            var dead = state.TryGetProperty("is_dead_public", out var publicDead) && publicDead.ValueKind == JsonValueKind.True;
-            if (!dead) alive++;
-        }
-        if (alive > 0) lock (_gate) _aliveCount = alive;
-    }
     private static JsonElement RedactedEnvelope(JsonElement root, int playerId)
     {
         var payload = JsonNode.Parse(root.GetRawText())!.AsObject();
@@ -799,8 +825,8 @@ internal sealed class GameRoom : IAsyncDisposable
     private Task WelcomeAsync(PlayerSession p, CancellationToken ct) => SendAsync(p, new { type = "welcome", roomCode = _code, playerId = p.GameId, playerName = p.Name, token = p.Token, isHost = p.IsHost }, ct);
     private async Task StateAsync(CancellationToken ct = default)
     {
-        PlayerSession[] snapshot; lock (_gate) snapshot = _players.ToArray();
-        await BroadcastAsync(new { type = "room_state", roomCode = _code, started = _started, bots = snapshot.Where(p => p.IsBot).Select(p => p.GameId), players = snapshot.Select(p => new { id = p.Id, name = p.Name, connected = p.Connected, isHost = p.IsHost, isBot = p.IsBot, isPermanentBot = p.IsPermanentBot }) }, ct);
+        PlayerSession[] snapshot; RoomSettings settings; lock (_gate) { snapshot = _players.ToArray(); settings = _settings; }
+        await BroadcastAsync(new { type = "room_state", roomCode = _code, started = _started, settings, bots = snapshot.Where(p => p.IsBot).Select(p => p.GameId), players = snapshot.Select(p => new { id = p.Id, name = p.Name, connected = p.Connected, isHost = p.IsHost, isBot = p.IsBot, isPermanentBot = p.IsPermanentBot }) }, ct);
     }
     private Task HostAsync(object data) { var p = _players.FirstOrDefault(x => x.IsHost); return p is null ? Task.CompletedTask : SendAsync(p, data); }
     private async Task BroadcastAsync(object data, CancellationToken ct = default)
@@ -813,7 +839,40 @@ internal sealed class GameRoom : IAsyncDisposable
         if (!p.Connected || p.Socket is null || p.Socket.State != WebSocketState.Open) return;
         try { await p.SendLock.WaitAsync(ct); try { await GameServer.SendRawAsync(p.Socket, data, ct); } finally { p.SendLock.Release(); } } catch (WebSocketException) { p.Connected = false; }
     }
-    public async Task DisconnectAsync(PlayerSession p) { p.Connected = false; await StateAsync(); }
+    public async Task DisconnectAsync(PlayerSession player, WebSocket socket)
+    {
+        var removeRoom = false;
+        var removeSeat = false;
+        var reindexSeats = false;
+        PlayerSession[] remaining;
+        lock (_gate)
+        {
+            if (!ReferenceEquals(player.Socket, socket)) return;
+            player.Connected = false;
+            player.Socket = null;
+            removeSeat = !_started || _finished;
+            reindexSeats = !_started;
+            if (removeSeat)
+            {
+                _players.Remove(player);
+                player.HasLeft = true;
+                if (reindexSeats)
+                    for (var i = 0; i < _players.Count; i++) _players[i].Id = _players[i].GameId = i + 1;
+                if (player.IsHost)
+                {
+                    player.IsHost = false;
+                    var candidates = _players.Where(x => x.Connected && !x.IsBot && !x.HasLeft).ToArray();
+                    if (candidates.Length > 0) candidates[Random.Shared.Next(candidates.Length)].IsHost = true;
+                    else removeRoom = true;
+                }
+            }
+            remaining = _players.Where(x => x.Connected && !x.IsPermanentBot && !x.HasLeft).ToArray();
+        }
+        if (removeRoom) { await _remove(_code); return; }
+        if (removeSeat)
+            await Task.WhenAll(remaining.Select(x => SendAsync(x, new { type = "session_state", playerId = x.GameId, isHost = x.IsHost })));
+        await StateAsync();
+    }
     public async ValueTask DisposeAsync() { if (_game is not null) await _game.DisposeAsync(); await _remove(_code); }
 }
 
@@ -872,5 +931,19 @@ internal sealed class PlayerSession(int id, string name, bool host, WebSocket? s
     public bool IsBot { get; set; } public bool IsPermanentBot { get; set; } public bool HasLeft { get; set; } public int MissedRequests { get; set; }
     public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)); public SemaphoreSlim SendLock { get; } = new(1, 1); public List<JsonElement> History { get; } = []; public Dictionary<string, string> Drafts { get; } = [];
 }
-internal sealed record ClientMessage { public string Type { get; init; } = ""; public string? RoomCode { get; init; } public string? PlayerName { get; init; } public string? Token { get; init; } public string? Value { get; init; } public string? SkillId { get; init; } public string? Api { get; init; } }
+internal sealed record ClientMessage
+{
+    public string Type { get; init; } = "";
+    public string? RoomCode { get; init; }
+    public string? PlayerName { get; init; }
+    public string? Token { get; init; }
+    public string? Value { get; init; }
+    public string? SkillId { get; init; }
+    public string? Api { get; init; }
+    public int? RequestTimeoutSeconds { get; init; }
+    public int? VoteSecondsPerAlive { get; init; }
+    public int? VotePenaltySeconds { get; init; }
+    public int? EventIntervalSeconds { get; init; }
+}
+internal sealed record RoomSettings(int RequestTimeoutSeconds, int VoteSecondsPerAlive, int VotePenaltySeconds, int EventIntervalSeconds);
 internal sealed class ClientVisibleException(string message) : Exception(message);

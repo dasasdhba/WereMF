@@ -34,8 +34,9 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `--config <path>` | 无 | 传给 WereMF 的抽签配置 |
 | `--seed <int>` | 随机 | 传给 WereMF 的固定种子 |
 | `--request-timeout-seconds <n>` | `60` | 普通请求限时 |
-| `--vote-seconds-per-alive <n>` | `60` | 投票阶段每名存活玩家提供的秒数 |
+| `--vote-seconds-per-alive <n>` | `60` | 投票阶段每名本轮可投票玩家提供的秒数 |
 | `--vote-penalty-seconds <n>` | `30` | 每次有效投票后扣除的秒数 |
+| `--event-interval-seconds <n>` | `2` | 连续公开消息的默认展示间隔；0 表示不延迟 |
 
 `--http-port` 仅为旧命令行兼容参数，其值会被忽略；当前服务只使用 `--port`。
 
@@ -66,6 +67,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `add_bot` | - | 仅房主、仅大厅；增加永久 Bot |
 | `remove_bot` | - | 仅房主、仅大厅；删除最后一个永久 Bot |
 | `restart_room` | - | 仅房主；结束当前 CLI 进程并让仍在房间的玩家返回大厅 |
+| `update_room_settings` | `requestTimeoutSeconds`, `voteSecondsPerAlive`, `votePenaltySeconds`, `eventIntervalSeconds` | 仅房主、仅大厅；更新本房间计时与消息展示间隔 |
 | `leave_room` | - | 彻底退出；大厅立即释放席位，进行中则由 Bot 接管至本局结束 |
 | `game_input` | `value` | 提交 CLI 格式输入；服务端校验当前可提交玩家 |
 | `pending_draft` | `skillId`, `api`, `value` | 保存尚未轮到提交的技能预选 |
@@ -79,7 +81,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `type` | 主要字段 | 说明 |
 |---|---|---|
 | `welcome` | `roomCode`, `playerId`, `playerName`, `token`, `isHost` | 创建、加入或重连成功；客户端应保存令牌 |
-| `room_state` | `roomCode`, `started`, `bots`, `players` | 房间完整公开状态；玩家含在线、房主和 Bot 标记 |
+| `room_state` | `roomCode`, `started`, `settings`, `bots`, `players` | 房间完整公开状态；`settings` 是本房间计时与消息间隔，玩家含在线、房主和 Bot 标记 |
 | `session_state` | `playerId`, `isHost` | 编号重排或房主移交后的当前会话状态 |
 | `player_remapped` | `playerId` | 匿名第一晚后，该浏览器实际使用的游戏编号 |
 | `game_message` | `payload` | WereMF CLI API 消息，格式见 [`../WereMF/README.md`](../WereMF/README.md) |
@@ -112,13 +114,13 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 
 ## 计时器与 Bot
 
-- 普通请求默认限时 60 秒。截止时若预选仍合法则优先采用；否则随机选择一个合法项并通知玩家。
+- 普通请求默认限时 60 秒。截止时若预选仍合法则优先采用；否则随机选择一个合法项并通知玩家。房主可在开局前覆盖本房间的默认值。
 - 叶子选角的随机回退遵守角色限制：不能选粉侠和彩怪，并且不能只选择同一阵营。
-- 投票总时限为“当前存活人数 × `vote-seconds-per-alive`”，每接受一票扣除 `vote-penalty-seconds`；所有人完成后 CLI 会自然进入下一阶段，服务端不会再补输入。
+- 投票总时限为“本轮 `can_vote: true` 的玩家数 × 本房间每人投票秒数”；死亡、被 myz 威胁或被禁票而无法参与本轮投票的玩家不计入，每接受一票扣除本房间设置的秒数；所有人完成后 CLI 会自然进入下一阶段，服务端不会再补输入。
 - 投票超时且玩家一票未投时，服务端向 CLI 发送 `0`，即 CLI 的默认弃票。
 - 永久 Bot 对请求立即选择随机合法输入。真人断线后若连续两轮请求未响应，会转为临时 Bot；使用原令牌重连后立即恢复真人控制。
-- 关闭 Tab 只算临时断线。显式 `leave_room` 才会令牌失效；若房主退出，会从在线真人中随机选择新房主。
+- 进行中的对局关闭 Tab 只算临时断线，可以用原令牌重连。等待大厅或终局阶段一旦断线即视为彻底退出：服务端立即删除席位并令旧令牌失效；若房主断线，会从在线真人中随机选择新房主；最后一名真人离线后房间立即解散。
 
 ## 日志
 
-终局时服务端向 CLI 请求 `cli_log`，再以 `game_log_available` 发给所有仍在房间的玩家。服务端不把日志写入固定服务器目录，持久化由客户端下载完成。
+终局时服务端向 CLI 请求 `cli_log`，再以 `game_log_available` 发给所有仍在房间的玩家。服务端不把日志写入固定服务器目录，持久化由客户端下载完成。Web 客户端在下载内容前添加 UTF-8 BOM，避免 Windows 编辑器把中文日志误判为本地代码页。
