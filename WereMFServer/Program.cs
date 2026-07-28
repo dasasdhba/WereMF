@@ -44,7 +44,7 @@ internal sealed record ServerOptions(string GamePath, string Host, int Port, str
         var port = 5000;
         string? config = null;
         int? seed = null;
-        var requestTimeoutSeconds = 60;
+        var requestTimeoutSeconds = 30;
         var voteSecondsPerAlive = 60;
         var votePenaltySeconds = 30;
         var eventIntervalSeconds = 2;

@@ -1,7 +1,8 @@
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 const roles = ["脚滑人","Doge","庸医","地鼠","兔子","铯郎","法猫","卡比","粉侠","爬行者","炮仙","实物","灰卡比","音魔","CTF","合虫","彩怪","贤松","江仙","myz","叶子"];
-const defaultRoomSettings = { requestTimeoutSeconds: 60, voteSecondsPerAlive: 60, votePenaltySeconds: 30, eventIntervalSeconds: 2 };
+const defaultRoomSettings = { requestTimeoutSeconds: 30, voteSecondsPerAlive: 60, votePenaltySeconds: 30, eventIntervalSeconds: 2 };
+const isReservedNickname = name => roles.some(role => role.toLocaleLowerCase() === String(name).trim().toLocaleLowerCase());
 const state = {
   view: "landing", socket: null, connected: false, server: new URLSearchParams(location.search).get("server") || "",
   roomCode: "", playerId: null, playerName: "", token: "", isHost: false, started: false,
@@ -591,7 +592,7 @@ function choosePlayer(id) {
 function bind() {
   document.querySelector("#entry-form")?.addEventListener("submit", event => {
     event.preventDefault(); const action = event.submitter?.value; const name = document.querySelector("#name").value.trim(); const roomCode = document.querySelector("#code").value.trim(); state.server = document.querySelector("#server").value.trim();
-    if (!name) return notify("先填一个昵称"); if (action === "join" && !/^\d{6}$/.test(roomCode)) return notify("房间号是 6 位数字");
+    if (!name) return notify("先填一个昵称"); if (isReservedNickname(name)) return notify("昵称不能与身份名相同"); if (action === "join" && !/^\d{6}$/.test(roomCode)) return notify("房间号是 6 位数字");
     requestBrowserNotifications();
     connect({ type: action === "create" ? "create_room" : "join_room", playerName: name, roomCode });
   });

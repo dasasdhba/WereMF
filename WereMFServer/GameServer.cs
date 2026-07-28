@@ -9,6 +9,7 @@ namespace WereMFServer;
 
 internal sealed class GameServer : IDisposable
 {
+    internal static readonly string[] RoleNames = ["脚滑人","Doge","庸医","地鼠","兔子","铯郎","法猫","卡比","粉侠","爬行者","炮仙","实物","灰卡比","音魔","CTF","合虫","彩怪","贤松","江仙","myz","叶子"];
     private readonly ServerOptions _options;
     private readonly ConcurrentDictionary<string, GameRoom> _rooms = new();
     public int ActiveRoomCount => _rooms.Count;
@@ -50,6 +51,7 @@ internal sealed class GameServer : IDisposable
     {
         var name = (msg.PlayerName ?? "").Trim();
         if (name.Length is < 1 or > 20) throw new ClientVisibleException("昵称需要 1–20 个字符");
+        if (RoleNames.Contains(name, StringComparer.OrdinalIgnoreCase)) throw new ClientVisibleException("昵称不能与身份名相同");
         if (msg.Type == "create_room")
         {
             var room = CreateRoom(); return (room, await room.CreateHostAsync(socket, name, ct));
@@ -635,7 +637,7 @@ internal sealed class GameRoom : IAsyncDisposable
         if (api == "request_xiansong_skill_force_threaten") return parts.Length == 1 && parts[0] is "m" or "x" or "0";
         if (api.Contains("force_threaten") && api != "request_myz_skill_force_threaten") return parts.Length == 1 && parts[0] is "0" or "1";
         if (IsBooleanRequest(api)) return parts.Length == 1 && parts[0] is "0" or "1";
-        if (api == "request_hechong_copy_leaf") return parts.Length == 1 && RoleNames.Contains(parts[0]) && parts[0] is not ("叶子" or "合虫");
+        if (api == "request_hechong_copy_leaf") return parts.Length == 1 && GameServer.RoleNames.Contains(parts[0]) && parts[0] is not ("叶子" or "合虫");
         if (parts.Length == 1 && parts[0] == "0") return true;
         var ids = parts.Where(x => int.TryParse(x, out _)).Select(int.Parse).ToArray();
         var (minimum, maximum) = SelectionRange(root, api);
@@ -672,7 +674,7 @@ internal sealed class GameRoom : IAsyncDisposable
         if (api == "request_xiansong_skill_force_threaten") return RandomChoice(["m", "x", "0"]);
         if (api.Contains("force_threaten") && api != "request_myz_skill_force_threaten") return RandomNumberGenerator.GetInt32(2).ToString();
         if (IsBooleanRequest(api)) return RandomNumberGenerator.GetInt32(2).ToString();
-        if (api == "request_hechong_copy_leaf") return RandomChoice(RoleNames.Where(x => x is not ("叶子" or "合虫")).ToArray());
+        if (api == "request_hechong_copy_leaf") return RandomChoice(GameServer.RoleNames.Where(x => x is not ("叶子" or "合虫")).ToArray());
         var valid = Enumerable.Range(1, _players.Count).Except(InvalidChoices(root, "invalid_choice")).ToArray();
         if (valid.Length == 0) return "0";
         var first = valid[RandomNumberGenerator.GetInt32(valid.Length)];
@@ -703,7 +705,6 @@ internal sealed class GameRoom : IAsyncDisposable
     }
 
     private static bool IsBooleanRequest(string api) => api.EndsWith("_reborn") || api is "request_anonymous_game" or "request_leaf_game" or "request_leaf_chara_reroll" or "request_drink_milk" or "request_xiansong_give_mfa" or "request_kirby_using_copy_skill" or "request_mole_red_ground" or "request_for_next_game";
-    private static readonly string[] RoleNames = ["脚滑人","Doge","庸医","地鼠","兔子","铯郎","法猫","卡比","粉侠","爬行者","炮仙","实物","灰卡比","音魔","CTF","合虫","彩怪","贤松","江仙","myz","叶子"];
     private static string RandomChoice(string[] values) => values[RandomNumberGenerator.GetInt32(values.Length)];
 
     private static bool IsLegalLeafChoice(JsonElement root, string[] values)

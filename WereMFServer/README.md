@@ -33,7 +33,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `--port <port>` | `5000` | HTTP 与 WebSocket 共用端口；`--websocket-port` 是兼容别名 |
 | `--config <path>` | 无 | 传给 WereMF 的抽签配置 |
 | `--seed <int>` | 随机 | 传给 WereMF 的固定种子 |
-| `--request-timeout-seconds <n>` | `60` | 普通请求限时 |
+| `--request-timeout-seconds <n>` | `30` | 普通请求限时 |
 | `--vote-seconds-per-alive <n>` | `60` | 投票阶段每名本轮可投票玩家提供的秒数 |
 | `--vote-penalty-seconds <n>` | `30` | 每次有效投票后扣除的秒数 |
 | `--event-interval-seconds <n>` | `2` | 连续公开消息的默认展示间隔；0 表示不延迟 |
@@ -75,7 +75,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `ping` | - | 返回 `pong` |
 | `command` | `value` | 旧客户端兼容；房主只允许 `\restart`，效果等同 `restart_room` |
 
-昵称长度为 1–20 个字符；房间号固定为 6 位数字。
+昵称长度为 1–20 个字符，且不能与身份名相同（英文身份名不区分大小写）；房间号固定为 6 位数字。
 
 ## WebSocket 服务端消息
 
@@ -120,7 +120,7 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 
 ## 计时器与 Bot
 
-- 普通请求默认限时 60 秒。截止时若预选仍合法则优先采用；否则随机选择一个合法项并通知玩家。房主可在开局前覆盖本房间的默认值。
+- 普通请求默认限时 30 秒。截止时若预选仍合法则优先采用；否则随机选择一个合法项并通知玩家。房主可在开局前覆盖本房间的默认值。
 - 叶子选角的随机回退遵守角色限制：不能选粉侠和彩怪，并且不能只选择同一阵营。
 - myz 的两个玩家编号有顺序，分别表示“被威胁者”和“其技能接收者”，两项必须分别按 API 的 `invalid_choice` 与 `invalid_target_choice` 校验，不能合并不可选集合；只要各自在对应位置合法，就允许两者相同，例如 `2 2`。
 - 投票总时限为“本轮 `can_vote: true` 的玩家数 × 本房间每人投票秒数”；死亡、被 myz 威胁或被禁票而无法参与本轮投票的玩家不计入，每接受一票扣除本房间设置的秒数；所有人完成后 CLI 会自然进入下一阶段，服务端不会再补输入。
