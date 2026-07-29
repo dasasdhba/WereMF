@@ -15,7 +15,7 @@ const state = {
   players: [], entities: [], votes: [], events: [], phase: "等待", round: 0, role: "身份尚未揭晓",
   roleVisible: true, request: null, selected: [], modifier: "", reconnecting: false,
   pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null,
-  timerDeadline: 0, timerApi: "", timerMode: "", feedPinned: true, feedScrollTop: 0, botIds: [], leaving: false,
+  timerDeadline: 0, timerApi: "", timerMode: "", feedPinned: true, feedScrollTop: 0, chatDraft: "", botIds: [], leaving: false,
   roomSettings: { ...defaultRoomSettings }, soundEnabled: localStorage.getItem("weremf.sound") !== "off"
 };
 const e = (value = "") => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
@@ -127,21 +127,21 @@ function clearNewGamePresentation() {
   Object.assign(state, {
     entities: [], votes: [], events: [], phase: "准备", round: 0, role: "身份尚未揭晓", roleVisible: true,
     request: null, selected: [], modifier: "", pendingSkills: [], pendingDrafts: {}, pendingModifiers: {},
-    preSubmittedDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0
+    preSubmittedDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0, chatDraft: ""
   });
 }
 function resetGameToLobby() {
   clearTimer();
   Object.assign(state, { view: "room", started: false, entities: [], votes: [], events: [], phase: "等待", round: 0,
     role: "身份尚未揭晓", roleVisible: true, request: null, selected: [], modifier: "", pendingSkills: [],
-    pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0 });
+    pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0, chatDraft: "" });
 }
 function finishLeave() {
   localStorage.removeItem("weremf.session");
   const socket = state.socket;
   Object.assign(state, { view: "landing", socket: null, connected: false, roomCode: "", playerId: null,
     playerName: "", token: "", isHost: false, started: false, players: [], entities: [], votes: [], events: [],
-    request: null, selected: [], pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null,
+    request: null, selected: [], pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null, chatDraft: "",
     botIds: [], leaving: false });
   try { socket?.close(); } catch {}
   stopTitleFlash();
@@ -528,7 +528,7 @@ function game() {
     }
     return `<article class="event ${x.private ? "private" : ""}"><div class="event-meta">${e(x.time)} · ${e(x.api.replaceAll("_"," "))}</div><div class="event-text">${e(x.text)}</div></article>`;
   }).join("") : '<div class="empty-state">还没有聊天或事件</div>';
-  const chatForm = `<form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" autocomplete="off" placeholder="${e(chat.reason)}" ${chat.allowed ? "" : "disabled"}/><button class="btn btn-primary" ${chat.allowed ? "" : "disabled"}>发送</button></form>`;
+  const chatForm = `<form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" autocomplete="off" value="${e(state.chatDraft)}" placeholder="${e(chat.reason)}" ${chat.allowed ? "" : "disabled"}/><button class="btn btn-primary" ${chat.allowed ? "" : "disabled"}>发送</button></form>`;
   const me = entityFor(state.playerId); const myRole = me?.role;
   const personalStates = [
     me?.state?.is_bar_leader ? { text: "🍺 你是吧主", kind: "bar-leader" } : null,
@@ -546,8 +546,19 @@ function render() {
     state.feedPinned = isFeedAtBottom();
     state.feedScrollTop = currentFeed.scrollTop;
   }
+  const currentChatInput = document.querySelector("#chat-input");
+  const restoreChatFocus = document.activeElement === currentChatInput;
+  const selectionStart = currentChatInput?.selectionStart;
+  const selectionEnd = currentChatInput?.selectionEnd;
+  if (currentChatInput) state.chatDraft = currentChatInput.value;
   app.innerHTML = state.view === "landing" ? landing() : state.view === "room" ? room() : game();
   bind();
+  const nextChatInput = document.querySelector("#chat-input");
+  if (restoreChatFocus && nextChatInput && !nextChatInput.disabled) {
+    nextChatInput.focus({ preventScroll: true });
+    if (Number.isInteger(selectionStart) && Number.isInteger(selectionEnd))
+      nextChatInput.setSelectionRange(selectionStart, selectionEnd);
+  }
 }
 function choosePlayer(id) {
   if (!state.request && !state.activePendingId) return;
@@ -589,9 +600,11 @@ function bind() {
   document.querySelector("[data-add-bot]")?.addEventListener("click", () => send({ type: "add_bot" }));
   document.querySelector("[data-remove-bot]")?.addEventListener("click", () => send({ type: "remove_bot" }));
   document.querySelector("#toggle-role")?.addEventListener("click", () => { state.roleVisible = !state.roleVisible; render(); });
+  const chatInput = document.querySelector("#chat-input");
+  chatInput?.addEventListener("input", () => { state.chatDraft = chatInput.value; });
   document.querySelector("#chat-form")?.addEventListener("submit", event => {
-    event.preventDefault(); const input = document.querySelector("#chat-input"); const value = input?.value.trim();
-    if (!value) return; send({ type: "chat", value }); input.value = "";
+    event.preventDefault(); const value = state.chatDraft.trim();
+    if (!value) return; send({ type: "chat", value }); state.chatDraft = ""; chatInput.value = "";
   });
   document.querySelector("#download-log")?.addEventListener("click", () => { const blob = new Blob(["\uFEFF", state.gameLog.content], { type: "text/plain;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = state.gameLog.fileName || "WereMF.log"; link.click(); URL.revokeObjectURL(url); });
   document.querySelectorAll("[data-player]").forEach(el => el.addEventListener("click", () => choosePlayer(Number(el.dataset.player))));
