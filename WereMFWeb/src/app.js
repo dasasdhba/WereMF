@@ -217,6 +217,7 @@ function handleGameMessage(msg, recordEvent = true, playCue = true) {
   if (api === "game_update_vote") updateVotes(msg);
   if (api === "pending_skill_created") rememberPending(msg.data);
   if (api === "invalid_pending_skill_notify") removePending(pendingId(msg.data));
+  if (api === "skill_blocked_by_jiaohua_notify") removePending(pendingId(msg.data));
   if (api.startsWith("request_") && !api.endsWith("_parse_error")) activateRequest(msg);
   if (api.endsWith("_parse_error")) { notify(text || "这个选择无效，请重试"); }
   if (recordEvent && text && !api.startsWith("request_") && !api.startsWith("game_update_"))
