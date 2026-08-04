@@ -14,10 +14,12 @@ const state = {
   roomCode: "", playerId: null, playerName: "", token: "", isHost: false, started: false,
   players: [], entities: [], votes: [], events: [], phase: "等待", round: 0, role: "身份尚未揭晓",
   roleVisible: true, request: null, selected: [], modifier: "", reconnecting: false,
-  pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null,
+  pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, myzThreatenedSkills: {}, activePendingId: "", gameLog: null,
   timerDeadline: 0, timerApi: "", timerMode: "", feedPinned: true, feedScrollTop: 0, chatDraft: "", botIds: [], leaving: false,
   roomSettings: { ...defaultRoomSettings }, soundEnabled: localStorage.getItem("weremf.sound") !== "off"
 };
+let chatCompositionActive = false;
+let renderPendingAfterComposition = false;
 const e = (value = "") => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
 const soundPlayers = new Set();
 function soundForGameMessage(msg) {
@@ -127,21 +129,21 @@ function clearNewGamePresentation() {
   Object.assign(state, {
     entities: [], votes: [], events: [], phase: "准备", round: 0, role: "身份尚未揭晓", roleVisible: true,
     request: null, selected: [], modifier: "", pendingSkills: [], pendingDrafts: {}, pendingModifiers: {},
-    preSubmittedDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0, chatDraft: ""
+    preSubmittedDrafts: {}, myzThreatenedSkills: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0, chatDraft: ""
   });
 }
 function resetGameToLobby() {
   clearTimer();
   Object.assign(state, { view: "room", started: false, entities: [], votes: [], events: [], phase: "等待", round: 0,
     role: "身份尚未揭晓", roleVisible: true, request: null, selected: [], modifier: "", pendingSkills: [],
-    pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0, chatDraft: "" });
+    pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, myzThreatenedSkills: {}, activePendingId: "", gameLog: null, feedPinned: true, feedScrollTop: 0, chatDraft: "" });
 }
 function finishLeave() {
   localStorage.removeItem("weremf.session");
   const socket = state.socket;
   Object.assign(state, { view: "landing", socket: null, connected: false, roomCode: "", playerId: null,
     playerName: "", token: "", isHost: false, started: false, players: [], entities: [], votes: [], events: [],
-    request: null, selected: [], pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, activePendingId: "", gameLog: null, chatDraft: "",
+    request: null, selected: [], pendingSkills: [], pendingDrafts: {}, pendingModifiers: {}, preSubmittedDrafts: {}, myzThreatenedSkills: {}, activePendingId: "", gameLog: null, chatDraft: "",
     botIds: [], leaving: false });
   try { socket?.close(); } catch {}
   stopTitleFlash();
@@ -209,8 +211,8 @@ function handleGameMessage(msg, recordEvent = true, playCue = true) {
   }
   if (api === "player_notify_chara" || api === "player_notify_chara_reset") state.role = text || "未知身份";
   if (api === "leaf_notify_first_chara" || api === "leaf_notify_first_chara_reroll") state.role = `叶子 · ${text}`;
-  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
-  if (api === "day_start_broadcast") { clearTimer(); state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.activePendingId = ""; }
+  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.myzThreatenedSkills = {}; state.activePendingId = ""; }
+  if (api === "day_start_broadcast") { clearTimer(); state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.myzThreatenedSkills = {}; state.activePendingId = ""; }
   if (api === "vote_start_broadcast") { clearTimer(); state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; }
   if (api === "vote_end_broadcast") clearTimer();
   if (api === "game_win_broadcast") { clearTimer(); state.phase = "终局"; }
@@ -219,6 +221,20 @@ function handleGameMessage(msg, recordEvent = true, playCue = true) {
   if (api === "pending_skill_created") rememberPending(msg.data);
   if (api === "invalid_pending_skill_notify") removePending(pendingId(msg.data));
   if (api === "skill_blocked_by_jiaohua_notify") removePending(pendingId(msg.data));
+  if (api === "myz_threaten_notify" || api === "myz_threaten_force_notify") {
+    const id = pendingId(msg.data);
+    if (id) {
+      delete state.pendingDrafts[id];
+      delete state.pendingModifiers[id];
+      state.preSubmittedDrafts[id] = false;
+      state.myzThreatenedSkills[id] = {
+        force: api === "myz_threaten_force_notify",
+        target: msg.data?.skill_id?.threaten?.target
+      };
+      if (state.activePendingId === id) { state.selected = []; state.modifier = ""; }
+      if (api === "myz_threaten_force_notify") removePending(id);
+    }
+  }
   if (api.startsWith("request_") && !api.endsWith("_parse_error")) activateRequest(msg);
   if (api.endsWith("_parse_error")) { notify(text || "这个选择无效，请重试"); }
   if (recordEvent && text && !api.startsWith("request_") && !api.startsWith("game_update_"))
@@ -302,6 +318,7 @@ function requestChoiceInvalid(msg, value, index) {
 }
 function activateRequest(msg) {
   const id = pendingId(msg.data); const draft = id ? [...(state.pendingDrafts[id] || [])] : [];
+  if (id && state.myzThreatenedSkills[id]) msg.web_myz_threaten = state.myzThreatenedSkills[id];
   state.request = msg; state.modifier = id ? state.pendingModifiers[id] || "" : "";
   const invalid = draft.filter((value, index) => requestChoiceInvalid(msg, value, index));
   const valid = draft.filter((value, index) => !requestChoiceInvalid(msg, value, index)); const rule = selectionRule(msg);
@@ -528,7 +545,9 @@ function actionPanel() {
   };
   if (modifierSets[api]) choices += `<div class="choice-row" style="margin-top:10px">${modifierSets[api].map(x=>`<button class="choice ${state.modifier===x[0]?"selected":""}" data-modifier="${x[0]}">${x[1]}</button>`).join("")}</div>`;
   const showSubmit = !boolRequest && !forceChoice; const canSubmit = selectionCountValid(r) && (!requiredModifier(r) || state.modifier) && leafSelectionValid(r);
-  return `<section class="panel action-panel"><div class="action-kicker">${r.web_concurrent ? `并发输入 · 剩余 ${r.web_remaining} 次` : "轮到你行动"} ${timerBadge()}</div><h2>${e(r.message_content || "请做出选择")}</h2>${choices}${showSubmit ? `<div class="action-footer">${api === "request_leaf_charas" ? "" : `<button class="btn btn-ghost" data-giveup>放弃</button>`}<button class="btn btn-primary" data-submit ${canSubmit ? "" : "disabled"}>确认选择${state.selected.length ? ` · ${state.selected.join("、")}` : ""}</button></div>` : ""}<details class="manual"><summary>高级：按 CLI 格式输入</summary><div class="manual-row"><input class="input" id="manual-input" placeholder="输入原始指令"/><button class="btn" data-manual>发送</button></div></details></section>`;
+  const threat = r.web_myz_threaten;
+  const threatWarning = threat ? `<div class="threat-warning">⚠ ${threat.force ? "你受到 myz 强制威胁，指定目标已被锁定；请重新决定当前仍可选择的附加效果。" : `你已被 myz 威胁${threat.target ? `，要求本技能包含 ${e(threat.target)} 号目标` : ""}。请重新决定；若无视威胁，下一次夜晚开始时你会死亡。`}</div>` : "";
+  return `<section class="panel action-panel"><div class="action-kicker">${r.web_concurrent ? `并发输入 · 剩余 ${r.web_remaining} 次` : "轮到你行动"} ${timerBadge()}</div><h2>${e(r.message_content || "请做出选择")}</h2>${threatWarning}${choices}${showSubmit ? `<div class="action-footer">${api === "request_leaf_charas" ? "" : `<button class="btn btn-ghost" data-giveup>放弃</button>`}<button class="btn btn-primary" data-submit ${canSubmit ? "" : "disabled"}>确认选择${state.selected.length ? ` · ${state.selected.join("、")}` : ""}</button></div>` : ""}<details class="manual"><summary>高级：按 CLI 格式输入</summary><div class="manual-row"><input class="input" id="manual-input" placeholder="输入原始指令"/><button class="btn" data-manual>发送</button></div></details></section>`;
 }
 function game() {
   const players = state.players.length ? state.players : Array.from({length:7},(_,i)=>({id:i+1,name:`${i+1} 号玩家`}));
@@ -558,6 +577,11 @@ function game() {
   <aside class="right-stack">${actionPanel()}<section class="panel chat-panel"><div class="panel-title"><h3>聊天与事件</h3><span class="count">白天存活玩家可以发言</span></div><div class="feed">${timelineHtml}</div>${chatForm}</section></aside></div></main>`;
 }
 function render() {
+  if (chatCompositionActive) {
+    renderPendingAfterComposition = true;
+    return false;
+  }
+  renderPendingAfterComposition = false;
   const currentFeed = document.querySelector(".feed");
   if (currentFeed) {
     state.feedPinned = isFeedAtBottom();
@@ -576,6 +600,15 @@ function render() {
     if (Number.isInteger(selectionStart) && Number.isInteger(selectionEnd))
       nextChatInput.setSelectionRange(selectionStart, selectionEnd);
   }
+  return true;
+}
+function beginChatComposition() { chatCompositionActive = true; }
+function endChatComposition(input) {
+  chatCompositionActive = false;
+  if (input) state.chatDraft = input.value;
+  if (!renderPendingAfterComposition) return;
+  renderPendingAfterComposition = false;
+  setTimeout(() => render(), 0);
 }
 function choosePlayer(id) {
   if (!state.request && !state.activePendingId) return;
@@ -619,6 +652,8 @@ function bind() {
   document.querySelector("#toggle-role")?.addEventListener("click", () => { state.roleVisible = !state.roleVisible; render(); });
   const chatInput = document.querySelector("#chat-input");
   chatInput?.addEventListener("input", () => { state.chatDraft = chatInput.value; });
+  chatInput?.addEventListener("compositionstart", beginChatComposition);
+  chatInput?.addEventListener("compositionend", () => endChatComposition(chatInput));
   document.querySelector("#chat-form")?.addEventListener("submit", event => {
     event.preventDefault(); const value = state.chatDraft.trim();
     if (!value) return; send({ type: "chat", value }); state.chatDraft = ""; chatInput.value = "";

@@ -457,8 +457,8 @@ null
 | `xiansong_get_mfa_fail_notify` | 贤松未获得mfa通知 |
 | `xiansong_boom_broadcast` | 咸松球爆炸广播 | xxx 身上的咸松球爆炸了！ |
 | `myz_self_reveal_broadcast` | myz自爆广播 | myz 自爆了自己的身份！myz 的威胁将强制生效！ |
-| `myz_threaten_notify` | 威胁通知 | 你被威胁 xxx |
-| `myz_threaten_force_notify` | 强制威胁通知 | 你被强制威胁 xxx |
+| `myz_threaten_notify` | 威胁通知 | 你被威胁 xxx；`data.skill_id` 为被威胁的完整 pending skill（含 `threaten.target/force`） |
+| `myz_threaten_force_notify` | 强制威胁通知 | 你被强制威胁 xxx；`data.skill_id` 同上。固定目标由 CLI 代入，但 Doge 等角色仍可能随后发出附加选项请求 |
 | `myz_threat_failed_by_already_notify` | myz威胁失败通知(目标已被威胁过) |
 | `myz_threat_failed_by_no_skill_notify` | myz威胁失败通知(目标无技能可威胁) |
 | `myz_threat_failed_notify` | myz威胁失败通知(威胁不可能达成) |

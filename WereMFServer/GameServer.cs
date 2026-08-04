@@ -673,6 +673,24 @@ internal sealed class GameRoom : IAsyncDisposable
         if (draft is null || !draft.PreSubmit) return (false, false, "", skillId);
         return (true, IsLegalTimeoutInput(root, api, draft.Value), draft.Value, skillId);
     }
+    private async Task CancelThreatenedPreSubmitAsync(JsonElement root, string api, string target)
+    {
+        var player = PlayerForTarget(target);
+        var skillId = ExtractSkillId(root);
+        if (player is null || skillId is null) return;
+        var preSubmitCanceled = false;
+        lock (_gate)
+        {
+            var key = $"skill:{skillId}";
+            if (player.Drafts.Remove(key, out var draft))
+                preSubmitCanceled = draft.PreSubmit;
+        }
+        if (!preSubmitCanceled) return;
+        var message = api == "myz_threaten_force_notify"
+            ? "该技能受到 myz 强制威胁，原预选与预提交已清除；若角色仍有附加选项，请重新决定"
+            : "你已被 myz 威胁，原预选与预提交已清除；请在轮到行动时重新决定，违抗威胁会在下一次夜晚开始时死亡";
+        await SendAsync(player, new { type = "pre_submit_rejected", api, skillId, message });
+    }
     private static string? ExtractSkillId(JsonElement root)
     {
         if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("skill_id", out var id)) return null;
@@ -863,6 +881,8 @@ internal sealed class GameRoom : IAsyncDisposable
             }
             if (api == "player_anonymous_init") { await ApplyAnonymousMappingAsync(root); return; }
             if (api == "pending_skill_created") { await RoutePendingSkillAsync(root); return; }
+            if (api is "myz_threaten_notify" or "myz_threaten_force_notify")
+                await CancelThreatenedPreSubmitAsync(root, api, target);
             if (api is "request_reroll_player" or "request_vote") { await RouteConcurrentRequestAsync(root, api); return; }
 
             if (api is "vote_end_broadcast" or "day_start_broadcast" or "night_start_broadcast")

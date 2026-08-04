@@ -70,14 +70,22 @@ let private getThreatenResult filter (creator: unit -> ISkill)
                       else $"技能发给 {(target |> game.GetEntity).Player.ToInGameString ()}"
             
             if threaten.Force then
-                sendRawMessage { Type = ToPlayer entity.Player
-                                 Content = $"你被强制威胁{msg}" } ApiType.MyzThreatenForceNotify
+                sendMessage {
+                    Type = ToPlayer entity.Player
+                    Content = $"你被强制威胁{msg}"
+                    Api = ApiType.MyzThreatenForceNotify
+                    Data = JsonValue.Record [| "skill_id", ps.ToJsonValue () |]
+                }
                 Some (Ok (if target > PlayerId 0 then
                               Skill.New ps target (creator()) |> Some
                           else None))
             else
-                sendRawMessage { Type = ToPlayer entity.Player
-                                 Content = $"你被威胁{msg}" } ApiType.MyzThreatenNotify
+                sendMessage {
+                    Type = ToPlayer entity.Player
+                    Content = $"你被威胁{msg}"
+                    Api = ApiType.MyzThreatenNotify
+                    Data = JsonValue.Record [| "skill_id", ps.ToJsonValue () |]
+                }
                 Some (Error threaten.Target)
     )
     

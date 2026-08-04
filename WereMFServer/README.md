@@ -134,6 +134,7 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 - `request_reroll_player`：展开为所有有资格玩家各一次的并发输入。
 - `request_vote`：展开为所有有资格玩家各最多两次的并发输入，每次投票仍由 CLI 作为公开信息广播。
 - `pending_skill_created`：按 `source_player_id` 提前发给技能拥有者，允许先预选。玩家可主动将草稿标为预提交；真正轮到该技能时服务端用最新请求数据复核，合法才自动发送，否则解除预提交并展示正常请求。叶子的各身份技能仍分别 pending、按优先级轮流处理。
+- 收到 myz_threaten_notify 或 myz_threaten_force_notify 时，服务端按 data.skill_id 清除对应技能的旧预选与预提交，避免普通威胁被自动服从，也避免旧目标被误作强制威胁后的附加选项。普通威胁会展示原技能请求供玩家重新决定；强制威胁固定目标，但 CLI 仍可能为 Doge 等角色发出附加选项请求。
 - `game_update_night`、`game_update_day`、`cli_game_summary`：逐玩家脱敏；其他玩家的身份不会发送到该浏览器。匿名玩家名也按当前接收者可见范围处理。
 
 重连时会重放最多 250 条公开历史、该玩家的私密历史，以及房主专属历史（仅当前房主）。
