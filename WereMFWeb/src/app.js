@@ -189,6 +189,7 @@ function onMessage(message) {
   if (message.type === "bot_takeover") { state.botIds = [...new Set([...state.botIds, message.playerId])]; notify(message.message); addEvent("BOT", message.message, false); }
   if (message.type === "game_message") handleGameMessage(message.payload);
   if (message.type === "chat_message") appendChat(message);
+  if (message.type === "cli_input_recorded") appendCliInput(message);
   if (message.type === "game_ended") { addEvent("SYSTEM", message.message, false); state.request = null; clearTimer(); }
   if (message.type === "server_notice") addEvent("SERVER", message.message, true);
   if (message.type === "request_timer") { state.timerDeadline = message.deadlineUtc || 0; state.timerApi = message.api || ""; state.timerMode = message.mode || "request"; }
@@ -354,6 +355,18 @@ function appendChat(message) {
     const sender = state.players.find(x => x.id === Number(message.playerId));
     notify(`${sender?.name || `${message.playerId} 号玩家`}：${text.replace(/\s+/g, " ").slice(0, 48)}`);
   }
+}
+function appendCliInput(message) {
+  const value = String(message.value ?? "");
+  const sentAt = Number(message.sentAt); const date = Number.isFinite(sentAt) ? new Date(sentAt) : new Date();
+  state.events.push({
+    api: message.api || "CLI",
+    text: value,
+    cliInput: true,
+    private: true,
+    time: date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+  });
+  if (state.events.length > 180) state.events.shift();
 }
 function chatAvailability() {
   if (!state.started || !["白天", "投票"].includes(state.phase)) return { allowed: false, reason: "仅白天可以发言" };
@@ -521,6 +534,10 @@ function game() {
   const players = state.players.length ? state.players : Array.from({length:7},(_,i)=>({id:i+1,name:`${i+1} 号玩家`}));
   const chat = chatAvailability();
   const timelineHtml = state.events.length ? state.events.map(x => {
+    if (x.cliInput) {
+      const api = String(x.api || "CLI").replaceAll("_", " ");
+      return `<article class="event cli-input"><div class="event-meta">${e(x.time)} · CLI 输入 · 仅你可见 · ${e(api)}</div><div class="event-text">&gt; ${e(x.text)}</div></article>`;
+    }
     if (x.chat) {
       const sender = state.players.find(player => player.id === x.playerId);
       const senderText = `${x.playerId} 号 · ${sender?.name || "玩家"}`;

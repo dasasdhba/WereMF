@@ -23,6 +23,26 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 
 浏览器访问 `http://localhost:5000`，WebSocket 使用同源 `/ws`。公网部署应由反向代理提供 HTTPS/WSS，并转发 `/ws`。
 
+### 部署到 Debian 测试服务器
+
+仓库根目录提供 [`scripts/deploy.ps1`](../scripts/deploy.ps1)，会构建 `linux-x64` 自包含的 CLI 与 Server、复制指定的抽签 `config.json`、上传到临时目录、备份现有 `/root/weremf`、切换 tmux 服务并执行健康检查；新版本未在 30 秒内通过检查时会自动回滚。
+
+```powershell
+.\scripts\deploy.ps1
+```
+
+SSH 目标不写入 Git。脚本按“`-RemoteHost` 参数、当前进程的 `WEREMF_DEPLOY_HOST` 环境变量、仓库根目录 `.env`”的顺序读取；`.env` 已被 Git 忽略。远端目录默认 `/root/weremf`、tmux 会话默认 `weremf`、端口默认 `5000`，抽签配置默认取 `WereMF/bin/Release/net8.0/win-x64/publish/config.json`。
+
+```powershell
+.\scripts\deploy.ps1 -RemoteHost root@example.com
+
+# 或写入不会被 Git 跟踪的仓库根目录 .env
+# WEREMF_DEPLOY_HOST=root@example.com
+.\scripts\deploy.ps1
+```
+
+排错时可临时加 `-DebugApi`；正式临时测试不需要时不要开启。
+
 ### 参数
 
 | 参数 | 默认值 | 说明 |
@@ -69,7 +89,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `remove_bot` | - | 仅房主、仅大厅；删除最后一个永久 Bot |
 | `restart_room` | - | 仅房主；结束当前 CLI 进程并让仍在房间的玩家返回大厅 |
 | `update_room_settings` | `requestTimeoutSeconds`, `voteSecondsPerAlive`, `votePenaltySeconds`, `eventIntervalSeconds` | 仅房主、仅大厅；更新本房间计时与消息展示间隔 |
-| `leave_room` | - | 彻底退出；大厅立即释放席位，进行中则由 Bot 接管至本局结束 |
+| `leave_room` | - | 彻底退出；大厅和终局立即释放席位，进行中则由 Bot 接管至本局结束 |
 | `game_input` | `value` | 提交 CLI 格式输入；服务端校验当前可提交玩家 |
 | `pending_draft` | `skillId`, `api`, `value`, `preSubmit` | 保存技能预选；`preSubmit: true` 表示玩家主动预提交 |
 | `chat` | `value` | 白天发言，1–300 字；仅存活真人玩家可发送，服务端裁决权限 |
@@ -89,6 +109,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 | `game_message` | `payload` | WereMF CLI API 消息，格式见 [`../WereMF/README.md`](../WereMF/README.md) |
 | `chat_message` | `playerId`, `text`, `sentAt` | 公开聊天消息；昵称由客户端按当前匿名映射解析，不传真实昵称 |
 | `input_accepted` | `api`, `remaining` | 并发输入已接受；`remaining` 是该玩家还可提交次数 |
+| `cli_input_recorded` | `api`, `value`, `sentAt` | 已通过校验并提交/排队的实际 CLI 格式输入；只发给提交者，并写入其私密重连历史 |
 | `pre_submit_accepted` | `api`, `skillId`, `value`, `message` | 预提交经最新请求数据复核合法，已自动发送给 CLI |
 | `pre_submit_rejected` | `api`, `skillId`, `message` | 预提交因局面变化或数量/格式不合法而解除，玩家需重新确认 |
 | `request_timer` | `api`, `deadlineUtc`, `mode` | 当前请求或投票阶段的绝对截止时间 |

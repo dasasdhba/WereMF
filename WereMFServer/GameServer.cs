@@ -175,7 +175,7 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             player.Connected = false;
             player.Socket = null;
-            if (_started)
+            if (_started && !_finished)
             {
                 player.HasLeft = true;
                 player.IsBot = true;
@@ -185,16 +185,18 @@ internal sealed class GameRoom : IAsyncDisposable
             else
             {
                 _players.Remove(player);
-                for (var i = 0; i < _players.Count; i++) _players[i].Id = _players[i].GameId = i + 1;
+                if (!_started)
+                    for (var i = 0; i < _players.Count; i++) _players[i].Id = _players[i].GameId = i + 1;
             }
             if (player.IsHost)
             {
                 player.IsHost = false;
                 var candidates = _players.Where(x => x != player && x.Connected && !x.IsBot && !x.HasLeft).ToArray();
                 if (candidates.Length > 0) candidates[Random.Shared.Next(candidates.Length)].IsHost = true;
-                else if (!_started) removeRoom = true;
+                else if (!_started || _finished) removeRoom = true;
             }
             remaining = _players.Where(x => x.Connected && !x.IsPermanentBot && !x.HasLeft).ToArray();
+            if (_finished && remaining.Length == 0) removeRoom = true;
         }
         if (removeRoom) { await _remove(_code); return; }
         if (becameBot)
@@ -371,14 +373,19 @@ internal sealed class GameRoom : IAsyncDisposable
             await ConcurrentInputAsync(p, value, ct);
             return;
         }
+        string api;
         lock (_gate)
         {
             var allowed = _expected == $"player_{p.GameId}" || _expected == "public" || (_expected == "internal" && p.IsHost);
             if (!allowed) throw new ClientVisibleException("现在还没轮到你行动");
             p.MissedRequests = 0;
+            api = _regularApi ?? "";
             _expected = null;
+            _regularPrompt = null;
+            _regularApi = null;
             CancelTimerLocked();
         }
+        await RecordCliInputAsync(p, api, value, ct);
         await SendCliInputAsync(value, ct);
     }
 
@@ -389,6 +396,7 @@ internal sealed class GameRoom : IAsyncDisposable
         ConcurrentInputPhase? reschedule = null;
         int remaining;
         string api;
+        string recordedInput;
         lock (_gate)
         {
             var phase = _concurrentInput ?? throw new ClientVisibleException("当前并非并发输入阶段");
@@ -400,7 +408,8 @@ internal sealed class GameRoom : IAsyncDisposable
             if (phase.Api == "request_reroll_player")
             {
                 if (trimmed is not ("0" or "1")) throw new ClientVisibleException("请选择保留或重抽身份");
-                if (trimmed == "1") phase.Queue.Enqueue((player.GameId, player.GameId.ToString()));
+                recordedInput = trimmed == "1" ? player.GameId.ToString() : "0";
+                if (trimmed == "1") phase.Queue.Enqueue((player.GameId, recordedInput));
             }
             else
             {
@@ -414,7 +423,8 @@ internal sealed class GameRoom : IAsyncDisposable
                 if (trimmed.Equals("b", StringComparison.OrdinalIgnoreCase))
                 {
                     if (!phase.CanSuicide.Contains(player.GameId)) throw new ClientVisibleException("你当前不能自爆");
-                    phase.Queue.Enqueue((player.GameId, $"{player.GameId} b"));
+                    recordedInput = $"{player.GameId} b";
+                    phase.Queue.Enqueue((player.GameId, recordedInput));
                 }
                 else
                 {
@@ -422,7 +432,8 @@ internal sealed class GameRoom : IAsyncDisposable
                         throw new ClientVisibleException("投票目标无效");
                     if (phase.InvalidVotes.TryGetValue(player.GameId, out var invalid) && invalid.Contains(target))
                         throw new ClientVisibleException("当前不能投给这名玩家");
-                    phase.Queue.Enqueue((player.GameId, $"{player.GameId} {target}"));
+                    recordedInput = $"{player.GameId} {target}";
+                    phase.Queue.Enqueue((player.GameId, recordedInput));
                 }
             }
             player.MissedRequests = 0;
@@ -437,6 +448,7 @@ internal sealed class GameRoom : IAsyncDisposable
             cliInput = TakeConcurrentCliInputLocked(phase);
         }
         await SendAsync(player, new { type = "input_accepted", api, remaining }, ct);
+        await RecordCliInputAsync(player, api, recordedInput, ct);
         if (repeatPrompt is JsonElement prompt) await SendConcurrentPromptAsync(player, prompt, remaining, ct);
         if (reschedule is not null) await ScheduleConcurrentTimerAsync(reschedule);
         if (cliInput is not null) await SendCliInputAsync(cliInput, ct);
@@ -510,6 +522,19 @@ internal sealed class GameRoom : IAsyncDisposable
             }
             phase.Remaining[player.GameId] = 0;
         }
+    }
+
+    private async Task RecordCliInputAsync(PlayerSession player, string api, string value, CancellationToken ct = default)
+    {
+        var envelope = JsonSerializer.SerializeToElement(new
+        {
+            type = "cli_input_recorded",
+            api,
+            value,
+            sentAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        });
+        Add(player.History, envelope);
+        await SendAsync(player, envelope, ct);
     }
 
     private async Task SendCliInputAsync(string value, CancellationToken ct = default)
@@ -805,6 +830,18 @@ internal sealed class GameRoom : IAsyncDisposable
             var root = doc.RootElement.Clone(); var target = root.GetProperty("message_type").GetString() ?? "internal"; var api = root.GetProperty("api").GetString() ?? ""; if (_exportingLog && api != "cli_log") return; if (api == "cli_log") _exportingLog = false;
             lock (_gate) { if (api != "cli_log") { _rawCliLog.Add(line); if (_rawCliLog.Count > 100_000) _rawCliLog.RemoveRange(0, 10_000); } }
             if (api == "request_player_list") return;
+            if (api == "game_win_broadcast")
+            {
+                lock (_gate)
+                {
+                    _finished = true;
+                    _dayChatOpen = false;
+                    _chatEligible.Clear();
+                    _expected = null;
+                    _concurrentInput = null;
+                    CancelTimerLocked();
+                }
+            }
             await PacePresentationAsync(root, api);
             UpdateChatPermission(root, api);
             var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload = root });
@@ -849,6 +886,7 @@ internal sealed class GameRoom : IAsyncDisposable
                     {
                         lock (_gate) { _expected = null; requestPlayer.MissedRequests = 0; CancelTimerLocked(); }
                         await SendAsync(requestPlayer, new { type = "pre_submit_accepted", api, skillId = preSubmit.SkillId, value = preSubmit.Value, message = $"已按预提交自动行动：{preSubmit.Value}" });
+                        await RecordCliInputAsync(requestPlayer, api, preSubmit.Value);
                         await SendCliInputAsync(preSubmit.Value);
                         return;
                     }
@@ -1084,6 +1122,7 @@ internal sealed class GameRoom : IAsyncDisposable
                 }
             }
             remaining = _players.Where(x => x.Connected && !x.IsPermanentBot && !x.HasLeft).ToArray();
+            if (_finished && remaining.Length == 0) removeRoom = true;
         }
         if (removeRoom) { await _remove(_code); return; }
         if (removeSeat)

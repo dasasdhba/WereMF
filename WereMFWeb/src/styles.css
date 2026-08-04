@@ -19,3 +19,4 @@
 
 .sound-toggle{padding:9px 12px;white-space:nowrap;color:#b9cbd6;border-color:#394956}.sound-toggle:hover{background:#18232c}
 @media(max-width:760px){.sound-toggle{padding:8px 10px;font-size:12px}}
+.event.cli-input{margin:7px 0;padding:10px 12px;border:1px solid #315b78;border-radius:12px;background:#142b3d;color:#b9dcff}.event.cli-input .event-meta{color:#79bde8}.event.cli-input .event-text{font-family:Consolas,"Cascadia Mono",monospace}
