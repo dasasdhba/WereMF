@@ -11,9 +11,33 @@ internal sealed class GameServer : IDisposable
 {
     internal static readonly string[] RoleNames = ["脚滑人","Doge","庸医","地鼠","兔子","铯郎","法猫","卡比","粉侠","爬行者","炮仙","实物","灰卡比","音魔","CTF","合虫","彩怪","贤松","江仙","myz","叶子"];
     private readonly ServerOptions _options;
+    private readonly LlmBotClient? _llmBot;
+    private readonly string[] _botNames;
     private readonly ConcurrentDictionary<string, GameRoom> _rooms = new();
     public int ActiveRoomCount => _rooms.Count;
-    public GameServer(ServerOptions options) => _options = options;
+    public bool LlmBotsEnabled => _llmBot is not null;
+    public string? LlmBotModel => _llmBot is null ? null : _options.LlmModel;
+    public object? LlmBotStats => _llmBot?.Stats;
+    public GameServer(ServerOptions options)
+    {
+        _options = options;
+        _botNames = LoadBotNames();
+        if (options.LlmApiKey is not null)
+            _llmBot = new LlmBotClient(options.LlmEndpoint, options.LlmApiKey, options.LlmModel, options.LlmTimeoutSeconds);
+    }
+    private static string[] LoadBotNames()
+    {
+        var files = new[] { "bots_prefer.txt", "bots.txt" };
+        return files.SelectMany(file =>
+            File.Exists(Path.Combine(AppContext.BaseDirectory, file))
+                ? File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, file))
+                : [])
+            .Select(name => name.Trim())
+            .Where(name => name.Length is >= 1 and <= 20 && !name.StartsWith('#') && !RoleNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     public object GetPublicRooms() => _rooms.Values.Where(x => x.IsJoinable).Select(x => x.PublicState()).ToArray();
     public RoomLogSnapshot? GetRoomLog(string code) => _rooms.TryGetValue(code, out var room) ? room.GetLog() : null;
 
@@ -71,7 +95,7 @@ internal sealed class GameServer : IDisposable
         for (var i = 0; i < 100; i++)
         {
             var code = RandomNumberGenerator.GetInt32(1_000_000).ToString("D6");
-            var room = new GameRoom(code, _options, c => { _rooms.TryRemove(c, out _); return Task.CompletedTask; });
+            var room = new GameRoom(code, _options, _llmBot, _botNames, c => { _rooms.TryRemove(c, out _); return Task.CompletedTask; });
             if (_rooms.TryAdd(code, room)) return room;
         }
         throw new InvalidOperationException("No room code available");
@@ -90,13 +114,15 @@ internal sealed class GameServer : IDisposable
         while (!result.EndOfMessage && stream.Length < 1_048_576);
         return Encoding.UTF8.GetString(stream.ToArray());
     }
-    public void Dispose() { foreach (var room in _rooms.Values) room.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+    public void Dispose() { foreach (var room in _rooms.Values) room.DisposeAsync().AsTask().GetAwaiter().GetResult(); _llmBot?.Dispose(); }
 }
 
 internal sealed class GameRoom : IAsyncDisposable
 {
     private readonly object _gate = new();
     private readonly string _code; private readonly ServerOptions _options; private readonly Func<string, Task> _remove;
+    private readonly LlmBotClient? _llmBot;
+    private readonly string[] _botNames;
     private RoomSettings _settings;
     private readonly List<PlayerSession> _players = []; private readonly List<JsonElement> _publicHistory = []; private readonly List<JsonElement> _hostHistory = [];
     private readonly List<string> _rawCliLog = []; private string? _completedCliLog;
@@ -105,12 +131,18 @@ internal sealed class GameRoom : IAsyncDisposable
     private string? _presentationEndApi; private DateTimeOffset _presentationNextAt; private bool _presentationClosing;
     private ConcurrentInputPhase? _concurrentInput;
     private bool _dayChatOpen; private HashSet<int> _chatEligible = [];
+    private int _botDayGeneration;
+    private int _dayStateGeneration;
+    private CancellationTokenSource? _botChatCts;
+    private Task _botOpeningTask = Task.CompletedTask;
+    private int _botReplyPending;
+    private DateTimeOffset _lastBotChatAt;
     private readonly SemaphoreSlim _routeLock = new(1, 1);
     private CancellationTokenSource? _timerCts; private long _timerVersion; private long _gameVersion;
     public bool IsJoinable => !_started && !_finished && _players.Count < 16;
-    public GameRoom(string code, ServerOptions options, Func<string, Task> remove)
+    public GameRoom(string code, ServerOptions options, LlmBotClient? llmBot, string[] botNames, Func<string, Task> remove)
     {
-        (_code, _options, _remove) = (code, options, remove);
+        (_code, _options, _llmBot, _botNames, _remove) = (code, options, llmBot, botNames, remove);
         _settings = new RoomSettings(options.RequestTimeoutSeconds, options.VoteSecondsPerAlive, options.VotePenaltySeconds, options.EventIntervalSeconds);
     }
     public object PublicState() => new { code = _code, players = _players.Count, maxPlayers = 16, started = _started };
@@ -138,11 +170,35 @@ internal sealed class GameRoom : IAsyncDisposable
             {
                 if (_started) throw new ClientVisibleException("对局已经开始，请使用原设备重连");
                 if (_players.Count >= 16) throw new ClientVisibleException("房间已满");
-                if (_players.Any(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ClientVisibleException("昵称已被使用");
+                name = UniquePlayerNameLocked(name);
                 p = new PlayerSession(_players.Count + 1, name, false, socket); _players.Add(p);
             }
         }
         await WelcomeAsync(p, ct); await ReplayAsync(p, ct); await StateAsync(ct); return p;
+    }
+
+    private string UniquePlayerNameLocked(string requestedName)
+    {
+        bool Available(string candidate) => !_players.Any(x => x.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase));
+        if (Available(requestedName)) return requestedName;
+
+        // Keep the final nickname within the public 20-character limit.
+        var prefix = requestedName[..Math.Min(requestedName.Length, 15)];
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var candidate = $"{prefix} {RandomNumberGenerator.GetInt32(10_000):D4}";
+            if (Available(candidate)) return candidate;
+        }
+
+        // Retain a deterministic fallback in the extremely unlikely event of repeated collisions.
+        for (var suffix = 0; suffix < 100_000; suffix++)
+        {
+            var digits = suffix.ToString();
+            var deterministicPrefix = requestedName[..Math.Min(requestedName.Length, 19 - digits.Length)];
+            var candidate = $"{deterministicPrefix} {digits}";
+            if (Available(candidate)) return candidate;
+        }
+        throw new ClientVisibleException("无法分配唯一昵称，请更换昵称后重试");
     }
 
     public async Task HandleAsync(PlayerSession p, ClientMessage msg, CancellationToken ct)
@@ -216,13 +272,14 @@ internal sealed class GameRoom : IAsyncDisposable
                 _gameVersion++;
                 _presentationEndApi = null; _presentationClosing = false; _presentationNextAt = default;
                 game = _game; _game = null; _started = false; _finished = false; _exportingLog = false; _expected = null; _concurrentInput = null; _dayChatOpen = false; _chatEligible.Clear();
+                CancelBotChatLocked();
                 CancelTimerLocked();
                 _publicHistory.Clear(); _hostHistory.Clear();
                 _players.RemoveAll(x => x.HasLeft);
                 for (var i = 0; i < _players.Count; i++)
                 {
                     var player = _players[i];
-                    player.Id = player.GameId = i + 1; player.MissedRequests = 0; player.History.Clear(); player.Drafts.Clear();
+                    player.Id = player.GameId = i + 1; player.MissedRequests = 0; player.History.Clear(); player.Drafts.Clear(); player.BotMemorySummary = ""; player.BotMemoryDay = -1;
                     if (!player.IsPermanentBot) player.IsBot = false;
                 }
             }
@@ -241,9 +298,14 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             if (_started) throw new ClientVisibleException("对局开始后不能增加 Bot");
             if (_players.Count >= 16) throw new ClientVisibleException("房间已满");
-            var number = 1;
-            while (_players.Any(x => x.Name.Equals($"Bot {number}", StringComparison.OrdinalIgnoreCase))) number++;
-            _players.Add(new PlayerSession(_players.Count + 1, $"Bot {number}", false, null) { IsBot = true, IsPermanentBot = true });
+            var botName = _botNames.FirstOrDefault(name => !_players.Any(player => player.Name.Equals(name, StringComparison.OrdinalIgnoreCase)));
+            if (botName is null)
+            {
+                var number = 1;
+                while (_players.Any(x => x.Name.Equals($"Bot {number}", StringComparison.OrdinalIgnoreCase))) number++;
+                botName = $"Bot {number}";
+            }
+            _players.Add(new PlayerSession(_players.Count + 1, botName, false, null) { IsBot = true, IsPermanentBot = true });
         }
         await StateAsync(ct);
     }
@@ -309,14 +371,27 @@ internal sealed class GameRoom : IAsyncDisposable
             Add(_publicHistory, envelope);
         }
         await BroadcastAsync(envelope, ct);
+        if (_llmBot is not null) _ = RunBotRepliesAsync($"{player.GameId} 号玩家“{player.Name}”说：{text}");
     }
 
     private void UpdateChatPermission(JsonElement root, string api)
     {
         lock (_gate)
         {
-            if (api == "day_start_broadcast") { _dayChatOpen = true; return; }
-            if (api is "night_start_broadcast" or "game_win_broadcast") { _dayChatOpen = false; _chatEligible.Clear(); return; }
+            if (api == "day_start_broadcast")
+            {
+                CancelBotChatLocked();
+                _dayChatOpen = true;
+                _botDayGeneration++;
+                _botChatCts = new CancellationTokenSource();
+                return;
+            }
+            if (api is "night_start_broadcast" or "game_win_broadcast")
+            {
+                _dayChatOpen = false; _chatEligible.Clear();
+                CancelBotChatLocked();
+                return;
+            }
             if (api != "game_update_day") return;
             var entities = root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array ? data : default;
             var eligible = new HashSet<int>();
@@ -329,8 +404,193 @@ internal sealed class GameRoom : IAsyncDisposable
                     if (!dead) eligible.Add(id);
                 }
             _chatEligible = eligible;
+            _dayStateGeneration++;
         }
     }
+    private void CancelBotChatLocked()
+    {
+        _botChatCts?.Cancel();
+        _botChatCts?.Dispose();
+        _botChatCts = null;
+        _botOpeningTask = Task.CompletedTask;
+        Interlocked.Exchange(ref _botReplyPending, 0);
+    }
+
+    private void StartBotDayOpening()
+    {
+        if (_llmBot is null) return;
+        lock (_gate)
+        {
+            if (!_started || _finished || !_dayChatOpen || _botChatCts is null) return;
+            var day = _botDayGeneration;
+            var stateGeneration = _dayStateGeneration;
+            var token = _botChatCts.Token;
+            _botOpeningTask = RunBotOpeningAsync(day, stateGeneration, token);
+        }
+    }
+
+    private async Task RunBotOpeningAsync(int day, int stateGeneration, CancellationToken ct)
+    {
+        try
+        {
+            for (var i = 0; i < 20; i++)
+            {
+                lock (_gate) if (!_dayChatOpen || day != _botDayGeneration) return;
+                if (_dayStateGeneration != stateGeneration) break;
+                await Task.Delay(100, ct);
+            }
+            PlayerSession[] bots;
+            lock (_gate)
+                bots = _players.Where(x => x.IsBot && !x.HasLeft && _chatEligible.Contains(x.GameId)).OrderBy(_ => Random.Shared.Next()).ToArray();
+            var speeches = await Task.WhenAll(bots.Select(async bot => (Bot: bot, Decision: await DecideBotConversationAsync(bot, "白天刚开始；请自行判断现在是否值得首先发言", null, ct))));
+            foreach (var speech in speeches.Where(x => !string.IsNullOrWhiteSpace(x.Decision?.Text)))
+            {
+                if (!await BroadcastBotChatAsync(speech.Bot, speech.Decision!.Text, day, ct)) return;
+                await Task.Delay(900, ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RunBotRepliesAsync(string trigger)
+    {
+        if (_llmBot is null || Interlocked.CompareExchange(ref _botReplyPending, 1, 0) != 0) return;
+        try
+        {
+            CancellationToken ct; int day; ConcurrentInputPhase? votePhase;
+            lock (_gate)
+            {
+                if (!_started || _finished || !_dayChatOpen || _botChatCts is null) return;
+                ct = _botChatCts.Token;
+                day = _botDayGeneration;
+                votePhase = _concurrentInput?.Api == "request_vote" ? _concurrentInput : null;
+            }
+            var cooldown = TimeSpan.FromMilliseconds(900) - (DateTimeOffset.UtcNow - _lastBotChatAt);
+            if (cooldown > TimeSpan.Zero) await Task.Delay(cooldown, ct);
+            PlayerSession[] bots;
+            lock (_gate)
+                bots = _players.Where(x => x.IsBot && !x.HasLeft && _chatEligible.Contains(x.GameId))
+                    .OrderByDescending(x => trigger.Contains(x.Name, StringComparison.OrdinalIgnoreCase))
+                    .ThenBy(_ => Random.Shared.Next()).ToArray();
+            var decisions = await Task.WhenAll(bots.Select(async bot => (Bot: bot, Decision: await DecideBotConversationAsync(bot, trigger, votePhase, ct))));
+            foreach (var turn in decisions.Where(x => x.Decision is not null))
+            {
+                if (!string.IsNullOrWhiteSpace(turn.Decision!.Text))
+                {
+                    if (!await BroadcastBotChatAsync(turn.Bot, turn.Decision.Text, day, ct)) return;
+                    await Task.Delay(900, ct);
+                }
+                if (votePhase is not null) await ApplyBotConversationVoteAsync(turn.Bot, turn.Decision.Vote, votePhase, ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally { Interlocked.Exchange(ref _botReplyPending, 0); }
+    }
+
+    private async Task<BotConversationDecision?> DecideBotConversationAsync(PlayerSession player, string trigger, ConcurrentInputPhase? votePhase, CancellationToken ct)
+    {
+        if (_llmBot is null) return null;
+        string voteContext;
+        lock (_gate) voteContext = BuildBotVoteContextLocked(player, votePhase);
+        var visibleContext = await BuildBotVisibleContextAsync(player, ct);
+        var context = new BotSpeechContext(player.GameId, player.Name, trigger, visibleContext, voteContext);
+        return await _llmBot.SpeakAsync(context, ct);
+    }
+
+    private string BuildBotVoteContextLocked(PlayerSession player, ConcurrentInputPhase? phase)
+    {
+        if (phase is null || _concurrentInput != phase || phase.Api != "request_vote")
+            return "投票尚未开始：vote 必须为 null。";
+        var remaining = phase.Remaining.GetValueOrDefault(player.GameId);
+        var choices = LegalBotVoteChoicesLocked(player, phase);
+        var now = DateTimeOffset.UtcNow;
+        var voteElapsed = Math.Max(0, (int)(now - phase.StartedAt).TotalSeconds);
+        var budget = Math.Max(0, (int)(phase.Deadline - now).TotalSeconds);
+        var latest = phase.LatestVotes.TryGetValue(player.GameId, out var previous) ? previous : "尚未投票";
+        return $"投票阶段实际经过 {voteElapsed} 秒；投票初始预算 {phase.InitialSeconds} 秒；当前投票预算剩余 {budget} 秒（每张有效票另扣 {_settings.VotePenaltySeconds} 秒）。你还可投 {remaining} 次；当前票：{latest}；合法 vote：{string.Join('、', choices)}。可以返回 null 暂缓；越接近预算截止，越应尽快作出投票决定。";
+    }
+
+    private List<string> LegalBotVoteChoicesLocked(PlayerSession player, ConcurrentInputPhase phase)
+    {
+        var choices = Enumerable.Range(0, _players.Count + 1)
+            .Except(phase.InvalidVotes.TryGetValue(player.GameId, out var invalid) ? invalid : [])
+            .Select(x => x.ToString()).ToList();
+        if (phase.CanSuicide.Contains(player.GameId)) choices.Add("b");
+        return choices;
+    }
+
+    private async Task ApplyBotConversationVoteAsync(PlayerSession player, string? vote, ConcurrentInputPhase phase, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(vote)) return;
+        string? cliInput = null; var reschedule = false;
+        lock (_gate)
+        {
+            if (_concurrentInput != phase || phase.Api != "request_vote" || !player.IsBot || !phase.Remaining.TryGetValue(player.GameId, out var remaining) || remaining <= 0) return;
+            if (!LegalBotVoteChoicesLocked(player, phase).Contains(vote)) return;
+            phase.Queue.Enqueue((player.GameId, $"{player.GameId} {vote}"));
+            phase.Responded.Add(player.GameId);
+            phase.LatestVotes[player.GameId] = vote;
+            phase.Remaining[player.GameId] = vote == "b" ? 0 : remaining - 1;
+            if (!phase.TimedOut)
+            {
+                phase.Deadline = phase.Deadline.AddSeconds(-_settings.VotePenaltySeconds);
+                reschedule = phase.Remaining.Values.Any(x => x > 0);
+            }
+            cliInput = TakeConcurrentCliInputLocked(phase);
+        }
+        if (reschedule) await ScheduleConcurrentTimerAsync(phase);
+        if (cliInput is not null) await SendCliInputAsync(cliInput, ct);
+    }
+
+    private void StartBotVoteThinkLoop(ConcurrentInputPhase phase)
+    {
+        CancellationToken ct;
+        lock (_gate)
+        {
+            if (_concurrentInput != phase || phase.BotThinkLoopStarted || _botChatCts is null) return;
+            phase.BotThinkLoopStarted = true;
+            ct = _botChatCts.Token;
+        }
+        _ = RunBotVoteThinkLoopAsync(phase, ct);
+    }
+
+    private async Task RunBotVoteThinkLoopAsync(ConcurrentInputPhase phase, CancellationToken ct)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(_options.LlmBotThinkSeconds), ct);
+                int voteElapsed; int budget;
+                lock (_gate)
+                {
+                    if (_concurrentInput != phase || phase.Api != "request_vote" || !_dayChatOpen || phase.TimedOut) return;
+                    var now = DateTimeOffset.UtcNow;
+                    voteElapsed = Math.Max(0, (int)(now - phase.StartedAt).TotalSeconds);
+                    budget = Math.Max(0, (int)(phase.Deadline - now).TotalSeconds);
+                    if (budget <= 0) return;
+                }
+                await RunBotRepliesAsync($"定时思考：投票阶段开始至今 {voteElapsed} 秒，当前投票预算剩余 {budget} 秒；重新判断是否发言、是否投票或改票");
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task<bool> BroadcastBotChatAsync(PlayerSession player, string text, int day, CancellationToken ct)
+    {
+        JsonElement envelope;
+        lock (_gate)
+        {
+            if (!_started || _finished || !_dayChatOpen || day != _botDayGeneration || !player.IsBot || player.HasLeft || !_chatEligible.Contains(player.GameId)) return false;
+            var now = DateTimeOffset.UtcNow;
+            _lastBotChatAt = now;
+            envelope = JsonSerializer.SerializeToElement(new { type = "chat_message", playerId = player.GameId, text, sentAt = now.ToUnixTimeMilliseconds(), bot = true });
+            Add(_publicHistory, envelope);
+        }
+        await BroadcastAsync(envelope, ct);
+        return true;
+    }
+
     private async Task StartAsync(CancellationToken ct)
     {
         PlayerSession[] players; GameProcess game; long version;
@@ -338,9 +598,12 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             if (_started) throw new ClientVisibleException("对局已经开始");
             if (_players.Count < 7) throw new ClientVisibleException("至少需要 7 名玩家");
+            CancelBotChatLocked();
             _started = true; _finished = false; _dayChatOpen = false; _chatEligible.Clear(); players = _players.ToArray(); version = ++_gameVersion;
             _presentationEndApi = null; _presentationClosing = false; _presentationNextAt = default;
             _rawCliLog.Clear(); _completedCliLog = null;
+            foreach (var player in players) { player.BotMemorySummary = ""; player.BotMemoryDay = -1; }
+            _botDayGeneration = 0; _dayStateGeneration = 0; _lastBotChatAt = default;
             _game = game = new GameProcess(_options.GamePath, _options.Config, _options.Seed);
         }
         game.OutputReceived += line => RouteAsync(line, version);
@@ -355,6 +618,7 @@ internal sealed class GameRoom : IAsyncDisposable
         {
             if (version != _gameVersion || !_started) return;
             _finished = true;
+            CancelBotChatLocked();
             _dayChatOpen = false; _chatEligible.Clear();
             _expected = null;
             _concurrentInput = null;
@@ -494,33 +758,131 @@ internal sealed class GameRoom : IAsyncDisposable
             _expected = null;
             CancelTimerLocked();
         }
-        var value = RandomLegalInput(root, api);
+        var fallback = RandomLegalInput(root, api);
+        var value = await DecideBotInputAsync(player, root, api, fallback);
         await SendCliInputAsync(value);
     }
 
-    private void ResolveConcurrentBotsLocked(ConcurrentInputPhase phase)
+    private async Task<string> DecideBotInputAsync(PlayerSession player, JsonElement root, string api, string fallback)
     {
-        foreach (var player in _players.Where(x => x.IsBot && phase.Remaining.TryGetValue(x.GameId, out var count) && count > 0))
+        if (_llmBot is null) return fallback;
+        var visibleContext = await BuildBotVisibleContextAsync(player);
+        var context = new BotDecisionContext(
+            player.GameId,
+            player.Name,
+            api,
+            root.GetRawText(),
+            visibleContext,
+            "严格使用当前请求描述的 CLI 格式；0 表示放弃（若允许）");
+        var candidate = await _llmBot.DecideAsync(context);
+        var accepted = !string.IsNullOrWhiteSpace(candidate) && IsLegalTimeoutInput(root, api, candidate);
+        _llmBot.ReportValidation(accepted);
+        return accepted ? candidate! : fallback;
+    }
+
+    private string BuildBotVisibleContext(PlayerSession player, int take = 24)
+    {
+        JsonElement[] publicHistory;
+        JsonElement[] privateHistory;
+        lock (_publicHistory) publicHistory = _publicHistory.TakeLast(take).ToArray();
+        lock (player.History) privateHistory = player.History.TakeLast(take).ToArray();
+        var lines = publicHistory.Select(x => $"公开：{CompactBotObservation(x)}")
+            .Concat(privateHistory.Select(x => $"私密：{CompactBotObservation(x)}"))
+            .Where(x => x.Length > 3);
+        var text = string.Join('\n', lines);
+        return text.Length <= 24_000 ? text : text[^24_000..];
+    }
+
+    private async Task<string> BuildBotVisibleContextAsync(PlayerSession player, CancellationToken ct = default)
+    {
+        if (_llmBot is null) return BuildBotVisibleContext(player);
+        var raw = BuildBotVisibleContext(player);
+        bool hasOlderEvents;
+        lock (_publicHistory) hasOlderEvents = _publicHistory.Count > 24;
+        lock (player.History) hasOlderEvents |= player.History.Count > 24;
+        int day; long version;
+        lock (_gate) { day = _botDayGeneration; version = _gameVersion; }
+
+        if ((hasOlderEvents || raw.Length > 18_000) && player.BotMemoryDay != day)
+        {
+            await player.BotMemoryLock.WaitAsync(ct);
+            try
+            {
+                if (player.BotMemoryDay != day)
+                {
+                    player.BotMemoryDay = day;
+                    var summary = await _llmBot.SummarizeAsync(player.GameId, player.Name, player.BotMemorySummary, raw, ct);
+                    lock (_gate)
+                        if (version == _gameVersion && summary is not null) player.BotMemorySummary = summary;
+                }
+            }
+            finally { player.BotMemoryLock.Release(); }
+        }
+
+        var memory = player.BotMemorySummary;
+        return string.IsNullOrWhiteSpace(memory)
+            ? raw
+            : $"长期记忆：\n{memory}\n\n近期可见事件：\n{BuildBotVisibleContext(player, 10)}";
+    }
+
+    private static string CompactBotObservation(JsonElement envelope)
+    {
+        var raw = envelope.GetRawText();
+        var limit = 1_200;
+        if (envelope.TryGetProperty("payload", out var payload) &&
+            payload.TryGetProperty("api", out var api) &&
+            api.GetString() is "game_update_night" or "game_update_day" or "cli_game_summary")
+            limit = 8_000;
+        return raw.Length <= limit ? raw : raw[..limit] + "…";
+    }
+
+    private async Task ResolveConcurrentBotsAsync(ConcurrentInputPhase phase, JsonElement root, PlayerSession[] bots)
+    {
+        var decisions = await Task.WhenAll(bots.Select(async player =>
         {
             var remaining = phase.Remaining[player.GameId];
             if (phase.Api == "request_reroll_player")
             {
-                if (RandomNumberGenerator.GetInt32(2) == 1) phase.Queue.Enqueue((player.GameId, player.GameId.ToString()));
+                var fallback = RandomNumberGenerator.GetInt32(2).ToString();
+                if (_llmBot is null) return new BotConcurrentDecision(player, fallback, remaining);
+                var rerollContext = await BuildBotVisibleContextAsync(player);
+                var context = new BotDecisionContext(player.GameId, player.Name, phase.Api, root.GetRawText(), rerollContext, "只能是 1（重抽）或 0（保留）");
+                var candidate = await _llmBot.DecideAsync(context);
+                var rerollAccepted = candidate is "0" or "1";
+                _llmBot.ReportValidation(rerollAccepted);
+                return new BotConcurrentDecision(player, rerollAccepted ? candidate! : fallback, remaining);
             }
-            else
+
+            var choices = Enumerable.Range(0, _players.Count + 1)
+                .Except(phase.InvalidVotes.TryGetValue(player.GameId, out var invalid) ? invalid : [])
+                .Select(x => x.ToString()).ToList();
+            if (phase.CanSuicide.Contains(player.GameId)) choices.Add("b");
+            var fallbackVote = choices[RandomNumberGenerator.GetInt32(choices.Count)];
+            if (_llmBot is null) return new BotConcurrentDecision(player, fallbackVote, remaining);
+            var visibleContext = await BuildBotVisibleContextAsync(player);
+            var voteContext = new BotDecisionContext(player.GameId, player.Name, phase.Api, root.GetRawText(), visibleContext, $"只输出投票目标编号（合法集合：{string.Join('、', choices)}）；b 表示脚滑人自爆，0 表示弃票");
+            var vote = await _llmBot.DecideAsync(voteContext);
+            var voteAccepted = vote is not null && choices.Contains(vote);
+            _llmBot.ReportValidation(voteAccepted);
+            return new BotConcurrentDecision(player, voteAccepted ? vote! : fallbackVote, remaining);
+        }));
+
+        lock (_gate)
+        {
+            if (_concurrentInput != phase) return;
+            foreach (var decision in decisions)
             {
-                for (var i = 0; i < remaining; i++)
+                var playerId = decision.Player.GameId;
+                if (!phase.Remaining.TryGetValue(playerId, out var current) || current <= 0) continue;
+                var submissions = decision.Choice == "b" ? 1 : decision.Remaining;
+                for (var i = 0; i < submissions; i++)
                 {
-                    var choices = Enumerable.Range(0, _players.Count + 1)
-                        .Except(phase.InvalidVotes.TryGetValue(player.GameId, out var invalid) ? invalid : [])
-                        .Select(x => x.ToString()).ToList();
-                    if (i == remaining - 1 && phase.CanSuicide.Contains(player.GameId)) choices.Add("b");
-                    var choice = choices[RandomNumberGenerator.GetInt32(choices.Count)];
-                    phase.Queue.Enqueue((player.GameId, $"{player.GameId} {choice}"));
-                    if (!phase.TimedOut) phase.Deadline = phase.Deadline.AddSeconds(-_settings.VotePenaltySeconds);
+                    phase.Queue.Enqueue((playerId, $"{playerId} {decision.Choice}"));
+                    if (phase.Api == "request_vote" && !phase.TimedOut)
+                        phase.Deadline = phase.Deadline.AddSeconds(-_settings.VotePenaltySeconds);
                 }
+                phase.Remaining[playerId] = 0;
             }
-            phase.Remaining[player.GameId] = 0;
         }
     }
 
@@ -857,6 +1219,7 @@ internal sealed class GameRoom : IAsyncDisposable
                     _chatEligible.Clear();
                     _expected = null;
                     _concurrentInput = null;
+                    CancelBotChatLocked();
                     CancelTimerLocked();
                 }
             }
@@ -865,7 +1228,7 @@ internal sealed class GameRoom : IAsyncDisposable
             var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload = root });
             if (api == "cli_log")
             {
-                lock (_gate) { _finished = true; _expected = null; _concurrentInput = null; CancelTimerLocked(); }
+                lock (_gate) { _finished = true; _expected = null; _concurrentInput = null; CancelTimerLocked(); CancelBotChatLocked(); }
                 var content = root.TryGetProperty("data", out var logData) && logData.ValueKind == JsonValueKind.String ? logData.GetString() ?? "" : "";
                 lock (_gate) _completedCliLog = content;
                 var download = JsonSerializer.SerializeToElement(new { type = "game_log_available", fileName = $"WereMF_{DateTime.Now:yyMMdd_HHmmss}_{_code}.log", content });
@@ -926,6 +1289,7 @@ internal sealed class GameRoom : IAsyncDisposable
             if (target == "public") { Add(_publicHistory, envelope); await BroadcastAsync(envelope); }
             else if (target.StartsWith("player_") && int.TryParse(target[7..], out var id)) { var p = _players.FirstOrDefault(x => x.GameId == id); if (p is not null) { Add(p.History, envelope); await SendAsync(p, envelope); } }
             else { Add(_hostHistory, envelope); await HostAsync(envelope); }
+            if (api == "day_start_broadcast") StartBotDayOpening();
             if (regularRequest)
             {
                 var requestPlayer = PlayerForTarget(target);
@@ -950,8 +1314,15 @@ internal sealed class GameRoom : IAsyncDisposable
 
     private async Task RouteConcurrentRequestAsync(JsonElement root, string api)
     {
+        if (api == "request_vote")
+        {
+            Task opening;
+            lock (_gate) opening = _botOpeningTask;
+            await opening;
+        }
         List<(PlayerSession Player, int Remaining)> prompts = [];
-        string? cliInput;
+        PlayerSession[] bots = [];
+        string? cliInput = null;
         ConcurrentInputPhase phase;
         var startTimer = false;
         lock (_gate)
@@ -964,20 +1335,33 @@ internal sealed class GameRoom : IAsyncDisposable
                 var seconds = api == "request_vote"
                     ? phase.Remaining.Count * _settings.VoteSecondsPerAlive
                     : _settings.RequestTimeoutSeconds;
-                phase.Deadline = DateTimeOffset.UtcNow.AddSeconds(seconds);
+                phase.StartedAt = DateTimeOffset.UtcNow;
+                phase.InitialSeconds = seconds;
+                phase.Deadline = phase.StartedAt.AddSeconds(seconds);
                 phase.TimerStarted = true;
                 startTimer = true;
                 prompts.AddRange(_players.Where(x => !x.IsBot && phase.Remaining.ContainsKey(x.GameId)).Select(x => (x, phase.Remaining[x.GameId])));
-                ResolveConcurrentBotsLocked(phase);
+                bots = _players.Where(x => x.IsBot && phase.Remaining.TryGetValue(x.GameId, out var count) && count > 0).ToArray();
             }
             else phase = _concurrentInput;
             phase.Prompt = root;
             phase.RefreshVoteRules(root);
             phase.CliWaiting = true;
-            cliInput = TakeConcurrentCliInputLocked(phase);
+            if (bots.Length == 0) cliInput = TakeConcurrentCliInputLocked(phase);
         }
         foreach (var (player, remaining) in prompts) await SendConcurrentPromptAsync(player, root, remaining);
         if (startTimer) await ScheduleConcurrentTimerAsync(phase);
+        if (api == "request_vote" && startTimer && bots.Length > 0)
+        {
+            await RunBotRepliesAsync("投票刚开始；结合真实已过时间和当前投票预算，决定是否发言以及是否现在投第一票");
+            StartBotVoteThinkLoop(phase);
+            lock (_gate) cliInput = TakeConcurrentCliInputLocked(phase);
+        }
+        else if (bots.Length > 0)
+        {
+            await ResolveConcurrentBotsAsync(phase, root, bots);
+            lock (_gate) cliInput = TakeConcurrentCliInputLocked(phase);
+        }
         if (cliInput is not null) await SendCliInputAsync(cliInput);
     }
 
@@ -1149,7 +1533,7 @@ internal sealed class GameRoom : IAsyncDisposable
             await Task.WhenAll(remaining.Select(x => SendAsync(x, new { type = "session_state", playerId = x.GameId, isHost = x.IsHost })));
         await StateAsync();
     }
-    public async ValueTask DisposeAsync() { if (_game is not null) await _game.DisposeAsync(); await _remove(_code); }
+    public async ValueTask DisposeAsync() { lock (_gate) CancelBotChatLocked(); if (_game is not null) await _game.DisposeAsync(); await _remove(_code); }
 }
 
 internal sealed class ConcurrentInputPhase
@@ -1160,11 +1544,15 @@ internal sealed class ConcurrentInputPhase
     public Queue<(int PlayerId, string Value)> Queue { get; } = [];
     public Dictionary<int, HashSet<int>> InvalidVotes { get; } = [];
     public HashSet<int> CanSuicide { get; } = [];
+    public Dictionary<int, string> LatestVotes { get; } = [];
     public HashSet<int> Responded { get; } = [];
     public bool CliWaiting { get; set; } = true;
     public DateTimeOffset Deadline { get; set; }
+    public DateTimeOffset StartedAt { get; set; }
+    public int InitialSeconds { get; set; }
     public bool TimerStarted { get; set; }
     public bool TimedOut { get; set; }
+    public bool BotThinkLoopStarted { get; set; }
 
     public static ConcurrentInputPhase Create(string api, JsonElement root)
     {
@@ -1206,6 +1594,9 @@ internal sealed class PlayerSession(int id, string name, bool host, WebSocket? s
     public int Id { get; set; } = id; public int GameId { get; set; } = id; public string Name { get; } = name; public bool IsHost { get; set; } = host; public WebSocket? Socket { get; set; } = socket; public bool Connected { get; set; } = true;
     public bool IsBot { get; set; } public bool IsPermanentBot { get; set; } public bool HasLeft { get; set; } public int MissedRequests { get; set; }
     public DateTimeOffset LastChatAt { get; set; } = DateTimeOffset.MinValue;
+    public string BotMemorySummary { get; set; } = "";
+    public int BotMemoryDay { get; set; } = -1;
+    public SemaphoreSlim BotMemoryLock { get; } = new(1, 1);
     public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)); public SemaphoreSlim SendLock { get; } = new(1, 1); public List<JsonElement> History { get; } = []; public Dictionary<string, DraftEntry> Drafts { get; } = [];
 }
 internal sealed record ClientMessage
@@ -1224,6 +1615,7 @@ internal sealed record ClientMessage
     public int? EventIntervalSeconds { get; init; }
 }
 internal sealed record RoomLogSnapshot(string FileName, string Content, bool Complete);
+internal sealed record BotConcurrentDecision(PlayerSession Player, string Choice, int Remaining);
 internal sealed record DraftEntry(string Value, bool PreSubmit);
 internal sealed record RoomSettings(int RequestTimeoutSeconds, int VoteSecondsPerAlive, int VotePenaltySeconds, int EventIntervalSeconds);
 internal sealed class ClientVisibleException(string message) : Exception(message);

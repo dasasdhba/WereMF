@@ -79,7 +79,7 @@
         <Compile Include="Update\GameUpdate.fs" />
         <Compile Include="Update\MainUpdate.fs" />
         <Compile Include="Program.fs" />
-        <EmbeddedResource Include="config.json" />
+        <Content Include="config.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

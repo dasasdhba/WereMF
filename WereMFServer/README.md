@@ -31,7 +31,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 .\scripts\deploy.ps1
 ```
 
-SSH 目标不写入 Git。脚本按“`-RemoteHost` 参数、当前进程的 `WEREMF_DEPLOY_HOST` 环境变量、仓库根目录 `.env`”的顺序读取；`.env` 已被 Git 忽略。远端目录默认 `/root/weremf`、tmux 会话默认 `weremf`、端口默认 `5000`，抽签配置默认取 `WereMF/bin/Release/net8.0/win-x64/publish/config.json`。
+SSH 目标不写入 Git。脚本按“`-RemoteHost` 参数、当前进程的 `WEREMF_DEPLOY_HOST` 环境变量、仓库根目录 `.env`”的顺序读取；`.env` 已被 Git 忽略。远端目录默认 `/root/weremf`、tmux 会话默认 `weremf`、端口默认 `5000`，抽签配置默认取仓库中的 `WereMF/config.json`。部署脚本还会从 `.env` 白名单提取 `SILICONFLOW_*` 配置，写入远端独立的 `/root/weremf.env`（权限 `600`）并由 tmux 启动脚本导入；Key 不进入发布包或版本备份目录。
 
 ```powershell
 .\scripts\deploy.ps1 -RemoteHost root@example.com
@@ -50,12 +50,17 @@ SSH 目标不写入 Git。脚本按“`-RemoteHost` 参数、当前进程的 `WE
 | `--path <path>` | `WereMF.exe` / `WereMF` | WereMF CLI 可执行文件 |
 | `--host <host>` | `127.0.0.1` | HTTP 与 WebSocket 监听地址 |
 | `--port <port>` | `5000` | HTTP 与 WebSocket 共用端口；`--websocket-port` 是兼容别名 |
-| `--config <path>` | 无 | 传给 WereMF 的抽签配置 |
+| `--config <path>` | `WereMF/config.json` | 传给 WereMF 的抽签配置 |
 | `--seed <int>` | 随机 | 传给 WereMF 的固定种子 |
 | `--request-timeout-seconds <n>` | `30` | 普通请求限时 |
 | `--vote-seconds-per-alive <n>` | `60` | 投票阶段每名本轮可投票玩家提供的秒数 |
 | `--vote-penalty-seconds <n>` | `30` | 每次有效投票后扣除的秒数 |
 | `--event-interval-seconds <n>` | `2` | 两段演出区间内相邻消息的默认放行间隔；0 表示不延迟 |
+| `--llm-model <name>` | `Qwen/Qwen3.5-4B` | LLM Bot 使用的 OpenAI 兼容模型 |
+| `--llm-endpoint <url>` | `https://api.siliconflow.cn/v1/` | LLM API 基地址 |
+| `--llm-timeout-seconds <n>` | `5` | 单次模型决策超时，范围 1–30 秒 |
+| `--disable-llm-bots` | 关闭 | 即使存在 API Key 也强制使用随机 Bot |
+| `--llm-bot-think-seconds <n>` | `10` | 投票期间按真实时间再次思考的间隔，范围 3–60 秒 |
 | `--debug-api` | 关闭 | 注册仅供临时排错使用的无鉴权房间日志接口 |
 
 `--http-port` 仅为旧命令行兼容参数，其值会被忽略；当前服务只使用 `--port`。
@@ -64,7 +69,7 @@ SSH 目标不写入 Git。脚本按“`-RemoteHost` 参数、当前进程的 `WE
 
 | 路径 | 说明 |
 |---|---|
-| `GET /api/health` | `{ status, activeRooms, version }` 健康状态 |
+| `GET /api/health` | `{ status, activeRooms, version, llmBots, llmModel, llmStats }` 健康状态；统计只含计数，不含 Key、提示词或模型回答 |
 | `GET /api/rooms` | 当前仍可加入的房间：`{ code, players, maxPlayers, started }[]` |
 | `GET /api/rooms/{roomCode}/log` | 仅 `--debug-api`：下载指定房间的进行中双向 CLI 记录或终局正式日志 |
 | `GET /ws` | WebSocket 升级端点 |
@@ -148,8 +153,32 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 - myz 的两个玩家编号有顺序，分别表示“被威胁者”和“其技能接收者”，两项必须分别按 API 的 `invalid_choice` 与 `invalid_target_choice` 校验，不能合并不可选集合；只要各自在对应位置合法，就允许两者相同，例如 `2 2`。
 - 投票总时限为“本轮 `can_vote: true` 的玩家数 × 本房间每人投票秒数”；死亡、被 myz 威胁或被禁票而无法参与本轮投票的玩家不计入，每接受一票扣除本房间设置的秒数；所有人完成后 CLI 会自然进入下一阶段，服务端不会再补输入。
 - 投票超时且玩家一票未投时，服务端向 CLI 发送 `0`，即 CLI 的默认弃票。
-- 永久 Bot 对请求立即选择随机合法输入。真人断线后若连续两轮请求未响应，会转为临时 Bot；使用原令牌重连后立即恢复真人控制。
+- 永久 Bot 与临时托管 Bot 在设置 `SILICONFLOW_API_KEY` 时优先请求 LLM；未配置、超时、HTTP 错误、响应格式错误或答案未通过现有合法性校验时，立即回退随机合法输入。真人使用原令牌重连后仍会立即恢复控制。
+- Bot 名称先按 `bots_prefer.txt` 的顺序选取，全部占用后再使用 `bots.txt`，最后才回退为 `Bot N`；名称不会改变策略或阵营。
+- 真人新加入时若昵称与房内玩家重名（忽略大小写），服务端会在昵称后追加四位随机编号并通过 `welcome.playerName` 同步给客户端；持原令牌重连不会改名。
 - 进行中的对局关闭 Tab 只算临时断线，可以用原令牌重连。等待大厅或终局阶段一旦断线即视为彻底退出：服务端立即删除席位并令旧令牌失效；若房主断线，会从在线真人中随机选择新房主；最后一名真人离线后房间立即解散。
+
+## LLM Bot
+
+设置 `SILICONFLOW_API_KEY` 即启用 LLM Bot。可选环境变量为 `SILICONFLOW_MODEL`、`SILICONFLOW_BASE_URL`、`SILICONFLOW_TIMEOUT_SECONDS`、`SILICONFLOW_BOT_THINK_SECONDS`；命令行可以覆盖这些设置。当前默认使用 SiliconFlow 的 OpenAI 兼容 `POST /chat/completions` 接口、`Qwen/Qwen3.5-4B`、关闭 thinking 和 JSON 输出。
+
+```dotenv
+SILICONFLOW_API_KEY=sk-...
+SILICONFLOW_MODEL=Qwen/Qwen3.5-4B
+SILICONFLOW_TIMEOUT_SECONDS=5
+SILICONFLOW_BOT_THINK_SECONDS=10
+```
+
+决策边界：
+
+- 模型只负责提出候选 CLI 输入；服务端仍使用与计时器相同的规则校验，模型没有直接写 CLI、调用管理命令或改状态的权限。
+- 每个 Bot 的提示只包含该席位自己的私密/脱敏历史、公开历史、当前请求和从仓库规则书压缩得到的固定规则知识；不会使用原始全量 CLI 日志，也不会把其他玩家隐藏身份放入上下文。
+- 普通技能每个请求决策一次，重抽身份决策一次。白天开始、真人发言以及投票期间的定时唤醒都会让每个存活 Bot 独立决定“发言或沉默”以及“投一票或暂缓”；每轮思考至多提交一票，下一次思考才可确认或改票，脚滑人仍可选择 `b` 自爆。
+- 投票提示同时提供投票阶段实际经过时间和扣票后的投票预算剩余时间。定时唤醒按真实时间间隔触发，不会因一张票扣减预算而递归触发；接近投票截止时间因此可以成为模型的明确决策变量。
+- 同时最多进行 4 个模型请求。模型不可用时不重试，以免卡住 CLI；直接采用现有随机合法选项。
+- `/api/health` 的 `llmStats` 提供 `requests/successes/failures/accepted/rejected` 聚合计数，用于观察 API 稳定性和合法输出率，不记录提示词、模型原始回答或 API Key。
+
+Bot 拥有保持沉默和暂缓投票的权利。上下文较长时，服务端会让同一模型把该 Bot 自己可见的历史压缩为滚动摘要，并保留最近事件；摘要不会跨局复用。
 
 ## 日志
 
