@@ -1717,7 +1717,7 @@ internal sealed class GameRoom : IAsyncDisposable
         if (startTimer) await ScheduleConcurrentTimerAsync(phase);
         if (api == "request_vote" && startTimer && bots.Length > 0)
         {
-            await RunBotRepliesAsync("投票刚开始；结合真实已过时间和当前投票预算，决定是否发言以及是否现在投第一票");
+            _ = RunBotRepliesAsync("投票刚开始；结合真实已过时间和当前投票预算，决定是否发言以及是否现在投第一票");
             StartBotVoteThinkLoop(phase);
             lock (_gate) cliInput = TakeConcurrentCliInputLocked(phase);
         }
