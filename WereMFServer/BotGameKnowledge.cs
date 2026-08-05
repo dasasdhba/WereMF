@@ -1,16 +1,91 @@
+using System.Reflection;
+using System.Text;
+
 namespace WereMFServer;
 
 internal static class BotGameKnowledge
 {
-    public const string Rules = """
+    public static string Rules { get; } = LoadRules();
+
+    public const string Strategy = """
+        行为原则：
+        - 发言保持克制。投票本身已经是公开表态；但有新增信息、必要推导、自保压力、被直接点名且沉默会增加出局风险、拉票必要或必要干扰时，应极简发言。纯 Bot 场上完全沉默时，有具体可核对信息的玩家应主动开口；没有有效内容时保持沉默，禁止“先看票型”之类无信息句。
+        - 只说场上尚不存在的信息或推导，不复述别人，不说“我先看看”“大家怎么看”等无信息内容。能一句说完就不要说两句。
+        - 第一票尚未使用时，如果场上已经连续一个思考间隔无人发言、无人投票，就从合法玩家中随便投一个，避免半数弃票带来的随机驱逐风险；第二票仍用于确认或根据新信息改票。
+        - 重抽身份时，炮仙和脚滑人都是关键且有信息价值的身份，默认应当保留；只有当前局面存在明确而更高的策略收益时才考虑重抽，不能只是为了随机换身份。
+        - 生存通常比证明身份重要。被询问身份不等于必须回答；没有明显收益时不要公开精确身份。
+        - 面临出局风险时，可先只声称自己属于吧方或爆方；也可伪装成优势阵营中不与公开信息冲突的身份。只有风险很高或收益明显时才公开真实身份。
+        - 叶子未暴露时，非叶子玩家受投票威胁可以强调自己不是叶子；必要时再公开真实身份并说明其价值。
+        - 若自己是已经公开并进入二阶段的叶子，不再伪装，白天以造成玩家减员为最高目标。投票早期先投威胁较大的合法目标；投票预算不足 60 秒时，根据公开票型改投最可能被投出局的合法玩家。除非需要拉票，否则保持沉默。
+        - 当前权威状态绝对正确。历史或长期记忆与当前状态冲突时必须忽略旧信息；当前状态未显示的临时效果已经消失。
+        """;
+
+    private const string FallbackRules = """
         目标：吧方消灭爆方；爆方消灭吧方。叶子局还需先消灭叶子；叶子要成为唯一存活者。
         白天公开讨论并投票，每人最多投两次，第二次用于确认或改票；大量弃票有随机驱逐弃票者的风险。
-        死亡通常仍可遗言/触发死亡技能；暴毙不能；出局发生于白天投票阶段。夜间效果按 Doge、卡比、灰卡比、实物、合虫、脚滑人、铯郎、CTF、音魔、贤松、其他身份的大致顺序结算。
-
-        吧方：脚滑人查身份，夜死可禁次日票，白死可封一次技能或保护，投票可自爆；Doge 保护且可一次自保/行动后自爆；庸医疫苗救当夜死亡但两剂残留致死；地鼠选土层突击；兔子喂鲜奶追加技能或毒奶致死；铯郎弹簧反弹技能；法猫药水重置/救暴毙，连续两夜可反转阵营；卡比吸收技能并获得复制身份；粉侠用粉条复制技能或复活；爬行者埋炸药并由投票传导。
-        爆方：炮仙直接杀人；实物绑架限制目标且可公开其身份；灰卡比烟雾令玩家不可选且双烟致死/隐藏身份；音魔唱片封技能并暴毙目标；CTF 虫子因使用/被使用技能增长，三虫致死且可耗虫复活；合虫复制目标阵营和技能；彩怪用彩条延迟/立即复活他人并有死亡复活；贤松索要 MFA，拒绝则投咸松球，且知道炮仙；江仙可伪造票并死后投票；myz 威胁玩家把技能发给指定目标，违抗者下一夜死亡，且被威胁者白天不能行动，myz 可自爆令威胁强制生效。
-        第三方叶子：开局选四个跨阵营身份并使用其中一个；第一次死亡会公开身份、保持存活并进入二阶段，之后使用其余身份技能。
-
-        永远以当前请求 JSON 中的 invalid_choice、invalid_target_choice、choice_count 等限制为准。只利用“可见信息”中的身份和状态；身份隐藏时不得猜成已知事实。优先帮助自己的当前阵营获胜，并考虑保护队友、攻击敌方、避免浪费有限资源和避免非法选择。
+        永远以当前请求 JSON 的限制和最新权威状态为准。
         """;
+
+    public static string Focus(string api, IEnumerable<string> activeRoles)
+    {
+        var roleNames = new[] { "脚滑人", "Doge", "庸医", "地鼠", "兔子", "铯郎", "法猫", "卡比", "粉侠", "爬行者", "炮仙", "实物", "灰卡比", "音魔", "CTF", "合虫", "彩怪", "贤松", "江仙", "myz", "叶子" };
+        var roles = activeRoles
+            .Where(role => roleNames.Contains(role, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var apiRoleHints = new (string Token, string RuleKeyword)[]
+        {
+            ("jiaohua", "脚滑人"), ("doge", "Doge"), ("yongyi", "庸医"), ("dishu", "地鼠"),
+            ("tuzi", "兔子"), ("selang", "铯郎"), ("famao", "法猫"), ("kabi", "卡比"),
+            ("fenxia", "粉侠"), ("paxing", "爬行者"), ("paoxian", "炮仙"), ("shiwu", "实物"),
+            ("huikabi", "灰卡比"), ("yinmo", "音魔"), ("ctf", "CTF"), ("hechong", "合虫"),
+            ("caiguai", "彩怪"), ("xiansong", "贤松"), ("jiangxian", "江仙"), ("myz", "myz"),
+            ("leaf", "叶子")
+        };
+        foreach (var (token, ruleKeyword) in apiRoleHints)
+            if (api.Contains(token, StringComparison.OrdinalIgnoreCase) && !roles.Contains(ruleKeyword, StringComparer.OrdinalIgnoreCase))
+                roles.Add(ruleKeyword);
+
+        var allLines = Rules.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim())
+            .Where(x => x.Length > 0)
+            .ToArray();
+        var focused = new List<string>();
+        foreach (var role in roles)
+        {
+            var definition = allLines.FirstOrDefault(line =>
+                (line.Contains($"{role}:", StringComparison.OrdinalIgnoreCase) || line.Contains($"{role}：", StringComparison.OrdinalIgnoreCase)) &&
+                line.IndexOf(role, StringComparison.OrdinalIgnoreCase) <= 4);
+            if (definition is not null) focused.Add($"【{role}】{definition}");
+        }
+        if (api.Contains("vote", StringComparison.OrdinalIgnoreCase))
+            focused.AddRange(allLines.Where(line => line.Contains("至少有一半", StringComparison.Ordinal) || line.Contains("每名玩家在每个白天", StringComparison.Ordinal)).Take(2));
+        if (api.Contains("reroll", StringComparison.OrdinalIgnoreCase))
+            focused.AddRange(allLines.Where(line => line.Contains("可更改自身身份", StringComparison.Ordinal)).Take(1));
+        if (api.Contains("revive", StringComparison.OrdinalIgnoreCase))
+            focused.AddRange(allLines.Where(line => line.Contains("救活", StringComparison.Ordinal) || line.Contains("复活", StringComparison.Ordinal)).Take(2));
+
+        var focus = focused.Count == 0
+            ? "当前请求没有单独的身份规则段落；严格以当前请求 JSON、权威状态和完整规则为准。"
+            : string.Join('\n', focused.Distinct());
+        return focus.Length <= 6_000 ? focus : focus[..6_000];
+    }    private static string LoadRules()
+    {
+        try
+        {
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("WereMFServer.BotDesign");
+            if (stream is null) return FallbackRules;
+            using var reader = new StreamReader(stream, Encoding.UTF8, true);
+            var text = reader.ReadToEnd();
+            var credits = text.IndexOf("\nCREDITS：", StringComparison.Ordinal);
+            if (credits < 0) credits = text.IndexOf("\r\nCREDITS：", StringComparison.Ordinal);
+            if (credits >= 0) text = text[..credits];
+            return text.Trim();
+        }
+        catch
+        {
+            return FallbackRules;
+        }
+    }
 }

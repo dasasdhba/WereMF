@@ -93,7 +93,7 @@ type EntityState =
     member this.CapsuleCount = this.Capsule.Length
     member this.PotionCount = this.Potion.Length
     member this.BugCount = if this.Bug.IsSome then this.Bug.Value else 0
-    member this.ToJsonValue () =
+    member this.ToJsonValue (showMyzThreaten: bool) =
         JsonValue.Record [|
             "is_bar_leader", JsonValue.Boolean this.BarLeader.IsSome
             "is_dead", JsonValue.Boolean this.Dead.Dead
@@ -105,13 +105,14 @@ type EntityState =
             "potion_count", JsonValue.Number (decimal this.PotionCount)
             "xian_song_count", JsonValue.Number (decimal this.XianSong)
             "bug_count", JsonValue.Number (decimal this.BugCount)
-            "myz_threaten", JsonValue.Boolean this.Threaten.IsSome
+            "myz_threaten", JsonValue.Boolean (showMyzThreaten && this.Threaten.IsSome)
             "jiaohua_vote_blocked", JsonValue.Boolean this.JiaoHuaVoteBlocked
             "shiwu_kidnapped", JsonValue.Boolean (this.Kidnapped.IsEmpty |> not)
             "jiaohua_protected", JsonValue.Boolean this.JiaoHuaProtected
             "jiaohua_blocked", JsonValue.Number (decimal this.JiaoHuaBlocked)
             "leaf_protected", JsonValue.Boolean this.LeafProtected.IsSome
         |]
+    member this.ToJsonValue () = this.ToJsonValue true
     static member New () =
         {
             BarLeader = None
@@ -141,7 +142,7 @@ type Entity =
         Role : IRole
         State : EntityState
     }
-    member this.ToJsonValue () =
+    member this.ToJsonValue (showMyzThreaten: bool) =
         JsonValue.Record [|
             "player", this.Player.ToJsonValue ()
             "role", JsonValue.Record [|
@@ -149,8 +150,9 @@ type Entity =
                 "summary_name", JsonValue.String this.Role.Base.SummaryName
                 "data", this.Role.ToJsonValue ()
             |]
-            "state", this.State.ToJsonValue ()
+            "state", this.State.ToJsonValue showMyzThreaten
         |]
+    member this.ToJsonValue () = this.ToJsonValue true
     
 type DeadType =
     | Kill

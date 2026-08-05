@@ -60,7 +60,7 @@ type HuiKaSkill =
                 Type = Public
                 Content = $"\n{printNightSummary game.Entities}"
                 Api = ApiType.GameUpdateNight
-                Data = game.ToJsonValue ()
+                Data = game.ToJsonValue false
             }
             this
         }

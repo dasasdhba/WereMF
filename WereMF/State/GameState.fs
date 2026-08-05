@@ -22,8 +22,9 @@ type GameContext =
     member this.UpdateEntity (e: Entity) =
         let r = this.Entities |> List.map (fun e' -> if e'.Player.Id = e.Player.Id then e else e')
         { this with Entities = r }
-    member this.ToJsonValue () =
-        this.Entities |> List.mapJson (fun e -> e.ToJsonValue ())
+    member this.ToJsonValue (showMyzThreaten: bool) =
+        this.Entities |> List.mapJson (fun e -> e.ToJsonValue showMyzThreaten)
+    member this.ToJsonValue () = this.ToJsonValue true
 
 type GameState =
     {

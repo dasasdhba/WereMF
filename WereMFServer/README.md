@@ -31,7 +31,7 @@ dotnet publish .\WereMFServer\WereMFServer.csproj -c Release -r win-x64 --self-c
 .\scripts\deploy.ps1
 ```
 
-SSH 目标不写入 Git。脚本按“`-RemoteHost` 参数、当前进程的 `WEREMF_DEPLOY_HOST` 环境变量、仓库根目录 `.env`”的顺序读取；`.env` 已被 Git 忽略。远端目录默认 `/root/weremf`、tmux 会话默认 `weremf`、端口默认 `5000`，抽签配置默认取仓库中的 `WereMF/config.json`。部署脚本还会从 `.env` 白名单提取 `SILICONFLOW_*` 配置，写入远端独立的 `/root/weremf.env`（权限 `600`）并由 tmux 启动脚本导入；Key 不进入发布包或版本备份目录。
+SSH 目标不写入 Git。脚本按“`-RemoteHost` 参数、当前进程的 `WEREMF_DEPLOY_HOST` 环境变量、仓库根目录 `.env`”的顺序读取；`.env` 已被 Git 忽略。远端目录默认 `/root/weremf`、tmux 会话默认 `weremf`、端口默认 `5000`，抽签配置默认取仓库中的 `WereMF/config.json`。部署脚本还会从 `.env` 白名单提取 `SILICONFLOW_*` 与 `LLM_FALLBACK_*` 配置，写入远端独立的 `/root/weremf.env`（权限 `600`）并由 tmux 启动脚本导入；Key 不进入发布包或版本备份目录。
 
 ```powershell
 .\scripts\deploy.ps1 -RemoteHost root@example.com
@@ -58,7 +58,7 @@ SSH 目标不写入 Git。脚本按“`-RemoteHost` 参数、当前进程的 `WE
 | `--event-interval-seconds <n>` | `2` | 两段演出区间内相邻消息的默认放行间隔；0 表示不延迟 |
 | `--llm-model <name>` | `Qwen/Qwen3.5-4B` | LLM Bot 使用的 OpenAI 兼容模型 |
 | `--llm-endpoint <url>` | `https://api.siliconflow.cn/v1/` | LLM API 基地址 |
-| `--llm-timeout-seconds <n>` | `5` | 单次模型决策超时，范围 1–30 秒 |
+| `--llm-timeout-seconds <n>` | `15` | 单次模型决策超时，范围 1–120 秒；本地小模型可按首轮提示处理耗时适当提高 |
 | `--disable-llm-bots` | 关闭 | 即使存在 API Key 也强制使用随机 Bot |
 | `--llm-bot-think-seconds <n>` | `10` | 投票期间按真实时间再次思考的间隔，范围 3–60 秒 |
 | `--debug-api` | 关闭 | 注册仅供临时排错使用的无鉴权房间日志接口 |
@@ -165,23 +165,67 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 ```dotenv
 SILICONFLOW_API_KEY=sk-...
 SILICONFLOW_MODEL=Qwen/Qwen3.5-4B
-SILICONFLOW_TIMEOUT_SECONDS=5
+SILICONFLOW_TIMEOUT_SECONDS=15
 SILICONFLOW_BOT_THINK_SECONDS=10
 ```
+
+### 本地 llama.cpp
+
+`llama.cpp` 的 OpenAI 兼容端点可以直接使用。Qwen2.5 7B Q4_K_M 的实测启动参数如下：
+
+```powershell
+llama serve `
+  -m "D:\path\to\qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf" `
+  --host 127.0.0.1 --port 8081 `
+  --ctx-size 49152 `
+  --parallel 4 `
+  --reasoning off `
+  --jinja `
+  --no-webui
+```
+
+新开一个 PowerShell 启动 WereMFServer；本地 llama 未设置 API Key 时，客户端 Key 只需使用任意非空占位值：
+
+```powershell
+$env:SILICONFLOW_API_KEY = "local-llama"
+$env:SILICONFLOW_BASE_URL = "http://127.0.0.1:8081/v1/"
+$env:SILICONFLOW_MODEL = "qwen2.5-7b-instruct"
+$env:SILICONFLOW_TIMEOUT_SECONDS = "60"
+.\WereMFServer\bin\Debug\net8.0\WereMFServer.exe `
+  --path .\WereMF\bin\Release\net8.0\win-x64\publish\WereMF.exe
+```
+
+当前完整发言上下文实测可超过 8K token，因此 `32768 / 4` 的每槽 8192 token 不足；`49152 / 4` 提供每槽 12288 token。四槽同时生成时单次发言可能超过 30 秒，本地测试建议将模型超时设为 60 秒；云端默认 15 秒。
 
 决策边界：
 
 - 模型只负责提出候选 CLI 输入；服务端仍使用与计时器相同的规则校验，模型没有直接写 CLI、调用管理命令或改状态的权限。
-- 每个 Bot 的提示只包含该席位自己的私密/脱敏历史、公开历史、当前请求和从仓库规则书压缩得到的固定规则知识；不会使用原始全量 CLI 日志，也不会把其他玩家隐藏身份放入上下文。
+- 每个 Bot 的提示只包含该席位自己的私密/脱敏历史、公开历史、当前请求和仓库 `design.txt` 去掉 Credits 后的完整规则；不会使用原始全量 CLI 日志，也不会把其他玩家隐藏身份放入上下文。
+- 规则焦点不再扫描场上文字猜身份：服务端直接从该 Bot 的个性化权威状态提取自身身份、叶子二阶段身份与合虫复制身份，并用 `pending_skill_created.id → type` 映射当前技能；完整规则仍作为兜底。
+- 开局会公开 `game_mode_broadcast`，并将人数、标准/叶子模式及吧/爆/叶构成持续放入 Bot 上下文。最新 `game_update_day/night` 是唯一权威现状；旧事件和滚动记忆只用于追溯，不能让已经消失的临时效果继续生效。
 - 普通技能每个请求决策一次，重抽身份决策一次。白天开始、真人发言以及投票期间的定时唤醒都会让每个存活 Bot 独立决定“发言或沉默”以及“投一票或暂缓”；每轮思考至多提交一票，下一次思考才可确认或改票，脚滑人仍可选择 `b` 自爆。
-- 投票提示同时提供投票阶段实际经过时间和扣票后的投票预算剩余时间。定时唤醒按真实时间间隔触发，不会因一张票扣减预算而递归触发；接近投票截止时间因此可以成为模型的明确决策变量。
-- 同时最多进行 4 个模型请求。模型不可用时不重试，以免卡住 CLI；直接采用现有随机合法选项。
-- `/api/health` 的 `llmStats` 提供 `requests/successes/failures/accepted/rejected` 聚合计数，用于观察 API 稳定性和合法输出率，不记录提示词、模型原始回答或 API Key。
+- 投票提示同时提供投票阶段实际经过时间、距离最近一次公开发言或投票的静默时间，以及扣票后的投票预算剩余时间。定时唤醒按真实时间间隔触发，不会因一张票扣减预算而递归触发。Bot 第一票尚未使用且场上连续一个思考间隔无人发言、无人投票时，服务端会从合法玩家中随机提交首票，避免半数弃票风险；第二票仍留给模型确认或改票。预算不超过 60 秒或只剩最后一次机会时也强制采用合法非零票。
+- 发言默认选择沉默，投票本身可作为表态；只有新增信息、有效推导、必要自保、被点名回应、临近截止拉票或必要干扰才发言。真人或 Bot 发言后约 3 秒再允许一个相关 Bot 接话，每个白天最多连续跟进 3 次；开场等待约 4 秒，连续 Bot 发言间隔约 1.5 秒。带发言的投票立即展示，沉默投票随机延迟约 0.8–4.5 秒，避免同时刷屏。
+- 同时最多进行 4 个模型请求。任意类型的模型调用连续失败两次后，全局熔断 60 秒；熔断期间普通技能立即采用随机合法输入，投票对话沿用连续失败后的随机合法非零票回退，不再让每个 Bot 逐个等待同一故障。熔断期满只放行一个探测请求，成功后恢复，失败则重新熔断。模型失败不会制造固定占位发言。
+- 投票请求一到达就立即向玩家展示，不等待仍在进行的 Bot 开场思考；尚未发出的开场发言会在投票开始时取消。`/api/health` 的 `llmStats` 还提供四类失败计数及 `consecutiveFailures`、`circuitOpen`、`circuitOpenUntilUtc`、`circuitProbeInFlight`、`circuitSkipped`，不记录提示词、模型原始回答或 API Key。
 
-Bot 拥有保持沉默和暂缓投票的权利。上下文较长时，服务端会让同一模型把该 Bot 自己可见的历史压缩为滚动摘要，并保留最近事件；摘要不会跨局复用。
+Bot 拥有保持沉默和暂缓投票的权利。公开与该 Bot 私密事件先合并为一条严格按接收顺序编号的时间线，再截取近期事件；上下文较长时，服务端会让同一模型把更早的可见历史压缩为滚动摘要，摘要不会跨局复用。
 
 ## 日志
 
-终局时服务端向 CLI 请求 `cli_log`，再以 `game_log_available` 发给所有仍在房间的玩家。服务端不把日志写入固定服务器目录，持久化由客户端下载完成。Web 客户端在下载内容前添加 UTF-8 BOM，避免 Windows 编辑器把中文日志误判为本地代码页。
+终局时服务端向 CLI 请求 `cli_log`，将每个白天的真人/Bot 聊天、首次投票和确认投票合并到对应的首条 internal 投票请求之后，再以 `game_log_available` 发给所有仍在房间的玩家。互动行采用 `名字: 消息`、`名字 投票给 目标`、`名字 确认投票给 目标` 格式。服务端不把日志写入固定服务器目录，持久化由客户端下载完成。Web 客户端在下载内容前添加 UTF-8 BOM，避免 Windows 编辑器把中文日志误判为本地代码页。
 
-临时排错可在启动时添加 `--debug-api`，随后访问 `GET /api/rooms/{roomCode}/log`。进行中的下载内容按实际顺序包含 CLI 的每条原始 JSON 输出，以及服务端写入 CLI stdin 的 `debug_direction: "input"` 记录；因此即使 CLI 卡在 request、尚未生成 `cli_log`，也能看到最后一次请求和服务端是否实际提交了输入。终局后同一路径改为返回 CLI 正式日志。该接口无鉴权且可能暴露所有身份与私密消息，只应在可信网络临时启用。
+临时排错可在启动时添加 `--debug-api`，随后访问 `GET /api/rooms/{roomCode}/log`。进行中的下载内容按实际顺序包含 CLI 的每条原始 JSON 输出、服务端写入 CLI stdin 的 `debug_direction: "input"` 记录和已经产生的白天互动；因此即使 CLI 卡在 request、尚未生成 `cli_log`，也能看到最后一次请求和服务端是否实际提交了输入。终局后同一路径返回合并了互动记录的 CLI 正式日志。该接口无鉴权且可能暴露所有身份与私密消息，只应在可信网络临时启用。
+
+### OpenCode 备用模型
+
+配置 `LLM_FALLBACK_BASE_URL` 后，主模型与备用模型会同时接收同一份已脱敏的 Bot 可见上下文；服务端采用最先返回的有效结果。任一端点失败或被自身熔断时仍继续等待另一端点，双方独立统计和熔断。匿名端点无需设置 `LLM_FALLBACK_API_KEY`。
+
+```dotenv
+LLM_FALLBACK_BASE_URL=https://opencode.ai/zen/v1/
+LLM_FALLBACK_MODEL=big-pickle
+LLM_FALLBACK_TIMEOUT_SECONDS=15
+LLM_FALLBACK_MAX_TOKENS=1024
+```
+
+对应命令行参数为 `--llm-fallback-endpoint`、`--llm-fallback-api-key`、`--llm-fallback-model`、`--llm-fallback-timeout-seconds` 和 `--llm-fallback-max-tokens`。`--disable-llm-fallback` 只关闭并行端点；`--disable-llm-bots` 同时关闭两个模型。健康接口的 `llmStats.fallbackAttempts` 表示并行竞速次数，`fallbackSuccesses` 表示备用模型赢得竞速的次数，`fallbackStats` 保存备用端点自身的独立统计和熔断状态。

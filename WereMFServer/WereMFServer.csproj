@@ -12,6 +12,7 @@
   <ItemGroup>
     <Content Include="..\bots_prefer.txt" Link="bots_prefer.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\bots_prefer.txt')" />
     <Content Include="..\bots.txt" Link="bots.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\bots.txt')" />
+    <EmbeddedResource Include="..\design.txt" LogicalName="WereMFServer.BotDesign" />
   </ItemGroup>
   <Target Name="BuildWebClient" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
     <Exec WorkingDirectory="$(WebClientDirectory)" Command="npm run build" />

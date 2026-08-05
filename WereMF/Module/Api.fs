@@ -130,6 +130,7 @@ type ApiType =
     | RequestPlayerList
     | PlayerInit
     | RequestLeafGame
+    | GameModeBroadcast
     | RequestAnonymousGame
     | PlayerAnonymousInit
     | PlayerNotifyChara

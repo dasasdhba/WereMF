@@ -66,6 +66,23 @@ let rollDraw () = monad {
     let leaf = if count <= minPlayer then false
                 elif count >= maxPlayer then true
                 else rollAskLeaf ()
+    let activeCount = if leaf then count - 1 else count
+    let barCount = activeCount / 2 + 1
+    let boomCount = activeCount - barCount
+    let modeName = if leaf then "叶子局" else "标准局"
+    let leafSuffix = if leaf then "、1 叶" else ""
+    sendApi {
+        Type = Public
+        Content = $"本局为 {count} 人{modeName}：{barCount} 吧、{boomCount} 爆{leafSuffix}"
+        Api = ApiType.GameModeBroadcast
+        Data = JsonValue.Record [|
+            "player_count", JsonValue.Number (decimal count)
+            "bar_count", JsonValue.Number (decimal barCount)
+            "boom_count", JsonValue.Number (decimal boomCount)
+            "leaf_count", JsonValue.Number (if leaf then 1M else 0M)
+            "mode", JsonValue.String (if leaf then "leaf" else "standard")
+        |]
+    }
     let result = drawWith rng count leaf
     let rolls = [0..(count-1)] |> List.map (fun i ->
         let player = main.Players[i]

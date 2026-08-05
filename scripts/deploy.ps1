@@ -76,7 +76,7 @@ exit 1
 "@
     $localScript = Join-Path $tempRoot "deploy-remote.sh"
     [IO.File]::WriteAllText($localScript, ($remoteBody -replace "`r`n", "`n"), [Text.UTF8Encoding]::new($false))
-    $deployEnvNames = @("SILICONFLOW_API_KEY", "SILICONFLOW_BASE_URL", "SILICONFLOW_MODEL", "SILICONFLOW_TIMEOUT_SECONDS", "SILICONFLOW_BOT_THINK_SECONDS")
+    $deployEnvNames = @("SILICONFLOW_API_KEY", "SILICONFLOW_BASE_URL", "SILICONFLOW_MODEL", "SILICONFLOW_TIMEOUT_SECONDS", "SILICONFLOW_MAX_TOKENS", "SILICONFLOW_BOT_THINK_SECONDS", "LLM_FALLBACK_BASE_URL", "LLM_FALLBACK_API_KEY", "LLM_FALLBACK_MODEL", "LLM_FALLBACK_TIMEOUT_SECONDS", "LLM_FALLBACK_MAX_TOKENS")
     $deployEnvLines = foreach ($name in $deployEnvNames) {
         $match = Get-Content -LiteralPath $dotenvPath | Where-Object { $_ -match "^\s*$name\s*=" } | Select-Object -First 1
         if ($null -eq $match) { continue }

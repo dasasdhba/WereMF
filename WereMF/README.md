@@ -488,6 +488,7 @@ null
 |-----|---------|------|
 | `request_player_list` | 输入玩家列表（X~Y 人） | - |
 | `request_leaf_game` | 是否为叶子局？(1: 是；0: 否) | - |
+| `game_mode_broadcast` | 公布本局人数、模式与阵营构成 | `player_count`、`bar_count`、`boom_count`、`leaf_count`、`mode` |
 | `request_anonymous_game` | 第一晚是否匿名？(1: 是；0: 否) | - |
 | `request_reroll_player` | 输入需要重抽身份的玩家，输入 0 以继续 | 可重抽身份的玩家 id 列表 |
 | `request_leaf_charas` | 输入叶子的四个身份 | - |

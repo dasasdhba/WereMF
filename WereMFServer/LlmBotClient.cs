@@ -6,8 +6,14 @@ namespace WereMFServer;
 
 internal sealed class LlmBotClient : IDisposable
 {
+    private const int DefaultCircuitFailureThreshold = 2;
+    private const int DefaultCircuitBreakSeconds = 60;
     private readonly HttpClient _http;
     private readonly string _model;
+    private readonly int _maxTokens;
+    private readonly LlmBotClient? _fallback;
+    private readonly int _circuitFailureThreshold;
+    private readonly long _circuitBreakMilliseconds;
     private readonly SemaphoreSlim _concurrency = new(4, 4);
     private long _requests;
     private long _successes;
@@ -22,12 +28,26 @@ internal sealed class LlmBotClient : IDisposable
     private long _memoryRequests;
     private long _memorySuccesses;
     private long _memoryFailures;
+    private long _timeoutFailures;
+    private long _transportFailures;
+    private long _httpStatusFailures;
+    private long _invalidResponseFailures;
+    private int _consecutiveFailures;
+    private long _circuitOpenUntilUnixMs;
+    private int _circuitProbeInFlight;
+    private long _circuitSkipped;
+    private long _fallbackAttempts;
+    private long _fallbackSuccesses;
 
-    public LlmBotClient(string endpoint, string apiKey, string model, int timeoutSeconds)
+    public LlmBotClient(string endpoint, string? apiKey, string model, int timeoutSeconds, int maxTokens, LlmBotClient? fallback = null, int circuitFailureThreshold = DefaultCircuitFailureThreshold, int circuitBreakSeconds = DefaultCircuitBreakSeconds)
     {
         _model = model;
+        _maxTokens = maxTokens;
+        _fallback = fallback;
+        _circuitFailureThreshold = Math.Max(1, circuitFailureThreshold);
+        _circuitBreakMilliseconds = Math.Max(1, circuitBreakSeconds) * 1_000L;
         _http = new HttpClient { BaseAddress = new Uri(endpoint), Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
-        _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        if (!string.IsNullOrWhiteSpace(apiKey)) _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
     }
 
     public object Stats => new
@@ -44,7 +64,21 @@ internal sealed class LlmBotClient : IDisposable
         speechMessages = Interlocked.Read(ref _speechMessages),
         memoryRequests = Interlocked.Read(ref _memoryRequests),
         memorySuccesses = Interlocked.Read(ref _memorySuccesses),
-        memoryFailures = Interlocked.Read(ref _memoryFailures)
+        memoryFailures = Interlocked.Read(ref _memoryFailures),
+        timeoutFailures = Interlocked.Read(ref _timeoutFailures),
+        transportFailures = Interlocked.Read(ref _transportFailures),
+        httpStatusFailures = Interlocked.Read(ref _httpStatusFailures),
+        invalidResponseFailures = Interlocked.Read(ref _invalidResponseFailures),
+        consecutiveFailures = Volatile.Read(ref _consecutiveFailures),
+        circuitOpen = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() < Interlocked.Read(ref _circuitOpenUntilUnixMs),
+        circuitOpenUntilUtc = CircuitOpenUntilUtc(),
+        circuitProbeInFlight = Volatile.Read(ref _circuitProbeInFlight) != 0,
+        circuitSkipped = Interlocked.Read(ref _circuitSkipped),
+        circuitFailureThreshold = _circuitFailureThreshold,
+        circuitBreakSeconds = _circuitBreakMilliseconds / 1_000,
+        fallbackAttempts = Interlocked.Read(ref _fallbackAttempts),
+        fallbackSuccesses = Interlocked.Read(ref _fallbackSuccesses),
+        fallbackStats = _fallback?.Stats
     };
     public void ReportValidation(bool accepted)
     {
@@ -52,22 +86,135 @@ internal sealed class LlmBotClient : IDisposable
         else Interlocked.Increment(ref _rejected);
     }
 
+    private void ClassifyFailure(Exception error)
+    {
+        if (error is TaskCanceledException) Interlocked.Increment(ref _timeoutFailures);
+        else if (error is HttpRequestException or IOException) Interlocked.Increment(ref _transportFailures);
+        else Interlocked.Increment(ref _invalidResponseFailures);
+        MarkModelFailure();
+    }
+
+    private string? CircuitOpenUntilUtc()
+    {
+        var value = Interlocked.Read(ref _circuitOpenUntilUnixMs);
+        return value > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(value).UtcDateTime.ToString("O") : null;
+    }
+
+    private bool TryEnterModelRequest()
+    {
+        var openUntil = Interlocked.Read(ref _circuitOpenUntilUnixMs);
+        if (openUntil <= 0) return true;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (now < openUntil)
+        {
+            Interlocked.Increment(ref _circuitSkipped);
+            return false;
+        }
+        if (Interlocked.CompareExchange(ref _circuitProbeInFlight, 1, 0) == 0) return true;
+        Interlocked.Increment(ref _circuitSkipped);
+        return false;
+    }
+
+    private void MarkModelSuccess()
+    {
+        Interlocked.Exchange(ref _consecutiveFailures, 0);
+        Interlocked.Exchange(ref _circuitOpenUntilUnixMs, 0);
+        Interlocked.Exchange(ref _circuitProbeInFlight, 0);
+    }
+
+    private void MarkModelFailure()
+    {
+        var failures = Interlocked.Increment(ref _consecutiveFailures);
+        if (failures >= _circuitFailureThreshold || Interlocked.Read(ref _circuitOpenUntilUnixMs) > 0)
+            Interlocked.Exchange(ref _circuitOpenUntilUnixMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + _circuitBreakMilliseconds);
+        Interlocked.Exchange(ref _circuitProbeInFlight, 0);
+    }
+
+    private void ReportHttpStatusFailure()
+    {
+        Interlocked.Increment(ref _httpStatusFailures);
+        MarkModelFailure();
+    }
+
+    private void ReportInvalidResponseFailure()
+    {
+        Interlocked.Increment(ref _invalidResponseFailures);
+        MarkModelFailure();
+    }
+
+    private void ReleaseCircuitProbe() => Interlocked.Exchange(ref _circuitProbeInFlight, 0);
+
+    private static JsonDocument ParseModelJson(string content)
+    {
+        var trimmed = content.Trim();
+        try { return JsonDocument.Parse(trimmed); }
+        catch (JsonException)
+        {
+            var start = trimmed.IndexOf('{');
+            var end = trimmed.LastIndexOf('}');
+            if (start >= 0 && end > start) return JsonDocument.Parse(trimmed[start..(end + 1)]);
+            throw;
+        }
+    }
+
+    private async Task<T?> RaceWithFallbackAsync<T>(
+        Func<CancellationToken, Task<T?>> primary,
+        Func<CancellationToken, Task<T?>> fallback,
+        CancellationToken ct) where T : class
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Interlocked.Increment(ref _fallbackAttempts);
+        var primaryTask = primary(linked.Token);
+        var fallbackTask = fallback(linked.Token);
+        try
+        {
+            var first = await Task.WhenAny(primaryTask, fallbackTask);
+            var firstResult = await first;
+            if (firstResult is not null)
+            {
+                if (ReferenceEquals(first, fallbackTask)) Interlocked.Increment(ref _fallbackSuccesses);
+                linked.Cancel();
+                return firstResult;
+            }
+
+            var second = ReferenceEquals(first, primaryTask) ? fallbackTask : primaryTask;
+            var secondResult = await second;
+            if (secondResult is not null && ReferenceEquals(second, fallbackTask))
+                Interlocked.Increment(ref _fallbackSuccesses);
+            if (secondResult is not null) linked.Cancel();
+            return secondResult;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
     public async Task<string?> DecideAsync(BotDecisionContext context, CancellationToken ct = default)
+    {
+        if (_fallback is null) return await DecidePrimaryAsync(context, ct);
+        return await RaceWithFallbackAsync(
+            token => DecidePrimaryAsync(context, token),
+            token => _fallback.DecideAsync(context, token),
+            ct);
+    }
+
+    private async Task<string?> DecidePrimaryAsync(BotDecisionContext context, CancellationToken ct)
     {
         Interlocked.Increment(ref _requests);
         await _concurrency.WaitAsync(ct);
         try
         {
+            if (!TryEnterModelRequest()) { Interlocked.Increment(ref _failures); return null; }
             var body = new
             {
                 model = _model,
                 messages = new object[]
                 {
-                    new { role = "system", content = $"你是 WereMF 隐藏身份游戏中的一个玩家。只根据提供给你的可见信息决策，不得臆造隐藏信息。只输出 JSON：{{\"input\":\"CLI格式输入\"}}，不要解释。\n\n{BotGameKnowledge.Rules}" },
+                    new { role = "system", content = $"你是 WereMF 隐藏身份游戏中的一个玩家。只根据提供给你的当前权威状态、可见历史和完整规则决策，不得臆造隐藏信息。当前权威状态覆盖一切旧状态。只输出 JSON：{{\"input\":\"CLI格式输入\"}}，不要解释。\n\n【完整规则】\n{BotGameKnowledge.Rules}\n\n【行为策略】\n{BotGameKnowledge.Strategy}\n\n【当前决策规则焦点】\n{context.RuleFocus}" },
                     new { role = "user", content = context.ToPrompt() }
                 },
                 stream = false,
-                max_tokens = 64,
+                max_tokens = Math.Max(64, _maxTokens),
                 temperature = 0.35,
                 top_p = 0.8,
                 enable_thinking = false,
@@ -78,22 +225,27 @@ internal sealed class LlmBotClient : IDisposable
                 Content = new StringContent(JsonSerializer.Serialize(body, GameServer.JsonOptions), Encoding.UTF8, "application/json")
             };
             using var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode) { Interlocked.Increment(ref _failures); return null; }
+            if (!response.IsSuccessStatusCode) { Interlocked.Increment(ref _failures); ReportHttpStatusFailure(); return null; }
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             var content = json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
-            if (string.IsNullOrWhiteSpace(content)) return null;
-            using var result = JsonDocument.Parse(content);
-            var value = result.RootElement.TryGetProperty("input", out var input) && input.ValueKind == JsonValueKind.String
-                ? input.GetString()?.Trim()
+            if (string.IsNullOrWhiteSpace(content)) { Interlocked.Increment(ref _failures); ReportInvalidResponseFailure(); return null; }
+            using var result = ParseModelJson(content);
+            var value = result.RootElement.TryGetProperty("input", out var input)
+                ? input.ValueKind == JsonValueKind.String ? input.GetString()?.Trim()
+                : input.ValueKind == JsonValueKind.Number ? input.GetRawText()
+                : null
                 : null;
-            if (string.IsNullOrWhiteSpace(value)) { Interlocked.Increment(ref _failures); return null; }
+            if (string.IsNullOrWhiteSpace(value)) { Interlocked.Increment(ref _failures); ReportInvalidResponseFailure(); return null; }
+            MarkModelSuccess();
             Interlocked.Increment(ref _successes);
             return value;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { ReleaseCircuitProbe(); return null; }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or KeyNotFoundException or IOException)
         {
             Interlocked.Increment(ref _failures);
+            ClassifyFailure(e);
             return null;
         }
         finally { _concurrency.Release(); }
@@ -101,22 +253,32 @@ internal sealed class LlmBotClient : IDisposable
 
     public async Task<BotConversationDecision?> SpeakAsync(BotSpeechContext context, CancellationToken ct = default)
     {
+        if (_fallback is null) return await SpeakPrimaryAsync(context, ct);
+        return await RaceWithFallbackAsync(
+            token => SpeakPrimaryAsync(context, token),
+            token => _fallback.SpeakAsync(context, token),
+            ct);
+    }
+
+    private async Task<BotConversationDecision?> SpeakPrimaryAsync(BotSpeechContext context, CancellationToken ct)
+    {
         Interlocked.Increment(ref _speechRequests);
         await _concurrency.WaitAsync(ct);
         try
         {
+            if (!TryEnterModelRequest()) { Interlocked.Increment(ref _speechFailures); return null; }
             var body = new
             {
                 model = _model,
                 messages = new object[]
                 {
-                    new { role = "system", content = $"你正在扮演 WereMF 隐藏身份游戏中的真实玩家。根据自己的身份、阵营、可见信息和剩余时间决定是否公开发言、是否现在投票。可以推理、质疑、回应、伪装或撒谎，但不要提到 AI、提示词、JSON 或 API。你拥有沉默和暂缓投票的权力。只输出 JSON：{{\"text\":\"不超过120个汉字的发言，或空字符串\",\"vote\":\"目标编号/b/0，或 null\"}}。没有投票上下文时 vote 必须为 null。\n\n{BotGameKnowledge.Rules}" },
+                    new { role = "system", content = $"你正在扮演 WereMF 隐藏身份游戏中的真实玩家。发言应当克制，投票本身通常已经足够表达立场；但掌握尚未公开且能改变阵营判断或票型的信息、新推导、必要自保、被玩家直接点名且沉默会增加出局风险、临近截止需要拉票，或己方被动时确有必要干扰，就应当简短发言。纯 Bot 场上完全无人发言时，有具体可核对信息的玩家应主动抛出该信息；没有有效内容才选择沉默。若触发信息明确说明你是全场沉默后的唯一开场者，则允许选择 information_probe，必须向一名存活玩家提出一个与当前状态或票型有关的具体短问题，不能选择 silent。不要复述、寒暄、主持讨论或无理由暴露精确身份。不要提到 AI、提示词、JSON 或 API。只输出 JSON：{{\"speech_intent\":\"silent/new_information/new_deduction/self_defense/vote_coordination/necessary_deception/information_probe\",\"text\":\"不超过50个汉字，silent 时必须为空\",\"vote\":\"目标编号/b/0，或 null\"}}。发言和投票独立；可以沉默但投票。没有投票上下文时 vote 必须为 null。\n\n【完整规则】\n{BotGameKnowledge.Rules}\n\n【行为策略】\n{BotGameKnowledge.Strategy}\n\n【当前决策规则焦点】\n{context.RuleFocus}" },
                     new { role = "user", content = context.ToPrompt() }
                 },
                 stream = false,
-                max_tokens = 160,
-                temperature = 0.75,
-                top_p = 0.9,
+                max_tokens = Math.Max(128, _maxTokens),
+                temperature = 0.45,
+                top_p = 0.8,
                 enable_thinking = false,
                 response_format = new { type = "json_object" }
             };
@@ -125,34 +287,38 @@ internal sealed class LlmBotClient : IDisposable
                 Content = new StringContent(JsonSerializer.Serialize(body, GameServer.JsonOptions), Encoding.UTF8, "application/json")
             };
             using var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode) { Interlocked.Increment(ref _speechFailures); return null; }
+            if (!response.IsSuccessStatusCode) { Interlocked.Increment(ref _speechFailures); ReportHttpStatusFailure(); return null; }
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             var content = json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
-            if (string.IsNullOrWhiteSpace(content)) { Interlocked.Increment(ref _speechFailures); return null; }
-            using var result = JsonDocument.Parse(content);
-            if (!result.RootElement.TryGetProperty("text", out var textNode) || textNode.ValueKind != JsonValueKind.String)
-            {
-                Interlocked.Increment(ref _speechFailures);
-                return null;
-            }
-            var text = string.Join(" ", (textNode.GetString() ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            if (string.IsNullOrWhiteSpace(content)) { Interlocked.Increment(ref _speechFailures); ReportInvalidResponseFailure(); return null; }
+            using var result = ParseModelJson(content);
+            var rawText = result.RootElement.TryGetProperty("text", out var textNode) && textNode.ValueKind == JsonValueKind.String
+                ? textNode.GetString() ?? ""
+                : "";
+            var text = string.Join(" ", rawText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            var intent = result.RootElement.TryGetProperty("speech_intent", out var intentNode) && intentNode.ValueKind == JsonValueKind.String
+                ? intentNode.GetString()
+                : "unspecified";
+            if (string.Equals(intent, "silent", StringComparison.OrdinalIgnoreCase)) text = "";
             string? vote = null;
             if (result.RootElement.TryGetProperty("vote", out var voteNode))
             {
                 if (voteNode.ValueKind == JsonValueKind.String) vote = voteNode.GetString()?.Trim();
                 else if (voteNode.ValueKind == JsonValueKind.Number && voteNode.TryGetInt32(out var numericVote)) vote = numericVote.ToString();
             }
+            MarkModelSuccess();
             Interlocked.Increment(ref _speechSuccesses);
             if (text.Length == 0) Interlocked.Increment(ref _speechSilences);
-            if (text.Length > 120) text = text[..120];
+            if (text.Length > 50) text = text[..50];
             if (text.Length > 0) Interlocked.Increment(ref _speechMessages);
             return new BotConversationDecision(text, string.IsNullOrWhiteSpace(vote) ? null : vote);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return null; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { ReleaseCircuitProbe(); return null; }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or KeyNotFoundException or IOException)
         {
             Interlocked.Increment(ref _speechFailures);
+            ClassifyFailure(e);
             return null;
         }
         finally { _concurrency.Release(); }
@@ -160,20 +326,30 @@ internal sealed class LlmBotClient : IDisposable
 
     public async Task<string?> SummarizeAsync(int playerId, string playerName, string previousSummary, string visibleContext, CancellationToken ct = default)
     {
+        if (_fallback is null) return await SummarizePrimaryAsync(playerId, playerName, previousSummary, visibleContext, ct);
+        return await RaceWithFallbackAsync(
+            token => SummarizePrimaryAsync(playerId, playerName, previousSummary, visibleContext, token),
+            token => _fallback.SummarizeAsync(playerId, playerName, previousSummary, visibleContext, token),
+            ct);
+    }
+
+    private async Task<string?> SummarizePrimaryAsync(int playerId, string playerName, string previousSummary, string visibleContext, CancellationToken ct)
+    {
         Interlocked.Increment(ref _memoryRequests);
         await _concurrency.WaitAsync(ct);
         try
         {
+            if (!TryEnterModelRequest()) { Interlocked.Increment(ref _memoryFailures); return null; }
             var body = new
             {
                 model = _model,
                 messages = new object[]
                 {
-                    new { role = "system", content = "把该玩家自己可见的 WereMF 对局信息压缩成可供后续决策使用的中文记忆。保留身份/阵营、仍有效的状态、公开身份、死亡、投票、关键发言、承诺与怀疑；删除重复事件和已失效细节；不得推断未提供的隐藏信息。只输出 JSON：{\"summary\":\"...\"}。" },
+                    new { role = "system", content = "把该玩家自己可见的 WereMF 历史压缩成后续决策使用的中文记忆。只保留稳定事实：身份知识、公开身份、死亡、重要投票、关键发言、承诺与怀疑。绝对不要把威胁、保护、禁票、绑架、烟雾、药水等临时效果保存为仍生效状态；这些只能由每次提示中的当前权威状态判断。不得推断未提供的隐藏信息。只输出 JSON：{\"summary\":\"...\"}。" },
                     new { role = "user", content = $"你是 {playerId} 号玩家“{playerName}”。\n已有长期记忆：\n{previousSummary}\n\n待整理的可见信息：\n{visibleContext}" }
                 },
                 stream = false,
-                max_tokens = 640,
+                max_tokens = Math.Max(640, _maxTokens),
                 temperature = 0.2,
                 top_p = 0.8,
                 enable_thinking = false,
@@ -184,31 +360,33 @@ internal sealed class LlmBotClient : IDisposable
                 Content = new StringContent(JsonSerializer.Serialize(body, GameServer.JsonOptions), Encoding.UTF8, "application/json")
             };
             using var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode) { Interlocked.Increment(ref _memoryFailures); return null; }
+            if (!response.IsSuccessStatusCode) { Interlocked.Increment(ref _memoryFailures); ReportHttpStatusFailure(); return null; }
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             var content = json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
-            if (string.IsNullOrWhiteSpace(content)) { Interlocked.Increment(ref _memoryFailures); return null; }
-            using var result = JsonDocument.Parse(content);
+            if (string.IsNullOrWhiteSpace(content)) { Interlocked.Increment(ref _memoryFailures); ReportInvalidResponseFailure(); return null; }
+            using var result = ParseModelJson(content);
             var summary = result.RootElement.TryGetProperty("summary", out var node) && node.ValueKind == JsonValueKind.String ? node.GetString()?.Trim() : null;
-            if (string.IsNullOrWhiteSpace(summary)) { Interlocked.Increment(ref _memoryFailures); return null; }
+            if (string.IsNullOrWhiteSpace(summary)) { Interlocked.Increment(ref _memoryFailures); ReportInvalidResponseFailure(); return null; }
+            MarkModelSuccess();
             if (summary.Length > 4_000) summary = summary[..4_000];
             Interlocked.Increment(ref _memorySuccesses);
             return summary;
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return null; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { ReleaseCircuitProbe(); return null; }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or KeyNotFoundException or IOException)
         {
             Interlocked.Increment(ref _memoryFailures);
+            ClassifyFailure(e);
             return null;
         }
         finally { _concurrency.Release(); }
     }
 
-    public void Dispose() { _http.Dispose(); _concurrency.Dispose(); }
+    public void Dispose() { _fallback?.Dispose(); _http.Dispose(); _concurrency.Dispose(); }
 }
 
-internal sealed record BotDecisionContext(int PlayerId, string PlayerName, string Api, string RequestJson, string VisibleContext, string OutputHint)
+internal sealed record BotDecisionContext(int PlayerId, string PlayerName, string Api, string RequestJson, string VisibleContext, string OutputHint, string RuleFocus = "")
 {
     public string ToPrompt() => string.Join('\n',
         $"你是 {PlayerId} 号玩家“{PlayerName}”。",
@@ -223,7 +401,7 @@ internal sealed record BotDecisionContext(int PlayerId, string PlayerName, strin
         "",
         "选择一个合法且对你的阵营最有利的输入。只能返回 {\"input\":\"...\"}。");
 }
-internal sealed record BotSpeechContext(int PlayerId, string PlayerName, string Trigger, string VisibleContext, string VoteContext)
+internal sealed record BotSpeechContext(int PlayerId, string PlayerName, string Trigger, string VisibleContext, string VoteContext, string RuleFocus = "")
 {
     public string ToPrompt() => string.Join('\n',
         $"你是 {PlayerId} 号玩家“{PlayerName}”。",
@@ -235,9 +413,10 @@ internal sealed record BotSpeechContext(int PlayerId, string PlayerName, string 
         "当前投票与时间信息：",
         VoteContext,
         "",
-        "先判断此刻是否有必要说话。若发言，要像真人玩家一样自然、简短，并结合已有聊天进行互动；若没有新观点或不想暴露信息，就保持沉默。",
-        "再决定是否现在投票；可以返回 null 继续观望。只能选择提供的合法票值，已无票或尚未开始投票时必须返回 null。",
-        "只能返回 {\"text\":\"...\",\"vote\":null} 或带合法 vote 字符串的同结构 JSON。");
+        "先判断是否有实际信息、推导、自保、被点名回应、拉票或必要干扰价值；有则简短发言，无则选择 silent。投票本身已经表达立场，不能仅因为自己投票就解释。",
+        "提供场上尚不存在的信息或推导、必要自保、回应直接点名、必要拉票或必要干扰时应发言；纯 Bot 场上沉默时，有具体信息也应主动开口。若本次触发指定你为唯一开场者，使用 information_probe 向一名存活玩家提出与当前状态或票型有关的具体短问题，不得 silent。极简表达，不复述，不主动暴露精确身份，禁止“先看票型”之类无信息句。",
+        "再决定是否现在投票：投票阶段有合法非零目标时通常应立即投一票。第一票尚未使用且场上连续一个思考间隔无人发言、无人投票时，即使没有充分依据也应随机选择合法玩家，避免半数弃票风险；预算不超过 60 秒或只剩最后一次机会时也不得继续观望。只能选择提供的合法票值，已无票或尚未开始投票时必须返回 null。",
+        "只能返回包含 speech_intent、text、vote 的指定 JSON。silent 时 text 必须为空，但 vote 仍可合法投票。");
 }
 
 internal sealed record BotConversationDecision(string Text, string? Vote);
