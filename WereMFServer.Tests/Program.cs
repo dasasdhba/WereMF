@@ -83,8 +83,8 @@ var tests = new (string Name, Action Body)[]
           {"player":{"id":2,"name":"Bob","anonymous":true},"role":{"chara_type":"叶子","data":{"fury":true,"secret":"hidden"}},"state":{"is_bar_leader":true}}
         ]}
         """;
-        var alice = EnvelopeRedactor.ForPlayer(JsonSerializer.Deserialize<JsonElement>(input), 1);
-        var bob = EnvelopeRedactor.ForPlayer(JsonSerializer.Deserialize<JsonElement>(input), 2);
+        var alice = CliRouteTransforms.RedactSnapshot(JsonSerializer.Deserialize<JsonElement>(input), 1);
+        var bob = CliRouteTransforms.RedactSnapshot(JsonSerializer.Deserialize<JsonElement>(input), 2);
         var aliceEntities = alice.GetProperty("payload").GetProperty("data");
         var bobEntities = bob.GetProperty("payload").GetProperty("data");
         Assert(aliceEntities[0].GetProperty("player").GetProperty("name").GetString() == "玩家1", "anonymous names must be redacted");
@@ -95,6 +95,27 @@ var tests = new (string Name, Action Body)[]
         Assert(IsNullOrMissing(bobEntities[0], "role"), "Bob must not see Alice's role");
         Assert(bobEntities[1].GetProperty("role").GetProperty("public_reveal").GetBoolean(), "publicly revealed Leaf role must retain its reveal marker");
         Assert(bobEntities[1].GetProperty("role").GetProperty("data").GetProperty("secret").GetString() == "hidden", "own private role data must remain available");
+    }),
+    ("transforms anonymous and pending routes without changing CLI payload data", () =>
+    {
+        var anonymous = JsonSerializer.Deserialize<JsonElement>("""
+        {"api":"player_anonymous_init","message_type":"internal","data":[
+          {"id":2,"name":"Alice","anonymous":true},
+          {"id":1,"name":"Unknown","anonymous":true}
+        ]}
+        """);
+        Assert(CliRouteTransforms.TryCreateAnonymousPayload(anonymous, new HashSet<string>(["Alice"]), out var anonymousPayload, out var mappings), "anonymous payload must be transformed");
+        Assert(mappings.Count == 1 && mappings[0].Name == "Alice" && mappings[0].PlayerId == 2, "only known sessions may be remapped");
+        Assert(anonymousPayload.GetProperty("message_type").GetString() == "public", "anonymous mapping must be public");
+        Assert(anonymousPayload.GetProperty("data")[0].GetProperty("name").GetString() == "玩家2", "known anonymous names must be rewritten");
+        Assert(anonymousPayload.GetProperty("data")[1].GetProperty("name").GetString() == "Unknown", "unknown names must remain unchanged");
+
+        var pending = JsonSerializer.Deserialize<JsonElement>("""
+        {"api":"pending_skill_created","message_type":"internal","data":{"id":"skill-1","type":"Doge"}}
+        """);
+        var targeted = CliRouteTransforms.CreatePlayerTargetPayload(pending, 2);
+        Assert(targeted.GetProperty("message_type").GetString() == "player_2", "pending skills must target their source player");
+        Assert(targeted.GetProperty("data").GetProperty("id").GetString() == "skill-1", "pending payload data must be preserved");
     })
 };
 

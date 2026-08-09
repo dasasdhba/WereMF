@@ -1556,7 +1556,7 @@ internal sealed class GameRoom : IAsyncDisposable
                 PlayerSession[] recipients; lock (_gate) recipients = _players.Where(x => x.Connected).ToArray();
                 foreach (var player in recipients)
                 {
-                    var redacted = RedactedEnvelope(root, player.GameId); Add(player.History, redacted); await SendAsync(player, redacted);
+                    var redacted = CliRouteTransforms.RedactSnapshot(root, player.GameId); Add(player.History, redacted); await SendAsync(player, redacted);
                 }
                 return;
             }
@@ -1587,8 +1587,7 @@ internal sealed class GameRoom : IAsyncDisposable
         }
         var player = _players.FirstOrDefault(x => x.GameId == id);
         if (player is null) return;
-        var payload = JsonNode.Parse(root.GetRawText())!.AsObject();
-        payload["message_type"] = $"player_{id}";
+        var payload = CliRouteTransforms.CreatePlayerTargetPayload(root, id);
         var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload });
         Add(player.History, envelope);
         await SendAsync(player, envelope);
@@ -1655,19 +1654,14 @@ internal sealed class GameRoom : IAsyncDisposable
     }
     private async Task ApplyAnonymousMappingAsync(JsonElement root)
     {
-        var payload = JsonNode.Parse(root.GetRawText())!.AsObject();
-        if (payload["data"] is not JsonArray players) return;
         PlayerSession[] sessions; lock (_gate) sessions = _players.ToArray();
-        foreach (var item in players.OfType<JsonObject>())
+        var knownNames = sessions.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
+        if (!CliRouteTransforms.TryCreateAnonymousPayload(root, knownNames, out var payload, out var mappings)) return;
+        foreach (var mapping in mappings)
         {
-            var id = item["id"]?.GetValue<int>() ?? 0;
-            var name = item["name"]?.GetValue<string>() ?? "";
-            var session = sessions.FirstOrDefault(x => x.Name == name);
-            if (session is null) continue;
-            session.GameId = id;
-            item["name"] = $"玩家{id}";
+            var session = sessions.FirstOrDefault(x => x.Name == mapping.Name);
+            if (session is not null) session.GameId = mapping.PlayerId;
         }
-        payload["message_type"] = "public";
         await StateAsync();
         var envelope = JsonSerializer.SerializeToElement(new { type = "game_message", payload });
         Add(_publicHistory, envelope);
@@ -1678,11 +1672,6 @@ internal sealed class GameRoom : IAsyncDisposable
     private bool IsValidNightPatch(JsonElement root)
     {
         return NightPatchValidator.IsValid(root, _players.Select(x => x.GameId).ToHashSet());
-    }
-
-    private static JsonElement RedactedEnvelope(JsonElement root, int playerId)
-    {
-        return EnvelopeRedactor.ForPlayer(root, playerId);
     }
 
     private void Add(List<JsonElement> list, JsonElement value)

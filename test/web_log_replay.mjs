@@ -33,14 +33,21 @@ function norm(x){return String(x||"").replace(/\s+/g,"").replace(/[（(].*?最�
 function connect(payload){return new Promise((resolveOpen,reject)=>{const ws=new WebSocket(endpoint);const c={ws,name:payload.playerName,lobbyId:0,gameId:0};ws.addEventListener("open",()=>ws.send(JSON.stringify(payload)),{once:true});ws.addEventListener("error",e=>reject(new Error(`WebSocket connection failed: ${e?.message||endpoint}`)),{once:true});ws.addEventListener("message",e=>{const m=JSON.parse(e.data);events.push({receiver:c.name,message:m});if(m.type==="welcome"){c.lobbyId=m.playerId;c.gameId=m.playerId;resolveOpen(c);}if(m.type==="player_remapped")c.gameId=m.playerId;handle(c,m);});});}
 function reply(c,value){c.ws.send(JSON.stringify({type:"game_input",value:String(value)}));}
 function tolerantInput(c,payload){
-  if(payload.api!=="request_vote") return "0";
-  const row=Array.isArray(payload.data)?payload.data.find(x=>Number(x?.id)===Number(c.gameId)):null;
-  const invalid=new Set((row?.invalid_vote||[]).map(Number));
-  const target=Array.from({length:playerNames.length},(_,i)=>i+1).find(id=>!invalid.has(id))||0;
-  return `${c.gameId} ${target}`;
+  if(payload.api==="request_vote") return `${c.gameId} 0`;
+  if(payload.api==="request_leaf_charas"){
+    const options=Array.isArray(payload.data?.options)?payload.data.options:[];
+    for(let a=0;a<options.length;a++) for(let b=a+1;b<options.length;b++) for(let d=b+1;d<options.length;d++) for(let e=d+1;e<options.length;e++){
+      const chosen=[options[a],options[b],options[d],options[e]];
+      const camps=new Set(chosen.map(x=>x?.camp));
+      if(camps.has("吧方")&&camps.has("爆方")) return chosen.map(x=>x.value).join(" ");
+    }
+    return options.slice(0,4).map(x=>x.value).join(" ");
+  }
+  return "0";
 }
 function nextReplay(payload,c){
   if(payload.api==="request_for_next_game"){if(!exportRequested){exportRequested=true;clients[0].ws.send(JSON.stringify({type:"command",value:"\\log null"}));}return;}
+  if(tolerant){report.consumed++;reply(c,tolerantInput(c,payload));return;}
   let entry=replay[replayIndex];
   if(payload.api==="request_player_list"){
     while(entry && !entry.text.includes("输入玩家列表")) entry=replay[++replayIndex];
@@ -56,6 +63,7 @@ function nextReplay(payload,c){
 }
 function handle(c,m){
   if(m.type==="error"){report.serverErrors.push({receiver:c.name,message:m.message});return;}
+  if(m.type==="game_log_available"){logContent=m.content;doneResolve();return;}
   if(m.type!=="game_message")return; const p=m.payload,api=p.api||"";
   if(p.message_type?.startsWith("player_")&&p.message_type!==`player_${c.gameId}`)report.privateRouteViolations.push({receiver:c.name,gameId:c.gameId,target:p.message_type,api});
   if(api.endsWith("_parse_error"))report.parseErrors.push({receiver:c.name,api,text:p.message_content});
@@ -75,11 +83,14 @@ function handle(c,m){
 const host=await connect({type:"create_room",playerName:playerNames[0]});clients.push(host);
 for(let i=1;i<playerNames.length;i++)clients.push(await connect({type:"join_room",roomCode:host.ws?events.find(x=>x.receiver===host.name&&x.message.type==="welcome").message.roomCode:"",playerName:playerNames[i]}));
 await wait(150);host.ws.send(JSON.stringify({type:"start_game"}));
-await Promise.race([done,wait(60000).then(()=>{throw new Error("Replay timeout")})]);
+await Promise.race([done,wait(60000).then(()=>{
+  const recent = events.slice(-20).map(x => ({ receiver: x.receiver, type: x.message?.type, api: x.message?.payload?.api, message: x.message?.message }));
+  throw new Error(`Replay timeout at input ${replayIndex}/${replay.length}; recent events: ${JSON.stringify(recent)}`);
+})]);
 clients.forEach(c=>c.ws.close());
 const outPath=resolve(import.meta.dirname,`replay_${basename(logPath,".log")}.json`);await writeFile(outPath,JSON.stringify({report,events},null,2),"utf8");
 const outLog=resolve(import.meta.dirname,`replay_${basename(logPath,".log")}.log`);await writeFile(outLog,logContent||"","utf8");
-const exact=Boolean(report.winner&&report.consumed>5&&!report.requestMismatches.length&&!report.actorMismatches.length&&!report.privateRouteViolations.length&&!report.anonymousNameLeaks.length&&!report.redactionViolations.length&&!report.parseErrors.length&&!report.serverErrors.length);
+const exact=Boolean(!tolerant&&report.winner&&report.consumed>5&&!report.requestMismatches.length&&!report.actorMismatches.length&&!report.privateRouteViolations.length&&!report.anonymousNameLeaks.length&&!report.redactionViolations.length&&!report.parseErrors.length&&!report.serverErrors.length);
 const ok=Boolean(report.winner&&report.consumed>5&&!report.privateRouteViolations.length&&!report.anonymousNameLeaks.length&&!report.redactionViolations.length&&!report.parseErrors.length&&!report.serverErrors.length&&(tolerant||exact));
 console.log(JSON.stringify({ok,exact,tolerant,...report,outPath,outLog},null,2));process.exit(ok?0:1);
 

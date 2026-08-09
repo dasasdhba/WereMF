@@ -2,6 +2,15 @@
 
 WereMFWeb 是 WereMF 的零框架浏览器客户端。它只负责房间交互、状态展示和输入组织；角色规则、合法性判断与结算仍以 WereMF CLI API 为准，联网会话和超时回退由 WereMFServer 处理。
 
+```mermaid
+flowchart LR
+    Server["WereMFServer\n权威状态、权限与超时"] -->|WebSocket 消息| Protocol["protocol.js\n归一化"]
+    Protocol --> Reducer["store.js + reducers/\n状态转换"]
+    Reducer --> Views["views/\nHTML 渲染"]
+    Reducer --> Effects["effects/\n音频、通知、标题"]
+    Input["input/ + socket.js\n输入与连接"] -->|请求| Server
+```
+
 ## 界面与交互
 
 - 创建或加入 6 位房间号，保存令牌并在刷新后恢复同一席位。
@@ -57,6 +66,13 @@ node ..\test\web_log_replay_ui_check.mjs replay_WereMF_260522_235200.json
 3. 由后续 `dotnet publish` 一并打入服务端发布包。
 
 `dist/` 与 `WereMFServer/wwwroot/` 都是生成产物，不由 Git 追踪；前端文件只在 `src/` 中维护。 构建 WereMFServer 时，MSBuild 会自动执行这一步。
+
+### 状态、reducer 与 effects 约定
+
+- 完整快照由 `store.js` 替换实体集合；字段级 night patch 只合并允许的公开 `EntityState` 字段，绝不创建未知玩家或删除未出现在 patch 中的字段。
+- `reducers/game-message.js` 负责把 CLI 消息转换为状态变化和请求准备；`reducers/server-message.js` 负责 WebSocket 外层消息的分类边界。
+- 音频、浏览器通知和标题闪烁位于 `effects/`，不把副作用混入实体状态合并；`socket.js` 只管理连接、重连和发送。
+- `app.js` 保留 DOM 生命周期、兼容协调和模块装配；角色规则、服务端权限与超时裁决不在浏览器复制。
 
 完整服务端启动参数与 WebSocket 协议见 [`../WereMFServer/README.md`](../WereMFServer/README.md)，CLI API 和数据结构见 [`../WereMF/README.md`](../WereMF/README.md)。
 

@@ -13,6 +13,18 @@ WereMFServer 是 WereMF 的联网房间服务：托管静态 Web 客户端，通
 
 这些组件通过 `GameRoom` 委派接入，保留现有 WebSocket 消息顺序、重连历史和 CLI 输入协议。确定性验证入口仍是 `node test/run-deterministic.mjs`。
 
+```mermaid
+flowchart LR
+    Cli["WereMF CLI"] --> Envelope["CliEnvelope\nCliMessageRouter"]
+    Envelope --> Special["CliRouteTransforms\n匿名映射 / pending 定向 / 快照脱敏"]
+    Envelope --> Input["Input coordinators\n普通请求 / 投票 / 预提交"]
+    Envelope --> History["RoomHistory\n公开、私密、Bot 时间线"]
+    Special --> Room["GameRoom\n生命周期与并发协调"]
+    Input --> Room
+    History --> Room
+    Room --> Web["WereMFWeb\nWebSocket"]
+```
+
 ## 构建与运行
 
 从仓库根目录执行：
@@ -154,7 +166,18 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 - `game_update_night`、`game_update_day`、`cli_game_summary`：逐玩家脱敏；其他玩家的身份不会发送到该浏览器。匿名玩家名也按当前接收者可见范围处理。
 - `game_update_night_patch`：仅接受 `cause=huika_smog`、已存在玩家、公开 `EntityState` 字段及匹配的 JSON 基本类型；拒绝包含 `role`、`player`、未知字段或非法值的消息。该消息已是公开数据，直接写入公开/玩家重连历史并按原顺序广播，不经过逐玩家脱敏。重连时必须先应用最近完整快照，再按顺序合并其后的 patch；Bot 上下文也将它们标记为当前权威状态。
 
-重连时会重放最多 250 条公开历史、该玩家的私密历史，以及房主专属历史（仅当前房主）。
+### 路由、历史与重连顺序
+
+| 路由 | 处理组件 | 历史与接收者 |
+|---|---|---|
+| `public` 广播 | `GameRoom` + `RoomHistory` | 写入公开历史，广播给所有在线玩家，并进入 Bot 公共时间线 |
+| `player_X` 私信 | `GameRoom` + `CliRouteTransforms` | 只写入对应玩家私密历史；pending 技能先由 `source_player_id` 定向 |
+| 完整快照 | `CliRouteTransforms.RedactSnapshot` | 按玩家生成脱敏副本，再分别写入玩家重连历史 |
+| `player_anonymous_init` | `CliRouteTransforms.TryCreateAnonymousPayload` | 先更新真实会话到游戏编号的映射，再广播匿名玩家表和 `player_remapped` |
+| `game_update_night_patch` | `NightPatchValidator` | 已是公开字段级数据，原样写入公开历史；不做逐玩家角色脱敏 |
+| `internal` / `server_notice` | `GameRoom` | 默认仅房主可见，不进入普通公开历史 |
+
+公开历史、当前玩家私密历史和当前房主专属历史按接收顺序拼接，重连最多重放 250 条公开消息；请求类消息会被过滤，客户端必须先应用最近完整快照，再按顺序合并后续 night patch。Bot 时间线使用同一序列边界，但只接收它可见的公开或个性化数据。
 
 白天聊天从 `day_start_broadcast` 开启，到 `night_start_broadcast` 或终局关闭。服务端根据最新 `game_update_day` 的 `state.is_dead` 维护发言资格；myz 威胁不影响聊天。聊天记录进入公开历史，因此断线重连后会一并回放。
 

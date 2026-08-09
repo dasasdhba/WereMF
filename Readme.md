@@ -6,6 +6,16 @@ MF 杀是由 [Mario Forever 社区](https://www.marioforever.net) 的大爷、xf
 - [`WereMFServer`](WereMFServer/README.md)：多人房间、WebSocket 转发、计时器和 Bot 托管服务。
 - [`WereMFWeb`](WereMFWeb/README.md)：浏览器客户端、构建方式和 Web 回归样例。
 
+## 职责边界
+
+```mermaid
+flowchart LR
+    Web["WereMFWeb\n展示与输入组织"] <-->|WebSocket| Server["WereMFServer\n房间、路由、权限、计时与 Bot"]
+    Server <-->|stdin/stdout\n逐行 JSON| Cli["WereMF\nF# 规则内核与 CLI API"]
+```
+
+CLI 是角色规则与结算的唯一来源；Server 只协调进程、会话和网络消息；Web 只合并服务端状态、展示结果并组织输入，不复制角色规则。
+
 ## 确定性验证
 
 - `dotnet run --project WereMFServer.Tests -c Release`：运行不依赖外部模型或网络的 Server night patch 协议边界测试。

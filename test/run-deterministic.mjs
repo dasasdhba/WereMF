@@ -33,7 +33,7 @@ try {
   await runDotnet("chat fake CLI publish", "publish", "test/chat-fake/ChatFake.csproj", "-c", "Release", "-r", "win-x64", "--self-contained", "true");
   await runDotnet("pre-submit fake CLI publish", "publish", "test/pre-submit-fake/PreSubmitFake.csproj", "-c", "Release", "-r", "win-x64", "--self-contained", "true");
   await runDotnet("Server protocol unit tests", "run", "--project", "WereMFServer.Tests", "-c", "Release", "--no-build");
-  await run("Web Node tests", node, ["--test", "WereMFWeb/scripts/test-night-patch.mjs"]);
+  await run("Web Node tests", node, ["--test", "WereMFWeb/scripts/test-night-patch.mjs", "WereMFWeb/scripts/test-web-modules.mjs"]);
   await runNode("Server routing/reconnect/permission test", "test/protocol_boundary_test.mjs");
   await runNode("pre-submit fake CLI assertions", "test/pre_submit_test.mjs");
   await runNode("chat permission assertions", "test/chat_test.mjs");
@@ -41,9 +41,9 @@ try {
   await runNode("Web event queue assertions", "test/web_event_queue_check.mjs");
 
   if (withReplay) {
-    for (const log of replayLogs) {
+    for (const [index, log] of replayLogs.entries()) {
       const name = basename(log, ".log");
-      await runNode(`real log replay and UI check ${name}`, "test/run-replay.mjs", log);
+      await runNode(`real log replay and UI check ${name}`, "test/run-replay.mjs", log, String(5260 + index));
     }
   } else {
     console.log("SKIP real log replay (use --replay for extended fixture replay)");

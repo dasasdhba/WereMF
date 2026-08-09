@@ -2,6 +2,14 @@
 
 WereMF 是 MF 杀的 F# 规则内核和命令行游戏程序；API 模式以逐行 JSON 输出完整状态、请求和广播，供 WereMFServer 等外部程序驱动。
 
+```mermaid
+flowchart LR
+    Server["WereMFServer"] <-->|逐行 JSON\nstdin/stdout| Cli["WereMF CLI\n规则、随机数与结算"]
+    Cli -->|完整快照与公开 patch| Web["WereMFWeb\n仅展示与输入"]
+```
+
+WereMF 负责角色规则、技能优先级、随机数消费和最终输入合法性；Server/Web 不应在本项目之外复制这些规则。
+
 ## 命令行选项
 
 * `--help`: 显示帮助
@@ -561,6 +569,14 @@ null
 | `game_update_vote` | 投票状态更新 | `Day` |
 
 `game_update_night_patch` 只包含本次灰卡比烟雾及其连锁结算实际改变的公开 `EntityState` 字段；没有变化的字段、`role`、完整 `player` 和其他身份数据都不会发送。消费者必须将 `state` 合并到已有实体，不能把它当成完整快照，也不能清除消息中没有出现的字段。若本次结算没有公开状态变化，则不发送空 patch。
+
+#### 完整快照与字段级 patch
+
+- `game_update_night`、`game_update_day` 和 `cli_game_summary` 的 `data` 是完整 `Game` 实体列表。接收方应替换当前实体集合；这些快照会由 Server 按接收者逐一脱敏。
+- `game_update_night_patch` 的 `data` 是 `{ cause, entities }`，目前只允许 `cause: "huika_smog"`。每个实体只携带本次结算发生变化的公开 `state` 字段，不能包含 `role`、完整 `player` 或私有角色数据。
+- `game_update_vote` 的 `data` 是独立的 `Day` 投票状态，不应被当作实体快照。
+
+灰卡比 patch 的公开字段由结算前后的 `EntityState.ToJsonValue false` 差异产生，因此 `myz_threaten` 等私有状态不会因为 patch 计算被暴露；完整快照仍使用接收者专属的 `showMyzThreaten` 隐私参数。
 
 ##### 游戏流程类
 
