@@ -4,10 +4,10 @@ namespace WereMFServer;
 
 internal sealed class BotVisibleContextBuilder
 {
-    public string Build(IEnumerable<(long Sequence, int? RecipientPlayerId, JsonElement Envelope)> timeline, int playerId, string mode, int take = 24)
+    public string Build(IEnumerable<(long Sequence, int? RecipientPlayerId, JsonElement Envelope)> timeline, int playerId, string mode, int take = 24, long phaseStartTimelineSequence = 0)
     {
         var visible = timeline.Where(x => x.RecipientPlayerId is null || x.RecipientPlayerId == playerId).ToArray();
-        var currentStateItem = visible.LastOrDefault(x => CliMessageRouter.IsAuthoritativeState(x.Envelope));
+        var currentStateItem = visible.LastOrDefault(x => x.Sequence > phaseStartTimelineSequence && CliMessageRouter.IsAuthoritativeState(x.Envelope));
         var currentState = currentStateItem.Envelope;
         var currentStateSequence = currentStateItem.Sequence;
         var currentPatches = visible

@@ -125,6 +125,11 @@ try {
   if (!/\[Server\] 第 \d+ 天聊天与投票记录/.test(completedLog)) throw new Error("downloaded log did not contain server-side day interaction sections");
   if (!/(?:投票给|确认投票给)/.test(completedLog)) throw new Error("downloaded log did not contain semantic vote records");
   if (health.llmStats.speechRequests < 1 || health.llmStats.speechSuccesses < 1 || health.llmStats.speechMessages < 1 || health.llmStats.speechSilences < 1) throw new Error(`LLM speech/silence paths not all exercised: ${JSON.stringify(health)}`);
+  const conversationStats = health.llmStats.conversationStats;
+  if (!conversationStats || !["triggers", "chatBroadcasts", "allSilentTriggers", "staleSpeechDiscards", "stateChangeRetries", "broadcastRate", "allSilentRate"].every(key => typeof conversationStats[key] === "number"))
+    throw new Error(`LLM orchestration health statistics missing: ${JSON.stringify(health)}`);
+  if (Object.keys(conversationStats).some(key => !["triggers", "chatBroadcasts", "allSilentTriggers", "staleSpeechDiscards", "stateChangeRetries", "broadcastRate", "allSilentRate"].includes(key)))
+    throw new Error(`LLM orchestration health statistics leaked sensitive fields: ${JSON.stringify(conversationStats)}`);
   const privacyViolations = [];
   for (const messagesForDecision of capturedPrompts) {
     const userPrompt = String(messagesForDecision.find(message => message.role === "user")?.content || "");
@@ -134,6 +139,11 @@ try {
   }
   if (privacyViolations.length) throw new Error(`cross-player private context leaked: ${JSON.stringify(privacyViolations.slice(0, 5))}`);
   if (!capturedPrompts.some(rows => String(rows.find(message => message.role === "system")?.content || "").includes("八、游戏模式与获胜条件"))) throw new Error("full design.txt rules were not included in the system prompt");
+  if (!capturedPrompts.some(rows => {
+    const systemPrompt = String(rows.find(message => message.role === "system")?.content || "");
+    const userPrompt = String(rows.find(message => message.role === "user")?.content || "");
+    return systemPrompt.includes("valuable_private_information") && systemPrompt.includes("脚滑人等信息特化身份") && userPrompt.includes("自身合法私密身份、状态、技能结果或事件") && userPrompt.includes("silent 无效");
+  })) throw new Error("speech prompts did not require valuable local-information disclosure");
   if (capturedPrompts.some(rows => String(rows.find(message => message.role === "system")?.content || "").includes("CREDITS："))) throw new Error("design credits leaked into the system prompt");
   if (!capturedPrompts.some(rows => { const prompt = String(rows.find(message => message.role === "user")?.content || ""); return prompt.includes("【本局模式】") && prompt.includes("【当前权威状态】") && prompt.includes("当前状态未显示的临时效果已经失效"); })) throw new Error("authoritative state layers were not included in the bot context");
   if (!capturedPrompts.some(rows => { const prompt = String(rows.find(message => message.role === "user")?.content || ""); return prompt.includes("投票阶段实际经过") && prompt.includes("当前投票预算剩余"); })) throw new Error("vote prompt did not distinguish elapsed voting time from adjusted vote budget");

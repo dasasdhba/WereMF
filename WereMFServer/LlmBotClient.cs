@@ -50,7 +50,11 @@ internal sealed class LlmBotClient : IDisposable
         if (!string.IsNullOrWhiteSpace(apiKey)) _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
     }
 
-    public object Stats => new
+    public object Stats => BuildStats(null);
+
+    public object StatsWithConversationMetrics(BotConversationMetrics conversationMetrics) => BuildStats(conversationMetrics);
+
+    private object BuildStats(BotConversationMetrics? conversationMetrics) => new
     {
         requests = Interlocked.Read(ref _requests),
         successes = Interlocked.Read(ref _successes),
@@ -78,7 +82,8 @@ internal sealed class LlmBotClient : IDisposable
         circuitBreakSeconds = _circuitBreakMilliseconds / 1_000,
         fallbackAttempts = Interlocked.Read(ref _fallbackAttempts),
         fallbackSuccesses = Interlocked.Read(ref _fallbackSuccesses),
-        fallbackStats = _fallback?.Stats
+        fallbackStats = _fallback?.Stats,
+        conversationStats = conversationMetrics?.Snapshot
     };
     public void ReportValidation(bool accepted)
     {
@@ -272,7 +277,7 @@ internal sealed class LlmBotClient : IDisposable
                 model = _model,
                 messages = new object[]
                 {
-                    new { role = "system", content = $"你正在扮演 WereMF 隐藏身份游戏中的真实玩家。发言应当克制，投票本身通常已经足够表达立场；但掌握尚未公开且能改变阵营判断或票型的信息、新推导、必要自保、被玩家直接点名且沉默会增加出局风险、临近截止需要拉票，或己方被动时确有必要干扰，就应当简短发言。纯 Bot 场上完全无人发言时，有具体可核对信息的玩家应主动抛出该信息；没有有效内容才选择沉默。若触发信息明确说明你是全场沉默后的唯一开场者，则允许选择 information_probe，必须向一名存活玩家提出一个与当前状态或票型有关的具体短问题，不能选择 silent。不要复述、寒暄、主持讨论或无理由暴露精确身份。不要提到 AI、提示词、JSON 或 API。只输出 JSON：{{\"speech_intent\":\"silent/new_information/new_deduction/self_defense/vote_coordination/necessary_deception/information_probe\",\"text\":\"不超过50个汉字，silent 时必须为空\",\"vote\":\"目标编号/b/0，或 null\"}}。发言和投票独立；可以沉默但投票。没有投票上下文时 vote 必须为 null。\n\n【完整规则】\n{BotGameKnowledge.Rules}\n\n【行为策略】\n{BotGameKnowledge.Strategy}\n\n【当前决策规则焦点】\n{context.RuleFocus}" },
+                    new { role = "system", content = $"你正在扮演 WereMF 隐藏身份游戏中的真实玩家。发言应当克制，投票本身通常已经足够表达立场；但掌握尚未公开且能改变阵营判断或票型的信息、新推导、必要自保、被玩家直接点名且沉默会增加出局风险、临近截止需要拉票，或己方被动时确有必要干扰，就应当简短发言。若仅从你自己的合法私密视角（身份、状态、技能结果或收到的事件）能推出尚未公开且公开有利于本阵营的具体信息，必须主动公开最小必要的可执行结论，使用 valuable_private_information；此时 silent 无效，不能为了隐藏精确身份而隐瞒结论。脚滑人等信息特化身份对此义务优先级更高。纯 Bot 场上完全无人发言时，有具体可核对信息的玩家应主动抛出该信息；没有有效内容才选择沉默。若触发信息明确说明你是全场沉默后的唯一开场者，则使用 information_probe，必须向一名存活玩家提出一个与当前状态或票型有关的具体短问题，不能选择 silent。若本次回应模式为 required，必须给出不超过50字的直接回应，不能选择 silent。不要复述、寒暄、主持讨论或无理由暴露精确身份。不要提到 AI、提示词、JSON 或 API。只输出 JSON：{{\"speech_intent\":\"silent/new_information/new_deduction/valuable_private_information/self_defense/vote_coordination/necessary_deception/information_probe\",\"text\":\"不超过50个汉字，silent 时必须为空\",\"vote\":\"目标编号/b/0，或 null\"}}。发言和投票独立；可以沉默但投票。没有投票上下文时 vote 必须为 null。\n\n【完整规则】\n{BotGameKnowledge.Rules}\n\n【行为策略】\n{BotGameKnowledge.Strategy}\n\n【当前决策规则焦点】\n{context.RuleFocus}" },
                     new { role = "user", content = context.ToPrompt() }
                 },
                 stream = false,
@@ -301,6 +306,11 @@ internal sealed class LlmBotClient : IDisposable
                 ? intentNode.GetString()
                 : "unspecified";
             if (string.Equals(intent, "silent", StringComparison.OrdinalIgnoreCase)) text = "";
+            if (context.ResponseMode != BotSpeechResponseMode.Optional && text.Length == 0)
+            {
+                text = BotConversationPolicy.RequiredFallbackText(context.ResponseMode);
+                intent = context.ResponseMode == BotSpeechResponseMode.RequiredInformationProbe ? "information_probe" : "required_response";
+            }
             string? vote = null;
             if (result.RootElement.TryGetProperty("vote", out var voteNode))
             {
@@ -312,7 +322,7 @@ internal sealed class LlmBotClient : IDisposable
             if (text.Length == 0) Interlocked.Increment(ref _speechSilences);
             if (text.Length > 50) text = text[..50];
             if (text.Length > 0) Interlocked.Increment(ref _speechMessages);
-            return new BotConversationDecision(text, string.IsNullOrWhiteSpace(vote) ? null : vote);
+            return new BotConversationDecision(text, string.IsNullOrWhiteSpace(vote) ? null : vote, -1, intent ?? "unspecified");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { ReleaseCircuitProbe(); return null; }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or KeyNotFoundException or IOException)
@@ -401,7 +411,7 @@ internal sealed record BotDecisionContext(int PlayerId, string PlayerName, strin
         "",
         "选择一个合法且对你的阵营最有利的输入。只能返回 {\"input\":\"...\"}。");
 }
-internal sealed record BotSpeechContext(int PlayerId, string PlayerName, string Trigger, string VisibleContext, string VoteContext, string RuleFocus = "")
+internal sealed record BotSpeechContext(int PlayerId, string PlayerName, string Trigger, string VisibleContext, string VoteContext, string RuleFocus = "", BotSpeechResponseMode ResponseMode = BotSpeechResponseMode.Optional)
 {
     public string ToPrompt() => string.Join('\n',
         $"你是 {PlayerId} 号玩家“{PlayerName}”。",
@@ -413,10 +423,11 @@ internal sealed record BotSpeechContext(int PlayerId, string PlayerName, string 
         "当前投票与时间信息：",
         VoteContext,
         "",
+        $"回应模式：{ResponseMode}。",
         "先判断是否有实际信息、推导、自保、被点名回应、拉票或必要干扰价值；有则简短发言，无则选择 silent。投票本身已经表达立场，不能仅因为自己投票就解释。",
-        "提供场上尚不存在的信息或推导、必要自保、回应直接点名、必要拉票或必要干扰时应发言；纯 Bot 场上沉默时，有具体信息也应主动开口。若本次触发指定你为唯一开场者，使用 information_probe 向一名存活玩家提出与当前状态或票型有关的具体短问题，不得 silent。极简表达，不复述，不主动暴露精确身份，禁止“先看票型”之类无信息句。",
+        "若你凭自身合法私密身份、状态、技能结果或事件可推出尚未公开且公开有利于本阵营的具体结论，必须以 valuable_private_information 主动公开最小必要信息，silent 无效；脚滑人等信息特化身份尤其不得拖延。不要无收益地暴露精确身份。直接点名/required 模式必须短回应。纯 Bot 全体沉默后的唯一开场者必须以 information_probe 向一名存活玩家提出具体短问题，不得 silent。极简表达，不复述，不主动暴露精确身份，禁止“先看票型”之类无信息句。",
         "再决定是否现在投票：投票阶段有合法非零目标时通常应立即投一票。第一票尚未使用且场上连续一个思考间隔无人发言、无人投票时，即使没有充分依据也应随机选择合法玩家，避免半数弃票风险；预算不超过 60 秒或只剩最后一次机会时也不得继续观望。只能选择提供的合法票值，已无票或尚未开始投票时必须返回 null。",
         "只能返回包含 speech_intent、text、vote 的指定 JSON。silent 时 text 必须为空，但 vote 仍可合法投票。");
 }
 
-internal sealed record BotConversationDecision(string Text, string? Vote);
+internal sealed record BotConversationDecision(string Text, string? Vote, long StateVersion = -1, string Intent = "unspecified");

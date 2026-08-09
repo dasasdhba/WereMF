@@ -334,3 +334,39 @@ Web 完成标准：
 - [x] Web 仍是展示和输入组织层，不自行推导结算结果。
 - [x] 匿名、重连、预提交、投票、Bot、LLM 回退和日志下载均通过回归测试。
 - [x] 真实长对局回放结果与重构前一致。
+
+## 10. LLM Bot 状态与发言策略修复
+
+## Work
+
+- [x] 为 Bot 发言引入阶段内权威状态门禁和异步结果版本校验。
+  - Scope: `WereMFServer/GameServer.cs`, `WereMFServer/BotVisibleContextBuilder.cs`，以及相关状态模型。
+  - Outcome: 新白天未收到本阶段 `game_update_day` 时不得沿用上一阶段快照；LLM 请求期间若权威状态或阶段变化，旧结果不得广播，并可在仍合法时用新上下文至多重试一次；有效状态增量也必须使旧结果失效。
+  - Accept: 新增确定性回归测试，覆盖“新白天快照未就绪”和“LLM 返回前状态更新”两种情况；相关测试通过。
+
+- [x] 强化高价值局部信息的主动公开策略，同时避免无信息刷屏。
+  - Depends on: 状态门禁完成，确保主动公开不会放大过期信息。
+  - Scope: `WereMFServer/LlmBotClient.cs`, `WereMFServer/BotGameKnowledge.cs`, `WereMFServer/GameServer.cs`，必要时扩展发言上下文/决策结构。
+  - Outcome: prompt 明确要求：从自身可见的私密身份、状态、技能结果或事件中能推导出有价值的非公开信息，且公开有利时必须主动公开；脚滑人等信息特化角色具有更强优先级。直接点名/明确提问以及纯 Bot 开场全体沉默时有单一短发言兜底，普通无信息场景仍可沉默。
+  - Accept: fake LLM/上下文测试能观察到上述强制规则；全体返回 silent 时至多指定一名 Bot 发言，不产生群体刷屏。
+
+- [x] 增加面向实际广播结果的发言观测，区分模型沉默与玩家看到的全体沉默。
+  - Scope: Bot 调度统计与 `/api/health` 的聚合统计，不记录 prompt、回答正文或隐藏状态。
+  - Outcome: 至少可观测触发次数、实际广播数、全体沉默数、过期结果丢弃数和状态变化重试数；保持原统计字段兼容。
+  - Accept: 自动化测试断言新统计随确定性场景正确变化，且健康接口不包含敏感正文。
+
+## Final verification
+
+- [x] Run `dotnet build WereMF.sln` and record the result.
+- [x] Run `dotnet run --project WereMFServer.Tests/WereMFServer.Tests.csproj` and record the result.
+- [x] Run the relevant WereMFWeb deterministic/LLM Bot regression command selected after inspecting the test harness, and record its exact command and result.
+- [x] Inspect `git diff --check` and the final diff for unrelated edits.
+
+## Progress log
+
+- 2026-08-09: TODO created from the read-only diagnosis. Repository was clean at diagnosis time; preserve any later unrelated user changes.
+- 2026-08-09: 完成阶段内权威状态门禁与异步结果版本校验；`dotnet run --project WereMFServer.Tests/WereMFServer.Tests.csproj --no-restore` 通过（11/11）；`dotnet build WereMF.sln --no-restore` 通过（4 projects，0 errors，0 warnings）；`git diff --check` 通过。
+- 2026-08-09: 复核并修正首项的断线临时托管漏洞：`game_update_day` 现在为所有未离席会话构建并写入按玩家脱敏快照；`SendAsync` 仍仅向已连接且 socket 打开的会话发送，因此不改变网络投递或隐私边界。门禁保持全局：其就绪前，全部潜在 Bot 决策者均已有当前阶段快照；已离席席位不会再参与 Bot 决策，故不保留新私密状态。新增确定性用例覆盖断线且 `IsBot=true` 的临时托管席位以及已离席席位排除；`dotnet run --project WereMFServer.Tests/WereMFServer.Tests.csproj --no-restore` 通过（12/12），`dotnet build WereMF.sln --no-restore` 通过（4 projects，0 errors，0 warnings），`git diff --check` 通过，首项验收保持完成。
+- 2026-08-09: 完成高价值局部信息主动公开策略：新增 `valuable_private_information` intent，明确合法私密局部视角得出且公开有利的结论必须以最小身份暴露主动公开；脚滑人焦点有更强规则。直接点名改为必答短回应；纯 Bot 白天开场全体沉默时至多指定一名 Bot 作 `information_probe`，普通可选触发仍可沉默。补正并发调度：按完成顺序收集结果后，先为 `Required`/点名 Bot 选择保留的发言额度，再以完成顺序填充剩余额度，仍保持总额度上限；新增确定性用例模拟两个可选结果先于点名结果完成。纯 Bot 全沉默 fallback 已复核：只在全部初始结果沉默时选取一名 Bot，且不会追加到已有发言之后。`dotnet run --project WereMFServer.Tests/WereMFServer.Tests.csproj --no-restore` 通过（16/16）；`dotnet build WereMF.sln --no-restore` 通过（4 projects，0 errors，0 warnings）；`git diff --check` 通过，本项验收保持完成。
+- 2026-08-09: 完成实际广播编排观测：`/api/health` 的既有 `llmStats` 字段及 `fallbackStats` 保持兼容，并新增仅含数值的 `conversationStats`（`triggers`、`chatBroadcasts`、`allSilentTriggers`、`staleSpeechDiscards`、`stateChangeRetries` 及两项比率）。开场和每次 reply/vote 调度各只计一个外部触发；纯 Bot 全沉默 fallback 复用同一触发；仅成功写入并广播的 Bot 聊天计入实际广播。状态版本门禁的丢弃、有限重试及最终广播状态版本拒绝分别计数。确定性测试精确断言聚合值、旧字段和序列化白名单；fake LLM 回归检查健康字段形状且不依赖特定时序数值。`dotnet run --project WereMFServer.Tests/WereMFServer.Tests.csproj --no-restore` 通过（17/17）；`dotnet build WereMF.sln --no-restore` 通过（4 projects，0 errors，0 warnings）；`dotnet build WereMF.sln --configuration Release --no-restore` 通过（4 projects，0 errors，0 warnings）；`node WereMFWeb.Tests/llm_bot_game.mjs` 通过；`git diff --check` 通过。
+- 2026-08-09: 主代理最终独立验收：`dotnet build WereMF.sln` 通过（4 projects，0 warnings/errors）；`dotnet run --project WereMFServer.Tests/WereMFServer.Tests.csproj` 通过（17/17）；`node WereMFWeb.Tests/run-deterministic.mjs` 全部通过；`node WereMFWeb.Tests/llm_bot_game.mjs` 完整对局通过（7 triggers、6 broadcasts、0 all-silent、0 privacy violations）；`git diff --check` 通过。最终审查范围为第 10 节对应的 7 个已修改文件及 4 个新增内部组件，无无关改动。

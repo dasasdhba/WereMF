@@ -12,12 +12,13 @@ internal sealed class GameServer : IDisposable
     internal static readonly string[] RoleNames = ["脚滑人","Doge","庸医","地鼠","兔子","铯郎","法猫","卡比","粉侠","爬行者","炮仙","实物","灰卡比","音魔","CTF","合虫","彩怪","贤松","江仙","myz","叶子"];
     private readonly ServerOptions _options;
     private readonly LlmBotClient? _llmBot;
+    private readonly BotConversationMetrics _botConversationMetrics = new();
     private readonly string[] _botNames;
     private readonly ConcurrentDictionary<string, GameRoom> _rooms = new();
     public int ActiveRoomCount => _rooms.Count;
     public bool LlmBotsEnabled => _llmBot is not null;
     public string? LlmBotModel => _llmBot is null ? null : _options.LlmApiKey is not null ? _options.LlmModel : _options.LlmFallbackModel;
-    public object? LlmBotStats => _llmBot?.Stats;
+    public object? LlmBotStats => _llmBot?.StatsWithConversationMetrics(_botConversationMetrics);
     public GameServer(ServerOptions options)
     {
         _options = options;
@@ -99,7 +100,7 @@ internal sealed class GameServer : IDisposable
         for (var i = 0; i < 100; i++)
         {
             var code = RandomNumberGenerator.GetInt32(1_000_000).ToString("D6");
-            var room = new GameRoom(code, _options, _llmBot, _botNames, c => { _rooms.TryRemove(c, out _); return Task.CompletedTask; });
+            var room = new GameRoom(code, _options, _llmBot, _botConversationMetrics, _botNames, c => { _rooms.TryRemove(c, out _); return Task.CompletedTask; });
             if (_rooms.TryAdd(code, room)) return room;
         }
         throw new InvalidOperationException("No room code available");
@@ -126,6 +127,7 @@ internal sealed class GameRoom : IAsyncDisposable
     private readonly object _gate = new();
     private readonly string _code; private readonly ServerOptions _options; private readonly Func<string, Task> _remove;
     private readonly LlmBotClient? _llmBot;
+    private readonly BotConversationMetrics _botConversationMetrics;
     private readonly string[] _botNames;
     private RoomSettings _settings;
     private readonly List<PlayerSession> _players = [];
@@ -154,6 +156,7 @@ internal sealed class GameRoom : IAsyncDisposable
     private bool _dayChatOpen; private HashSet<int> _chatEligible = [];
     private int _botDayGeneration;
     private int _dayStateGeneration;
+    private readonly BotSpeechStateGate _botSpeechStateGate = new();
     private CancellationTokenSource? _botChatCts;
     private Task _botOpeningTask = Task.CompletedTask;
     private int _botReplyPending;
@@ -168,9 +171,9 @@ internal sealed class GameRoom : IAsyncDisposable
     private readonly SemaphoreSlim _routeLock = new(1, 1);
     private CancellationTokenSource? _timerCts; private long _timerVersion; private long _gameVersion;
     public bool IsJoinable => !_started && !_finished && _players.Count < 16;
-    public GameRoom(string code, ServerOptions options, LlmBotClient? llmBot, string[] botNames, Func<string, Task> remove)
+    public GameRoom(string code, ServerOptions options, LlmBotClient? llmBot, BotConversationMetrics botConversationMetrics, string[] botNames, Func<string, Task> remove)
     {
-        (_code, _options, _llmBot, _botNames, _remove) = (code, options, llmBot, botNames, remove);
+        (_code, _options, _llmBot, _botConversationMetrics, _botNames, _remove) = (code, options, llmBot, botConversationMetrics, botNames, remove);
         _botCoordinator = new(llmBot);
         _settings = new RoomSettings(options.RequestTimeoutSeconds, options.VoteSecondsPerAlive, options.VotePenaltySeconds, options.EventIntervalSeconds);
     }
@@ -430,6 +433,7 @@ internal sealed class GameRoom : IAsyncDisposable
             if (api == "day_start_broadcast")
             {
                 CancelBotChatLocked();
+                _botSpeechStateGate.BeginDay(_botTimelineSequence);
                 _dayChatOpen = true;
                 _botDayGeneration++;
                 _botFollowupsRemaining = 3;
@@ -439,6 +443,7 @@ internal sealed class GameRoom : IAsyncDisposable
             if (api is "night_start_broadcast" or "game_win_broadcast")
             {
                 _dayChatOpen = false; _chatEligible.Clear();
+                _botSpeechStateGate.EndPhase();
                 CancelBotChatLocked();
                 return;
             }
@@ -502,16 +507,38 @@ internal sealed class GameRoom : IAsyncDisposable
             PlayerSession[] bots;
             lock (_gate)
                 bots = _players.Where(x => x.IsBot && !x.HasLeft && _chatEligible.Contains(x.GameId)).OrderBy(_ => Random.Shared.Next()).ToArray();
-            var speeches = await Task.WhenAll(bots.Select(async bot => (Bot: bot, Decision: await DecideBotConversationAsync(bot, "白天刚开始；请自行判断现在是否值得首先发言", null, ct))));
+            if (bots.Length == 0) return;
+            _botConversationMetrics.RecordTrigger();
+            var speeches = await Task.WhenAll(bots.Select(async bot => (Bot: bot, Decision: await DecideBotConversationAsync(bot, "白天刚开始；请自行判断现在是否值得首先发言", null, BotSpeechResponseMode.Optional, ct))));
             lock (_gate)
             {
                 if (!_dayChatOpen || day != _botDayGeneration || _concurrentInput?.Api == "request_vote") return;
             }
+            var spoke = false;
             foreach (var speech in speeches.Where(x => !string.IsNullOrWhiteSpace(x.Decision?.Text)))
             {
-                if (!await BroadcastBotChatAsync(speech.Bot, speech.Decision!.Text, day, ct)) return;
+                if (await BroadcastBotChatAsync(speech.Bot, speech.Decision!.Text, day, ct, speech.Decision.StateVersion) != BotChatBroadcastResult.Broadcast) return;
+                spoke = true;
                 await Task.Delay(BotMessageInterval, ct);
             }
+            var pureBotOpening = false;
+            lock (_gate)
+                pureBotOpening = _players.Where(x => !x.HasLeft && _chatEligible.Contains(x.GameId)).Any() &&
+                    _players.Where(x => !x.HasLeft && _chatEligible.Contains(x.GameId)).All(x => x.IsBot);
+            var fallbackIndex = pureBotOpening ? BotConversationPolicy.SelectOpeningFallbackSpeaker(bots, speeches.Select(x => x.Decision).ToArray()) : null;
+            if (fallbackIndex is int index)
+            {
+                var speaker = bots[index];
+                var fallback = await DecideBotConversationAsync(speaker,
+                    "全场第一轮都保持沉默；你是本轮唯一开场者。请使用 information_probe，基于当前权威状态或公开票型向一名存活玩家提出一个具体短问题，不得 silent，不要暴露无必要的精确身份",
+                    null, BotSpeechResponseMode.RequiredInformationProbe, ct);
+                if (!string.IsNullOrWhiteSpace(fallback?.Text))
+                {
+                    if (await BroadcastBotChatAsync(speaker, fallback.Text, day, ct, fallback.StateVersion) != BotChatBroadcastResult.Broadcast) return;
+                    spoke = true;
+                }
+            }
+            if (!spoke) _botConversationMetrics.RecordAllSilentTrigger();
         }
         catch (OperationCanceledException) { }
     }
@@ -584,34 +611,45 @@ internal sealed class GameRoom : IAsyncDisposable
                 }
                 else bots = candidates.ToArray();
             }
+            if (bots.Length == 0) return;
+            _botConversationMetrics.RecordTrigger();
 
-            var pending = bots.Select(async bot => (Bot: bot, Decision: await DecideBotConversationAsync(bot, trigger, votePhase, ct))).ToList();
+            var pending = bots.Select(async bot =>
+            {
+                var responseMode = BotConversationPolicy.ResponseModeFor(trigger, bot.Name);
+                return new BotSpeechCandidate<PlayerSession>(bot, await DecideBotConversationAsync(bot, trigger, votePhase, responseMode, ct), responseMode);
+            }).ToList();
             var delayedSilentVotes = new List<Task>();
             var spoke = false;
-            var speechCount = 0;
             var speechLimit = conversationOnly ? 1 : 2;
             PlayerSession? followupSpeaker = null;
             string? followupText = null;
+            var completedTurns = new List<BotSpeechCandidate<PlayerSession>>();
             while (pending.Count > 0)
             {
                 var completed = await Task.WhenAny(pending);
                 pending.Remove(completed);
                 var turn = await completed;
-                if (turn.Decision is null) continue;
+                if (turn.Decision is not null) completedTurns.Add(turn);
+            }
 
-                var hasSpeech = speechCount < speechLimit && !string.IsNullOrWhiteSpace(turn.Decision.Text);
-                if (hasSpeech)
-                {
-                    if (!await BroadcastBotChatAsync(turn.Bot, turn.Decision.Text, day, ct)) return;
-                    spoke = true;
-                    speechCount++;
-                    followupSpeaker = turn.Bot;
-                    followupText = turn.Decision.Text;
-                    if (votePhase is not null && !string.IsNullOrWhiteSpace(turn.Decision.Vote))
-                        await ApplyBotConversationVoteAsync(turn.Bot, turn.Decision.Vote, votePhase, ct);
-                    if (pending.Count > 0) await Task.Delay(BotMessageInterval, ct);
-                }
-                else if (votePhase is not null && !string.IsNullOrWhiteSpace(turn.Decision.Vote))
+            var selectedSpeeches = BotConversationPolicy.SelectSpeechCandidates(completedTurns, speechLimit);
+            var selectedBots = selectedSpeeches.Select(x => x.Bot).ToHashSet();
+            for (var speechIndex = 0; speechIndex < selectedSpeeches.Count; speechIndex++)
+            {
+                var turn = selectedSpeeches[speechIndex];
+                if (await BroadcastBotChatAsync(turn.Bot, turn.Decision!.Text, day, ct, turn.Decision.StateVersion) != BotChatBroadcastResult.Broadcast) return;
+                spoke = true;
+                followupSpeaker = turn.Bot;
+                followupText = turn.Decision.Text;
+                if (votePhase is not null && !string.IsNullOrWhiteSpace(turn.Decision.Vote))
+                    await ApplyBotConversationVoteAsync(turn.Bot, turn.Decision.Vote, votePhase, ct);
+                if (speechIndex + 1 < selectedSpeeches.Count) await Task.Delay(BotMessageInterval, ct);
+            }
+
+            foreach (var turn in completedTurns)
+            {
+                if (!selectedBots.Contains(turn.Bot) && votePhase is not null && !string.IsNullOrWhiteSpace(turn.Decision!.Vote))
                 {
                     delayedSilentVotes.Add(ApplySilentBotVoteAfterDelayAsync(turn.Bot, turn.Decision.Vote, votePhase, ct));
                 }
@@ -623,11 +661,12 @@ internal sealed class GameRoom : IAsyncDisposable
                 var interaction = await DecideBotConversationAsync(
                     initiator,
                     "全场第一轮都保持沉默；你是本轮唯一开场者。请使用 information_probe，基于当前权威状态或公开票型向一名存活玩家提出一个具体短问题，不得 silent，不要暴露无必要的精确身份",
-                    null,
+                    null, BotSpeechResponseMode.RequiredInformationProbe,
                     ct);
                 if (!string.IsNullOrWhiteSpace(interaction?.Text) &&
-                    await BroadcastBotChatAsync(initiator, interaction.Text, day, ct))
+                    await BroadcastBotChatAsync(initiator, interaction.Text, day, ct, interaction.StateVersion) == BotChatBroadcastResult.Broadcast)
                 {
+                    spoke = true;
                     followupSpeaker = initiator;
                     followupText = interaction.Text;
                 }
@@ -636,59 +675,80 @@ internal sealed class GameRoom : IAsyncDisposable
             if (delayedSilentVotes.Count > 0) await Task.WhenAll(delayedSilentVotes);
             if (followupSpeaker is not null && !string.IsNullOrWhiteSpace(followupText))
                 ScheduleBotFollowup(followupSpeaker, followupText);
+            if (!spoke) _botConversationMetrics.RecordAllSilentTrigger();
         }
         catch (OperationCanceledException) { }
         finally { Interlocked.Exchange(ref _botReplyPending, 0); }
     }
-    private async Task<BotConversationDecision?> DecideBotConversationAsync(PlayerSession player, string trigger, ConcurrentInputPhase? votePhase, CancellationToken ct)
+    private async Task<BotConversationDecision?> DecideBotConversationAsync(PlayerSession player, string trigger, ConcurrentInputPhase? votePhase, BotSpeechResponseMode responseMode, CancellationToken ct)
     {
         if (_llmBot is null) return null;
-        string voteContext;
-        lock (_gate) voteContext = BuildBotVoteContextLocked(player, votePhase);
-        var visibleContext = await BuildBotVisibleContextAsync(player, ct);
-        var ruleFocus = BuildBotRuleFocus(player, votePhase?.Api ?? "speech");
-        var context = new BotSpeechContext(player.GameId, player.Name, trigger, visibleContext, voteContext, ruleFocus);
-        var decision = await _llmBot.SpeakAsync(context, ct);
-        lock (_gate)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            var now = DateTimeOffset.UtcNow;
-            var requiredVoteChoices = Array.Empty<string>();
-            if (votePhase is not null && _concurrentInput == votePhase && votePhase.Api == "request_vote" &&
-                votePhase.Remaining.TryGetValue(player.GameId, out var remaining) && remaining > 0 &&
-                (remaining == 1 ||
-                 votePhase.Deadline - now <= TimeSpan.FromSeconds(60) ||
-                 remaining == 2 && now - votePhase.LastPublicActivityAt >= TimeSpan.FromSeconds(_options.LlmBotThinkSeconds)))
+            BotSpeechState state;
+            string voteContext;
+            lock (_gate)
             {
-                requiredVoteChoices = LegalBotVoteChoicesLocked(player, votePhase)
-                    .Where(x => int.TryParse(x, out var id) && id > 0)
-                    .ToArray();
+                if (!_started || _finished || !_dayChatOpen || !_botSpeechStateGate.TryCapture(out state)) return null;
+                voteContext = BuildBotVoteContextLocked(player, votePhase);
             }
-            if (decision is not null)
+            var visibleContext = await BuildBotVisibleContextAsync(player, ct, state.PhaseStartTimelineSequence);
+            var ruleFocus = BuildBotRuleFocus(player, votePhase?.Api ?? "speech", null, state.PhaseStartTimelineSequence);
+            var context = new BotSpeechContext(player.GameId, player.Name, trigger, visibleContext, voteContext, ruleFocus, responseMode);
+            var decision = await _llmBot.SpeakAsync(context, ct);
+            lock (_gate)
             {
-                player.BotConversationFailures = 0;
-                if (requiredVoteChoices.Length > 0 && !requiredVoteChoices.Contains(decision.Vote))
-                    return decision with { Vote = requiredVoteChoices[RandomNumberGenerator.GetInt32(requiredVoteChoices.Length)] };
-                return decision;
+                if (!_botSpeechStateGate.IsCurrent(state))
+                {
+                    _botConversationMetrics.RecordStaleSpeechDiscard();
+                    if (attempt == 0)
+                    {
+                        _botConversationMetrics.RecordStateChangeRetry();
+                        continue;
+                    }
+                    return null;
+                }
+                var now = DateTimeOffset.UtcNow;
+                var requiredVoteChoices = Array.Empty<string>();
+                if (votePhase is not null && _concurrentInput == votePhase && votePhase.Api == "request_vote" &&
+                    votePhase.Remaining.TryGetValue(player.GameId, out var remaining) && remaining > 0 &&
+                    (remaining == 1 ||
+                     votePhase.Deadline - now <= TimeSpan.FromSeconds(60) ||
+                     remaining == 2 && now - votePhase.LastPublicActivityAt >= TimeSpan.FromSeconds(_options.LlmBotThinkSeconds)))
+                {
+                    requiredVoteChoices = LegalBotVoteChoicesLocked(player, votePhase)
+                        .Where(x => int.TryParse(x, out var id) && id > 0)
+                        .ToArray();
+                }
+                if (decision is not null)
+                {
+                    player.BotConversationFailures = 0;
+                    decision = decision with { StateVersion = state.Revision };
+                    if (requiredVoteChoices.Length > 0 && !requiredVoteChoices.Contains(decision.Vote))
+                        return decision with { Vote = requiredVoteChoices[RandomNumberGenerator.GetInt32(requiredVoteChoices.Length)] };
+                    return decision;
+                }
+                if (!_started || _finished || !_dayChatOpen || !player.IsBot || player.HasLeft) return null;
+                player.BotConversationFailures++;
+                if (votePhase is not null && _concurrentInput == votePhase && votePhase.Api == "request_vote" &&
+                    votePhase.Remaining.GetValueOrDefault(player.GameId) > 0 && player.BotConversationFailures >= 2)
+                {
+                    var choices = LegalBotVoteChoicesLocked(player, votePhase)
+                        .Where(x => int.TryParse(x, out var id) && id > 0)
+                        .ToArray();
+                    var vote = choices.Length > 0 ? choices[RandomNumberGenerator.GetInt32(choices.Length)] : "0";
+                    player.BotConversationFailures = 0;
+                    return new BotConversationDecision("", vote, state.Revision);
+                }
+                if (player.BotConversationFailures >= 3 && trigger.Contains(player.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    player.BotConversationFailures = 0;
+                    return new BotConversationDecision("我先保留判断。", null, state.Revision);
+                }
+                return null;
             }
-            if (!_started || _finished || !_dayChatOpen || !player.IsBot || player.HasLeft) return null;
-            player.BotConversationFailures++;
-            if (votePhase is not null && _concurrentInput == votePhase && votePhase.Api == "request_vote" &&
-                votePhase.Remaining.GetValueOrDefault(player.GameId) > 0 && player.BotConversationFailures >= 2)
-            {
-                var choices = LegalBotVoteChoicesLocked(player, votePhase)
-                    .Where(x => int.TryParse(x, out var id) && id > 0)
-                    .ToArray();
-                var vote = choices.Length > 0 ? choices[RandomNumberGenerator.GetInt32(choices.Length)] : "0";
-                player.BotConversationFailures = 0;
-                return new BotConversationDecision("", vote);
-            }
-            if (player.BotConversationFailures >= 3 && trigger.Contains(player.Name, StringComparison.OrdinalIgnoreCase))
-            {
-                player.BotConversationFailures = 0;
-                return new BotConversationDecision("我先保留判断。", null);
-            }
-            return null;
         }
+        return null;
     }
 
     private string BuildBotVoteContextLocked(PlayerSession player, ConcurrentInputPhase? phase)
@@ -772,22 +832,31 @@ internal sealed class GameRoom : IAsyncDisposable
         catch (OperationCanceledException) { }
     }
 
-    private async Task<bool> BroadcastBotChatAsync(PlayerSession player, string text, int day, CancellationToken ct)
+    private async Task<BotChatBroadcastResult> BroadcastBotChatAsync(PlayerSession player, string text, int day, CancellationToken ct, long stateVersion = -1)
     {
         JsonElement envelope;
         lock (_gate)
         {
-            if (!_started || _finished || !_dayChatOpen || day != _botDayGeneration || !player.IsBot || player.HasLeft || !_chatEligible.Contains(player.GameId)) return false;
+            if (stateVersion >= 0 && (!_botSpeechStateGate.TryCapture(out var currentState) || currentState.Revision != stateVersion))
+            {
+                _botConversationMetrics.RecordStaleSpeechDiscard();
+                return BotChatBroadcastResult.StaleState;
+            }
+            if (!_started || _finished || !_dayChatOpen || day != _botDayGeneration || !player.IsBot || player.HasLeft || !_chatEligible.Contains(player.GameId))
+                return BotChatBroadcastResult.Rejected;
             var now = DateTimeOffset.UtcNow;
             _lastBotChatAt = now;
             if (_concurrentInput?.Api == "request_vote") _concurrentInput.LastPublicActivityAt = now;
             envelope = JsonSerializer.SerializeToElement(new { type = "chat_message", playerId = player.GameId, text, sentAt = now.ToUnixTimeMilliseconds(), bot = true });
             Add(_publicHistory, envelope);
             RecordDayInteractionLocked($"{player.Name}: {text}");
+            _botConversationMetrics.RecordChatBroadcast();
         }
         await BroadcastAsync(envelope, ct);
-        return true;
+        return BotChatBroadcastResult.Broadcast;
     }
+
+    private enum BotChatBroadcastResult { Broadcast, Rejected, StaleState }
 
     private async Task StartAsync(CancellationToken ct)
     {
@@ -801,6 +870,7 @@ internal sealed class GameRoom : IAsyncDisposable
             _presentationEndApi = null; _presentationClosing = false; _presentationNextAt = default;
             _rawCliLog.Clear(); _completedCliLog = null; _dayInteractions.Clear();
             _botTimeline.Clear(); _botTimelineSequence = 0; _pendingSkillRoles.Clear();
+            _botSpeechStateGate.Reset(_botTimelineSequence);
             foreach (var player in players) { player.BotMemorySummary = ""; player.BotMemoryDay = -1; player.BotConversationFailures = 0; }
             _botDayGeneration = 0; _dayStateGeneration = 0; _lastBotChatAt = default;
             _gameModeSummary = "模式尚未公布";
@@ -985,7 +1055,7 @@ internal sealed class GameRoom : IAsyncDisposable
             (request, requestApi, candidate) => IsLegalTimeoutInput(request, requestApi, candidate));
     }
 
-    private string BuildBotRuleFocus(PlayerSession player, string api, JsonElement? request = null)
+    private string BuildBotRuleFocus(PlayerSession player, string api, JsonElement? request = null, long phaseStartTimelineSequence = 0)
     {
         var roles = new List<string>();
         JsonElement currentState;
@@ -993,7 +1063,7 @@ internal sealed class GameRoom : IAsyncDisposable
         lock (_gate)
         {
             currentState = _botTimeline
-                .Where(x => x.RecipientPlayerId is null || x.RecipientPlayerId == player.GameId)
+                .Where(x => (x.RecipientPlayerId is null || x.RecipientPlayerId == player.GameId) && x.Sequence > phaseStartTimelineSequence)
                 .Select(x => x.Envelope)
                 .LastOrDefault(CliMessageRouter.IsAuthoritativeState);
             if (request is JsonElement requestRoot && ExtractSkillId(requestRoot) is string skillId)
@@ -1027,7 +1097,7 @@ internal sealed class GameRoom : IAsyncDisposable
         return BotGameKnowledge.Focus(api, roles);
     }
 
-    private string BuildBotVisibleContext(PlayerSession player, int take = 24)
+    private string BuildBotVisibleContext(PlayerSession player, int take = 24, long phaseStartTimelineSequence = 0)
     {
         (long Sequence, int? RecipientPlayerId, JsonElement Envelope)[] timeline;
         string mode;
@@ -1039,13 +1109,13 @@ internal sealed class GameRoom : IAsyncDisposable
             mode = _gameModeSummary;
         }
 
-        return _botVisibleContext.Build(timeline, player.GameId, mode, take);
+        return _botVisibleContext.Build(timeline, player.GameId, mode, take, phaseStartTimelineSequence);
     }
 
-    private async Task<string> BuildBotVisibleContextAsync(PlayerSession player, CancellationToken ct = default)
+    private async Task<string> BuildBotVisibleContextAsync(PlayerSession player, CancellationToken ct = default, long phaseStartTimelineSequence = 0)
     {
         if (_llmBot is null) return BuildBotVisibleContext(player);
-        var raw = BuildBotVisibleContext(player);
+        var raw = BuildBotVisibleContext(player, phaseStartTimelineSequence: phaseStartTimelineSequence);
         bool hasOlderEvents;
         lock (_gate)
             hasOlderEvents = _botTimeline.Count(x => x.RecipientPlayerId is null || x.RecipientPlayerId == player.GameId) > 24;
@@ -1071,7 +1141,7 @@ internal sealed class GameRoom : IAsyncDisposable
         var memory = player.BotMemorySummary;
         return string.IsNullOrWhiteSpace(memory)
             ? raw
-            : $"【长期记忆（仅历史稳定事实，不代表临时效果仍存在）】\n{memory}\n\n【当前局面与近期事件】\n{BuildBotVisibleContext(player, 10)}";
+            : $"【长期记忆（仅历史稳定事实，不代表临时效果仍存在）】\n{memory}\n\n【当前局面与近期事件】\n{BuildBotVisibleContext(player, 10, phaseStartTimelineSequence)}";
     }
 
 
@@ -1513,6 +1583,7 @@ internal sealed class GameRoom : IAsyncDisposable
                     return;
                 }
                 Add(_publicHistory, envelope);
+                lock (_gate) _botSpeechStateGate.InvalidateAuthoritativeState();
                 await BroadcastAsync(envelope);
                 return;
             }
@@ -1553,11 +1624,15 @@ internal sealed class GameRoom : IAsyncDisposable
             }
             if (routeKind == CliRouteKind.Snapshot)
             {
-                PlayerSession[] recipients; lock (_gate) recipients = _players.Where(x => x.Connected).ToArray();
+                if (api == "game_update_day")
+                    lock (_gate) _botSpeechStateGate.BeginDaySnapshotUpdate();
+                PlayerSession[] recipients; lock (_gate) recipients = BotSnapshotRouting.ActiveSessions(_players);
                 foreach (var player in recipients)
                 {
                     var redacted = CliRouteTransforms.RedactSnapshot(root, player.GameId); Add(player.History, redacted); await SendAsync(player, redacted);
                 }
+                if (api == "game_update_day")
+                    lock (_gate) _botSpeechStateGate.MarkDaySnapshotReady();
                 return;
             }
             if (target == "public") { Add(_publicHistory, envelope); await BroadcastAsync(envelope); }

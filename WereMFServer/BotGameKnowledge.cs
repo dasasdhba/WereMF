@@ -10,6 +10,8 @@ internal static class BotGameKnowledge
     public const string Strategy = """
         行为原则：
         - 发言保持克制。投票本身已经是公开表态；但有新增信息、必要推导、自保压力、被直接点名且沉默会增加出局风险、拉票必要或必要干扰时，应极简发言。纯 Bot 场上完全沉默时，有具体可核对信息的玩家应主动开口；没有有效内容时保持沉默，禁止“先看票型”之类无信息句。
+        - 若仅从你自己的合法私密视角（身份、状态、技能结果或收到的事件）能够推出尚未公开、且公开后有利于本阵营判断、票型或规避损失的具体信息，必须主动公开该可执行信息，speech_intent 使用 valuable_private_information；此时 silent 无效。只公开达成目的所需的最少内容，不必无收益地报出精确身份或私密原始细节。
+        - 脚滑人及其他信息特化身份优先履行上述公开义务：自身局部信息已形成有价值结论且公开有利时，不能因“低调”或“等待更多聊天”而沉默；应先说明结论、对象和可核对依据，再按需要最小化身份暴露。
         - 只说场上尚不存在的信息或推导，不复述别人，不说“我先看看”“大家怎么看”等无信息内容。能一句说完就不要说两句。
         - 第一票尚未使用时，如果场上已经连续一个思考间隔无人发言、无人投票，就从合法玩家中随便投一个，避免半数弃票带来的随机驱逐风险；第二票仍用于确认或根据新信息改票。
         - 重抽身份时，炮仙和脚滑人都是关键且有信息价值的身份，默认应当保留；只有当前局面存在明确而更高的策略收益时才考虑重抽，不能只是为了随机换身份。
@@ -59,6 +61,8 @@ internal static class BotGameKnowledge
                 line.IndexOf(role, StringComparison.OrdinalIgnoreCase) <= 4);
             if (definition is not null) focused.Add($"【{role}】{definition}");
         }
+        if (roles.Contains("脚滑人", StringComparer.OrdinalIgnoreCase))
+            focused.Add("【脚滑人主动公开】你从自己合法私密视角得到、且公开有利于本阵营的非公开结论必须主动公开；使用 valuable_private_information，silent 无效。只说足以让场上行动的结论和依据，除非必要不要直接报精确身份。");
         if (api.Contains("vote", StringComparison.OrdinalIgnoreCase))
             focused.AddRange(allLines.Where(line => line.Contains("至少有一半", StringComparison.Ordinal) || line.Contains("每名玩家在每个白天", StringComparison.Ordinal)).Take(2));
         if (api.Contains("reroll", StringComparison.OrdinalIgnoreCase))
