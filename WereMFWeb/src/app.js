@@ -1,6 +1,12 @@
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 const roles = ["脚滑人","Doge","庸医","地鼠","兔子","铯郎","法猫","卡比","粉侠","爬行者","炮仙","实物","灰卡比","音魔","CTF","合虫","彩怪","贤松","江仙","myz","叶子"];
+const nightPatchStateKinds = Object.freeze({
+  is_bar_leader: "boolean", is_dead: "boolean", is_dead_public: "boolean", dead_showing_name: "string",
+  reversed: "boolean", smog_count: "number", capsule_count: "number", potion_count: "number",
+  xian_song_count: "number", bug_count: "number", myz_threaten: "boolean", jiaohua_vote_blocked: "boolean",
+  shiwu_kidnapped: "boolean", jiaohua_protected: "boolean", jiaohua_blocked: "number", leaf_protected: "boolean"
+});
 const defaultRoomSettings = { requestTimeoutSeconds: 30, voteSecondsPerAlive: 60, votePenaltySeconds: 30, eventIntervalSeconds: 2 };
 const isReservedNickname = name => roles.some(role => role.toLocaleLowerCase() === String(name).trim().toLocaleLowerCase());
 const soundFiles = Object.freeze({
@@ -217,6 +223,7 @@ function handleGameMessage(msg, recordEvent = true, playCue = true) {
   if (api === "vote_end_broadcast") clearTimer();
   if (api === "game_win_broadcast") { clearTimer(); state.phase = "终局"; }
   if (api === "game_update_night" || api === "game_update_day") { state.entities = Array.isArray(msg.data) ? msg.data : msg.data?.entities || []; state.players = state.entities.map(entity => ({ ...entity.player, connected: true, isBot: state.botIds.includes(entity.player.id) })); }
+  if (api === "game_update_night_patch") applyEntityStatePatch(msg.data);
   if (api === "game_update_vote") updateVotes(msg);
   if (api === "pending_skill_created") rememberPending(msg.data);
   if (api === "invalid_pending_skill_notify") removePending(pendingId(msg.data));
@@ -239,6 +246,31 @@ function handleGameMessage(msg, recordEvent = true, playCue = true) {
   if (api.endsWith("_parse_error")) { notify(text || "这个选择无效，请重试"); }
   if (recordEvent && text && !api.startsWith("request_") && !api.startsWith("game_update_"))
     addEvent(api, text, privateMessage);
+}
+function applyEntityStatePatch(data) {
+  if (data?.cause !== "huika_smog" || !Array.isArray(data.entities)) {
+    globalThis.console?.debug?.("忽略非法灰卡比夜间增量", data);
+    return false;
+  }
+  let changed = false;
+  for (const item of data.entities) {
+    const id = Number(item?.player_id);
+    const entity = Number.isInteger(id) ? state.entities.find(x => Number(x.player?.id ?? x.player?.Id) === id) : null;
+    if (!entity || !item?.state || typeof item.state !== "object" || Array.isArray(item.state)) {
+      globalThis.console?.debug?.("忽略未知玩家或非法灰卡比实体增量", item);
+      continue;
+    }
+    for (const [field, value] of Object.entries(item.state)) {
+      const expected = nightPatchStateKinds[field];
+      if (!expected || typeof value !== expected || (expected === "number" && !Number.isFinite(value))) {
+        globalThis.console?.debug?.("忽略非法灰卡比状态字段", field, value);
+        continue;
+      }
+      if (!entity.state || typeof entity.state !== "object") entity.state = {};
+      if (entity.state[field] !== value) { entity.state[field] = value; changed = true; }
+    }
+  }
+  return changed;
 }
 function clearTimer() { state.timerDeadline = 0; state.timerApi = ""; state.timerMode = ""; }
 function timerText() {
