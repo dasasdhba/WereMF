@@ -97,6 +97,7 @@ type ApiType =
     | HuikaSmogBroadcast
     | HuikaSmogKillBroadcast
     | GameUpdateNight
+    | GameUpdateNightPatch
     | RequestHuikaSkill
     | YinmoSkillFailByDogeNotify
     | YinmoKillBroadcast

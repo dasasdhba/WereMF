@@ -112,6 +112,17 @@ type EntityState =
             "jiaohua_blocked", JsonValue.Number (decimal this.JiaoHuaBlocked)
             "leaf_protected", JsonValue.Boolean this.LeafProtected.IsSome
         |]
+    member this.PublicChangesFrom (before: EntityState) =
+        let fields = function
+            | JsonValue.Record values -> values
+            | _ -> [||]
+        let beforeFields = before.ToJsonValue false |> fields
+        let afterFields = this.ToJsonValue false |> fields
+        let changes = afterFields |> Array.choose (fun (name, value) ->
+            match beforeFields |> Array.tryFind (fun (beforeName, _) -> beforeName = name) with
+            | Some (_, beforeValue) when beforeValue = value -> None
+            | _ -> Some (name, value))
+        if Array.isEmpty changes then None else Some (JsonValue.Record changes)
     member this.ToJsonValue () = this.ToJsonValue true
     static member New () =
         {

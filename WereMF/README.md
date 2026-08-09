@@ -556,8 +556,11 @@ null
 | API | 说明 |Data|
 |-----|------|------|
 | `game_update_night` | 夜晚状态更新 | `Game` |
+| `game_update_night_patch` | 灰卡比烟雾结算后的公开字段级增量；不是完整 `Game` 快照 | `{ "cause": "huika_smog", "entities": [{ "player_id": 3, "state": { "smog_count": 1 } }] }` |
 | `game_update_day` | 白天状态更新 | `Game` |
 | `game_update_vote` | 投票状态更新 | `Day` |
+
+`game_update_night_patch` 只包含本次灰卡比烟雾及其连锁结算实际改变的公开 `EntityState` 字段；没有变化的字段、`role`、完整 `player` 和其他身份数据都不会发送。消费者必须将 `state` 合并到已有实体，不能把它当成完整快照，也不能清除消息中没有出现的字段。若本次结算没有公开状态变化，则不发送空 patch。
 
 ##### 游戏流程类
 

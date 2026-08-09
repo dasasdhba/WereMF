@@ -40,6 +40,7 @@ type HuiKaSkill =
             let! (main, game), night = State.get
             let target = this.Success.Value
             let recv = target |> getPlayerNameAnonymous game
+            let beforeGame = game
             let tEntity = target |> game.GetEntity
             sendRawMessage { Type = Public ; Content = $"{recv}被烟雾弥漫！" } ApiType.HuikaSmogBroadcast
             let tEntity = { tEntity with State = tEntity.State |> EntityState.addSmog }
@@ -56,12 +57,24 @@ type HuiKaSkill =
                 main, game, night
 
             do! State.put ((main, game), night)
-            sendMessage {
-                Type = Public
-                Content = $"\n{printNightSummary game.Entities}"
-                Api = ApiType.GameUpdateNight
-                Data = game.ToJsonValue false
-            }
+            let entities = game.Entities |> List.choose (fun afterEntity ->
+                let beforeEntity = beforeGame.GetEntity afterEntity.Player.Id
+                afterEntity.State.PublicChangesFrom beforeEntity.State
+                |> Option.map (fun state ->
+                    JsonValue.Record [|
+                        "player_id", afterEntity.Player.Id.ToJsonValue ()
+                        "state", state
+                    |]))
+            if entities.IsEmpty |> not then
+                sendMessage {
+                    Type = Public
+                    Content = $"\n{printNightSummary game.Entities}"
+                    Api = ApiType.GameUpdateNightPatch
+                    Data = JsonValue.Record [|
+                        "cause", JsonValue.String "huika_smog"
+                        "entities", JsonValue.Array (entities |> List.toArray)
+                    |]
+                }
             this
         }
 
