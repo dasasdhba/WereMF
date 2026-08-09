@@ -189,15 +189,17 @@ Server/Web：
 
 本阶段不改变功能，先把已有脚本整理成稳定入口。
 
-- [ ] 新建 `WereMFServer.Tests` 测试项目并加入 solution。
+- [x] 新建 `WereMFServer.Tests` 测试项目并加入 solution。
 - [ ] 使用假 CLI 覆盖消息路由、玩家权限、重连历史、普通请求和并发请求。
 - [ ] 把 `test/pre-submit-fake` 的关键场景转成自动断言，而不是只依赖日志观察。
 - [ ] 为 `RedactedEnvelope` 增加按接收者的快照测试。
-- [ ] 为 night patch 增加非法字段和非法类型测试。
+- [x] 为 night patch 增加非法字段和非法类型测试。
 - [ ] 为 Web 提取最小可测试入口，使用 Node 内置 test runner，避免新增运行时依赖。
 - [ ] 将真实日志回放统一为一个命令，输出明确的通过/失败状态。
 - [ ] 在根 README 或 TODO 中记录标准验证命令及所需环境。
 - [ ] 区分“无需外部模型的确定性测试”和“需要 LLM/网络的人工或扩展测试”。
+
+当前确定性入口：`dotnet run --project WereMFServer.Tests -c Release` 与 `npm --prefix WereMFWeb test`；需要启动服务、真实 CLI 或 LLM 的脚本仍属于扩展回归测试。
 
 完成标准：
 

@@ -5,3 +5,8 @@ MF 杀是由 [Mario Forever 社区](https://www.marioforever.net) 的大爷、xf
 - [`WereMF`](WereMF/README.md)：稳定的 F# CLI 规则内核与完整 CLI API 文档。
 - [`WereMFServer`](WereMFServer/README.md)：多人房间、WebSocket 转发、计时器和 Bot 托管服务。
 - [`WereMFWeb`](WereMFWeb/README.md)：浏览器客户端、构建方式和 Web 回归样例。
+
+## 确定性验证
+
+- `dotnet run --project WereMFServer.Tests -c Release`：运行不依赖外部模型或网络的 Server night patch 协议边界测试。
+- `npm --prefix WereMFWeb test`：运行 Web 字段级 patch 合并测试。

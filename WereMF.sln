@@ -4,6 +4,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "WereMF", "WereMF\WereMF.fsp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WereMFServer", "WereMFServer\WereMFServer.csproj", "{B1F13EA0-482A-4228-8E86-02F167F3C194}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WereMFServer.Tests", "WereMFServer.Tests\WereMFServer.Tests.csproj", "{A2AC9C48-9F3A-4C3F-8C8A-7C20B6C19E6B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -18,5 +20,9 @@ Global
 		{B1F13EA0-482A-4228-8E86-02F167F3C194}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B1F13EA0-482A-4228-8E86-02F167F3C194}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B1F13EA0-482A-4228-8E86-02F167F3C194}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A2AC9C48-9F3A-4C3F-8C8A-7C20B6C19E6B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2AC9C48-9F3A-4C3F-8C8A-7C20B6C19E6B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2AC9C48-9F3A-4C3F-8C8A-7C20B6C19E6B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2AC9C48-9F3A-4C3F-8C8A-7C20B6C19E6B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
