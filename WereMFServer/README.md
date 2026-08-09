@@ -111,7 +111,7 @@ SSH 目标不写入 Git。脚本按“`-RemoteHost` 参数、当前进程的 `WE
 | `room_state` | `roomCode`, `started`, `settings`, `bots`, `players` | 房间完整公开状态；`settings` 是本房间计时与消息间隔，玩家含在线、房主和 Bot 标记 |
 | `session_state` | `playerId`, `isHost` | 编号重排或房主移交后的当前会话状态 |
 | `player_remapped` | `playerId` | 匿名第一晚后，该浏览器实际使用的游戏编号 |
-| `game_message` | `payload` | WereMF CLI API 消息，格式见 [`../WereMF/README.md`](../WereMF/README.md) |
+| `game_message` | `payload` | WereMF CLI API 消息，格式见 [`../WereMF/README.md`](../WereMF/README.md)；`game_update_night_patch` 是公开字段级增量 |
 | `chat_message` | `playerId`, `text`, `sentAt` | 公开聊天消息；昵称由客户端按当前匿名映射解析，不传真实昵称 |
 | `input_accepted` | `api`, `remaining` | 并发输入已接受；`remaining` 是该玩家还可提交次数 |
 | `cli_input_recorded` | `api`, `value`, `sentAt` | 已通过校验并提交/排队的实际 CLI 格式输入；只发给提交者，并写入其私密重连历史 |
@@ -141,6 +141,7 @@ WereMF 的每行 JSON 都包含 `api`、`message_type`、`message_content` 和 `
 - `pending_skill_created`：按 `source_player_id` 提前发给技能拥有者，允许先预选。玩家可主动将草稿标为预提交；真正轮到该技能时服务端用最新请求数据复核，合法才自动发送，否则解除预提交并展示正常请求。叶子的各身份技能仍分别 pending、按优先级轮流处理。
 - 收到 myz_threaten_notify 或 myz_threaten_force_notify 时，服务端按 data.skill_id 清除对应技能的旧预选与预提交，避免普通威胁被自动服从，也避免旧目标被误作强制威胁后的附加选项。普通威胁会展示原技能请求供玩家重新决定；强制威胁固定目标，但 CLI 仍可能为 Doge 等角色发出附加选项请求。
 - `game_update_night`、`game_update_day`、`cli_game_summary`：逐玩家脱敏；其他玩家的身份不会发送到该浏览器。匿名玩家名也按当前接收者可见范围处理。
+- `game_update_night_patch`：仅接受 `cause=huika_smog`、已存在玩家、公开 `EntityState` 字段及匹配的 JSON 基本类型；拒绝包含 `role`、`player`、未知字段或非法值的消息。该消息已是公开数据，直接写入公开/玩家重连历史并按原顺序广播，不经过逐玩家脱敏。重连时必须先应用最近完整快照，再按顺序合并其后的 patch；Bot 上下文也将它们标记为当前权威状态。
 
 重连时会重放最多 250 条公开历史、该玩家的私密历史，以及房主专属历史（仅当前房主）。
 

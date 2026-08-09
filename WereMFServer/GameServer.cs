@@ -123,6 +123,11 @@ internal sealed class GameServer : IDisposable
 
 internal sealed class GameRoom : IAsyncDisposable
 {
+    private static readonly HashSet<string> NightPatchBooleanFields = [
+        "is_bar_leader", "is_dead", "is_dead_public", "reversed", "myz_threaten",
+        "jiaohua_vote_blocked", "shiwu_kidnapped", "jiaohua_protected", "leaf_protected"];
+    private static readonly HashSet<string> NightPatchNumberFields = [
+        "smog_count", "capsule_count", "potion_count", "xian_song_count", "bug_count", "jiaohua_blocked"];
     private readonly object _gate = new();
     private readonly string _code; private readonly ServerOptions _options; private readonly Func<string, Task> _remove;
     private readonly LlmBotClient? _llmBot;
@@ -1086,7 +1091,13 @@ internal sealed class GameRoom : IAsyncDisposable
             mode = _gameModeSummary;
         }
 
-        var currentState = timeline.Select(x => x.Envelope).LastOrDefault(IsAuthoritativeState);
+        var currentStateItem = timeline.LastOrDefault(x => IsAuthoritativeState(x.Envelope));
+        var currentState = currentStateItem.Envelope;
+        var currentStateSequence = currentStateItem.Sequence;
+        var currentPatches = timeline
+            .Where(x => x.Sequence > currentStateSequence && IsNightPatch(x.Envelope))
+            .Select(x => $"公开 #{x.Sequence}：{CompactBotObservation(x.Envelope)}")
+            .ToArray();
         var recent = timeline.Where(x => !IsContextSnapshot(x.Envelope)).TakeLast(take);
         var history = string.Join('\n', recent.Select(x =>
             $"{(x.RecipientPlayerId is null ? "公开" : "私密")} #{x.Sequence}：{CompactBotObservation(x.Envelope)}"));
@@ -1095,6 +1106,8 @@ internal sealed class GameRoom : IAsyncDisposable
         var authoritative = currentState.ValueKind == JsonValueKind.Undefined
             ? "尚未收到本阶段状态快照；不得从旧事件臆测当前临时效果。"
             : CompactBotObservation(currentState);
+        if (currentPatches.Length > 0)
+            authoritative += "\n【其后仍然有效的公开夜间增量】\n" + string.Join('\n', currentPatches);
         return $"【本局模式】\n{mode}\n\n【当前权威状态】\n{authoritative}\n\n" +
                "以上当前状态绝对正确：历史或记忆与其冲突时一律忽略旧信息，当前状态未显示的临时效果已经失效。\n\n" +
                $"【按接收顺序排列的近期事件（编号越大越新）】\n{history}";
@@ -1104,7 +1117,10 @@ internal sealed class GameRoom : IAsyncDisposable
         TryEnvelopeApi(envelope) is "game_update_night" or "game_update_day";
 
     private static bool IsContextSnapshot(JsonElement envelope) =>
-        IsAuthoritativeState(envelope) || TryEnvelopeApi(envelope) == "game_mode_broadcast";
+        IsAuthoritativeState(envelope) || IsNightPatch(envelope) || TryEnvelopeApi(envelope) == "game_mode_broadcast";
+
+    private static bool IsNightPatch(JsonElement envelope) =>
+        TryEnvelopeApi(envelope) == "game_update_night_patch";
 
     private static string? TryEnvelopeApi(JsonElement envelope) =>
         envelope.TryGetProperty("payload", out var payload) &&
@@ -1151,7 +1167,7 @@ internal sealed class GameRoom : IAsyncDisposable
         var limit = 1_200;
         if (envelope.TryGetProperty("payload", out var payload) &&
             payload.TryGetProperty("api", out var api) &&
-            api.GetString() is "game_update_night" or "game_update_day" or "cli_game_summary")
+            api.GetString() is "game_update_night" or "game_update_night_patch" or "game_update_day" or "cli_game_summary")
             limit = 8_000;
         return raw.Length <= limit ? raw : raw[..limit] + "…";
     }
@@ -1603,6 +1619,17 @@ internal sealed class GameRoom : IAsyncDisposable
                 await SendCliInputAsync("0");
                 return;
             }
+            if (api == "game_update_night_patch")
+            {
+                if (target != "public" || !IsValidNightPatch(root))
+                {
+                    await HostAsync(new { type = "server_notice", message = "已忽略非法的灰卡比夜间公开增量" });
+                    return;
+                }
+                Add(_publicHistory, envelope);
+                await BroadcastAsync(envelope);
+                return;
+            }
             if (api == "player_anonymous_init") { await ApplyAnonymousMappingAsync(root); return; }
             if (api == "pending_skill_created") { await RoutePendingSkillAsync(root); return; }
             if (api is "myz_threaten_notify" or "myz_threaten_force_notify")
@@ -1760,6 +1787,39 @@ internal sealed class GameRoom : IAsyncDisposable
         Add(_publicHistory, envelope);
         await BroadcastAsync(envelope);
         await Task.WhenAll(sessions.Select(x => SendAsync(x, new { type = "player_remapped", playerId = x.GameId })));
+    }
+
+    private bool IsValidNightPatch(JsonElement root)
+    {
+        if (!root.TryGetProperty("message_type", out var messageType) || messageType.GetString() != "public" ||
+            !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object ||
+            !data.TryGetProperty("cause", out var cause) || cause.GetString() != "huika_smog" ||
+            !data.TryGetProperty("entities", out var entities) || entities.ValueKind != JsonValueKind.Array ||
+            entities.GetArrayLength() == 0 ||
+            data.EnumerateObject().Any(x => x.Name is not "cause" and not "entities"))
+            return false;
+
+        var seen = new HashSet<int>();
+        foreach (var entity in entities.EnumerateArray())
+        {
+            if (entity.ValueKind != JsonValueKind.Object ||
+                entity.EnumerateObject().Any(x => x.Name is not "player_id" and not "state") ||
+                !entity.TryGetProperty("player_id", out var playerId) || !playerId.TryGetInt32(out var id) ||
+                !entity.TryGetProperty("state", out var state) || state.ValueKind != JsonValueKind.Object ||
+                !seen.Add(id) || !_players.Any(x => x.GameId == id) || state.EnumerateObject().Count() == 0)
+                return false;
+
+            foreach (var field in state.EnumerateObject())
+            {
+                var validType = NightPatchBooleanFields.Contains(field.Name)
+                    ? field.Value.ValueKind == JsonValueKind.True || field.Value.ValueKind == JsonValueKind.False
+                    : NightPatchNumberFields.Contains(field.Name)
+                        ? field.Value.ValueKind == JsonValueKind.Number
+                        : field.Name == "dead_showing_name" && field.Value.ValueKind == JsonValueKind.String;
+                if (!validType) return false;
+            }
+        }
+        return true;
     }
 
     private static JsonElement RedactedEnvelope(JsonElement root, int playerId)
