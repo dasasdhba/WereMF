@@ -1627,7 +1627,7 @@ internal sealed class GameRoom : IAsyncDisposable
         }
         foreach (var (player, remaining) in prompts) await SendConcurrentPromptAsync(player, root, remaining);
         if (startTimer) await ScheduleConcurrentTimerAsync(phase);
-        if (api == "request_vote" && startTimer && bots.Length > 0)
+        if (api == "request_vote" && startTimer && bots.Length > 0 && _llmBot is not null)
         {
             _ = RunBotRepliesAsync("投票刚开始；结合真实已过时间和当前投票预算，决定是否发言以及是否现在投第一票");
             StartBotVoteThinkLoop(phase);

@@ -12,4 +12,17 @@ var entities = Enumerable.Range(1, 7).Select(id => new {
   state = new { is_dead = id == 2, is_dead_public = id == 2, dead_showing_name = "", myz_threaten = id == 1, is_bar_leader = false, reversed = false, smog_count = 0, capsule_count = 0, potion_count = 0, xian_song_count = 0, bug_count = 0, jiaohua_vote_blocked = false, shiwu_kidnapped = false, jiaohua_protected = false, jiaohua_blocked = 0, leaf_protected = false }
 }).ToArray();
 Send("game_update_day", "public", "", entities);
+Send("vote_start_broadcast", "public", "投票开始");
+var voteData = Enumerable.Range(1, 7).Select(id => new {
+  id,
+  can_vote = id != 2,
+  can_suicide = false,
+  invalid_vote = Array.Empty<object>()
+}).ToArray();
+var botVotes = new List<string>();
+for (var i = 0; i < 10; i++) {
+  Send("request_vote", "public", "请选择你的投票", voteData);
+  botVotes.Add(Console.ReadLine() ?? "");
+}
+Send("random_bot_votes_received", "public", string.Join("|", botVotes), botVotes);
 Thread.Sleep(TimeSpan.FromSeconds(5));
