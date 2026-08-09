@@ -212,33 +212,33 @@ Server/Web：
 
 ### 5.1 CLI 协议与路由
 
-- [ ] 提取 `CliEnvelope`/协议读取辅助类型，集中处理 `api`、`message_type`、`message_content` 和 `data`。
-- [ ] 提取 `CliMessageRouter`：分类 public/player/internal、request、snapshot、night patch。
+- [x] 提取 `CliEnvelope`/协议读取辅助类型，集中处理 `api`、`message_type`、`message_content` 和 `data`。
+- [x] 提取 `CliMessageRouter`：分类 public/player/internal、request、snapshot、night patch。
 - [ ] 将匿名映射、pending skill 定向和快照脱敏移入清晰的路由组件。
-- [ ] 保留 `GameProcess` 为独立进程适配器，不让它理解房间或 WebSocket。
+- [x] 保留 `GameProcess` 为独立进程适配器，不让它理解房间或 WebSocket。
 - [ ] 给每一种特殊路由建立测试后，再从 `RouteAsync` 删除对应分支。
 
 ### 5.2 输入协调
 
-- [ ] 提取 `RegularInputCoordinator`：当前请求、目标玩家、计时器、超时回退。
-- [ ] 提取 `ConcurrentInputCoordinator`：重抽、投票、剩余次数和 CLI 队列。
-- [ ] 提取 `PendingDraftStore`：草稿、预提交、myz 取消和合法性复核。
+- [x] 提取 `RegularInputCoordinator`：当前请求、目标玩家、计时器、超时回退。
+- [x] 提取 `ConcurrentInputCoordinator`：重抽、投票、剩余次数和 CLI 队列。
+- [x] 提取 `PendingDraftStore`：草稿、预提交、myz 取消和合法性复核。
 - [ ] 保持合法性最终由 CLI 决定；Server 校验只用于权限、格式和超时候选保护。
-- [ ] 避免三个组件分别持有重复的“当前请求”状态。
+- [x] 避免三个组件分别持有重复的“当前请求”状态。
 
 ### 5.3 历史、重连和日志
 
-- [ ] 提取 `RoomHistory`，统一 public、player、host 历史和 Bot 时间线的写入顺序。
-- [ ] 把 250 条重连限制、4000 条 Bot 时间线限制集中为命名配置。
-- [ ] 提取 `GameLogAssembler`，负责 CLI 日志和白天互动合并。
-- [ ] 用序列号保证公开消息、私密消息和 patch 的确定顺序。
+- [x] 提取 `RoomHistory`，统一 public、player、host 历史和 Bot 时间线的写入顺序。
+- [x] 把 250 条重连限制、4000 条 Bot 时间线限制集中为命名配置。
+- [x] 提取 `GameLogAssembler`，负责 CLI 日志和白天互动合并。
+- [x] 用序列号保证公开消息、私密消息和 patch 的确定顺序。
 
 ### 5.4 Bot/LLM
 
-- [ ] 提取 `BotCoordinator`，负责永久 Bot、临时接管、普通技能和投票思考调度。
-- [ ] 提取 `BotVisibleContextBuilder`，集中处理完整快照与后续 night patch。
-- [ ] `LlmBotClient` 只负责模型调用、超时、结果解析和熔断，不访问房间可变状态。
-- [ ] 所有 Bot 候选输入继续通过与真人/超时相同的合法性检查。
+- [x] 提取 `BotCoordinator`，负责普通技能 Bot 候选、模型校验和合法回退；永久 Bot、临时接管和投票调度仍由 `GameRoom` 协调。
+- [x] 提取 `BotVisibleContextBuilder`，集中处理完整快照与后续 night patch。
+- [x] `LlmBotClient` 只负责模型调用、超时、结果解析和熔断，不访问房间可变状态。
+- [x] 所有 Bot 候选输入继续通过与真人/超时相同的合法性检查。
 
 ### 5.5 房间状态所有权
 

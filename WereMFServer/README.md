@@ -2,6 +2,17 @@
 
 WereMFServer 是 WereMF 的联网房间服务：托管静态 Web 客户端，通过 WebSocket 管理 7–16 人房间，并为每个正在进行的房间启动一个独立的 WereMF CLI/API 规则进程。服务端不重新实现游戏规则，只负责会话、权限、消息路由、计时和 Bot 托管。
 
+## Server 内部边界
+
+`GameRoom` 仍是房间生命周期与并发协调入口，但规则无关的协议和数据边界已拆成独立组件：
+
+- `CliEnvelope`/`CliMessageRouter` 负责解析 CLI 信封并分类公共、玩家、内部、请求、完整快照和夜间增量；`GameProcess` 只负责独立规则进程的输入输出。
+- `RegularInputCoordinator`、`ConcurrentInputCoordinator` 和 `PendingDraftStore` 分别维护普通请求、并发投票/重抽阶段和预提交草稿。CLI 仍是最终合法性来源，服务端只做权限、格式和超时回退保护。
+- `RoomHistory` 统一公开、房主、玩家重连历史及 Bot 时间线的序列与上限；`GameLogAssembler` 只负责把白天互动合并进 CLI 日志。
+- `BotCoordinator` 负责普通 Bot 请求的模型候选与合法性回退，`BotVisibleContextBuilder` 负责完整快照及其后的 night patch 权威上下文；`LlmBotClient` 不访问房间可变状态。
+
+这些组件通过 `GameRoom` 委派接入，保留现有 WebSocket 消息顺序、重连历史和 CLI 输入协议。确定性验证入口仍是 `node test/run-deterministic.mjs`。
+
 ## 构建与运行
 
 从仓库根目录执行：

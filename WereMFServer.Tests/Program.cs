@@ -3,6 +3,18 @@ using WereMFServer;
 
 var tests = new (string Name, Action Body)[]
 {
+    ("classifies CLI envelopes without interpreting their payload", () =>
+    {
+        Assert(CliEnvelope.TryParse("{\"api\":\"game_update_night_patch\",\"message_type\":\"public\",\"data\":{}}", out var patch) && patch is not null, "valid CLI JSON must parse");
+        Assert(CliMessageRouter.Classify(patch!) == CliRouteKind.NightPatch, "night patch must use the dedicated route");
+        Assert(CliMessageRouter.Classify(ParseEnvelope("{\"api\":\"request_vote\",\"message_type\":\"public\",\"data\":[]}")) == CliRouteKind.ConcurrentRequest, "vote requests must use concurrent routing");
+        Assert(CliMessageRouter.Classify(ParseEnvelope("{\"api\":\"game_update_day\",\"message_type\":\"public\",\"data\":[]}")) == CliRouteKind.Snapshot, "full state updates must use snapshot routing");
+    }),
+    ("recognizes malformed CLI lines without throwing", () =>
+    {
+        Assert(!CliEnvelope.TryParse("not json", out _), "malformed CLI JSON must be rejected");
+        Assert(CliMessageRouter.IsRequestEnvelope(JsonSerializer.Deserialize<JsonElement>("{\"type\":\"game_message\",\"payload\":{\"api\":\"request_vote\"}}")), "request envelopes must be recognized");
+    }),
     ("accepts a public smog patch with supported public field types", () =>
         AssertValid("""
         {"message_type":"public","data":{"cause":"huika_smog","entities":[
@@ -126,4 +138,10 @@ static void AssertInvalid(string json, IReadOnlySet<int> playerIds)
 {
     if (NightPatchValidator.IsValid(JsonSerializer.Deserialize<JsonElement>(json), playerIds))
         throw new InvalidOperationException("expected patch to be rejected");
+}
+
+static CliEnvelope ParseEnvelope(string json)
+{
+    if (!CliEnvelope.TryParse(json, out var envelope) || envelope is null) throw new InvalidOperationException("expected valid CLI envelope");
+    return envelope;
 }
