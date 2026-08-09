@@ -20,7 +20,9 @@ CLI 是角色规则与结算的唯一来源；Server 只协调进程、会话和
 
 - `dotnet run --project WereMFServer.Tests -c Release`：运行不依赖外部模型或网络的 Server night patch 协议边界测试。
 - `npm --prefix WereMFWeb test`：运行 Web 字段级 patch 合并测试。
-- `node test/run-deterministic.mjs`：构建 solution、发布 F# CLI 与假 CLI，并串行运行 Server/Web、路由、权限、重连、预提交、房间生命周期和 Web 事件回归；该入口不需要 LLM 或外部网络。
-- `node test/run-deterministic.mjs --replay`：额外启动本地 Server 回放三份历史日志并检查 UI 终态；报告同时给出 `exact` 与兼容回退状态。历史日志若与当前规则版本不兼容，会明确失败，不影响核心 deterministic runner。
+- `node WereMFWeb.Tests/run-deterministic.mjs`：构建 solution、发布 F# CLI 与假 CLI，并串行运行 Server/Web、灰卡比真实夜间增量、路由、权限、重连、预提交、房间生命周期和 Web 事件回归；该入口不需要 LLM 或外部网络。
+- `node WereMFWeb.Tests/run-deterministic.mjs --replay`：额外启动本地 Server 回放三份历史日志并检查 UI 终态；报告同时给出 `exact` 与兼容回退状态。历史日志若与当前规则版本不兼容，会明确失败，不影响核心 deterministic runner。
 
-环境要求：.NET 8 SDK、Node.js（含内置 `node:test`）和 npm。LLM 回归另行使用 `test/llm_bot_game.mjs`，需要显式配置模型测试环境，不属于默认验证。
+环境要求：.NET 8 SDK、Node.js（含内置 `node:test`）和 npm。LLM 回归另行使用 `WereMFWeb.Tests/llm_bot_game.mjs`，需要显式配置模型测试环境，不属于默认验证。
+
+本地启动脚本默认禁用外部 LLM Bot；确认 `.env` 中模型配置正确后，使用 `./scripts/run_localhost.ps1 -EnableLlmBots` 显式启用。若端口上已有禁用 LLM 的旧服务，脚本会要求先关闭旧服务，避免看似启用却仍复用随机 Bot。

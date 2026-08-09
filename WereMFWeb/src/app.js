@@ -170,8 +170,8 @@ const gameReducerDeps = {
   syncDraft: value => syncDraft(value, false), notify, alertRequest, addEvent,
   playGameMessageSound
 };
-function applyEntityStatePatch(data) {
-  return mergeEntityStatePatch(state, data);
+function applyEntityStatePatch(targetState, data) {
+  return mergeEntityStatePatch(targetState, data);
 }
 function clearTimer() { state.timerDeadline = 0; state.timerApi = ""; state.timerMode = ""; }
 function timerText() {

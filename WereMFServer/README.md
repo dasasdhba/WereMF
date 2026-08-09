@@ -11,7 +11,7 @@ WereMFServer 是 WereMF 的联网房间服务：托管静态 Web 客户端，通
 - `RoomHistory` 统一公开、房主、玩家重连历史及 Bot 时间线的序列与上限；`GameLogAssembler` 只负责把白天互动合并进 CLI 日志。
 - `BotCoordinator` 负责普通 Bot 请求的模型候选与合法性回退，`BotVisibleContextBuilder` 负责完整快照及其后的 night patch 权威上下文；`LlmBotClient` 不访问房间可变状态。
 
-这些组件通过 `GameRoom` 委派接入，保留现有 WebSocket 消息顺序、重连历史和 CLI 输入协议。确定性验证入口仍是 `node test/run-deterministic.mjs`。
+这些组件通过 `GameRoom` 委派接入，保留现有 WebSocket 消息顺序、重连历史和 CLI 输入协议。确定性验证入口仍是 `node WereMFWeb.Tests/run-deterministic.mjs`。
 
 ```mermaid
 flowchart LR

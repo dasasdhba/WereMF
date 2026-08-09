@@ -36,8 +36,8 @@ try {
   }
   await delay(100);
   const name = basename(logPath, ".log");
-  await runNode(["test/web_log_replay.mjs", logPath, `ws://127.0.0.1:${port}/ws`]);
-  await runNode(["test/web_log_replay_ui_check.mjs", `replay_${name}.json`]);
+  await runNode(["WereMFWeb.Tests/web_log_replay.mjs", logPath, `ws://127.0.0.1:${port}/ws`]);
+  await runNode(["WereMFWeb.Tests/web_log_replay_ui_check.mjs", `replay_${name}.json`]);
   console.log(JSON.stringify({ ok: true, log: name, seed: seed ? Number(seed) : null, port }, null, 2));
 } finally {
   server.kill();

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeGameMessage } from "../src/protocol.js";
-import { createState } from "../src/store.js";
-import { choosePlayerSelection, formatSelection, leafSelectionValid, selectionRule, toggleRoleSelection } from "../src/input/selection.js";
-import { activePending, prepareRequest, rememberPending, removePending } from "../src/input/pending-drafts.js";
+import { normalizeGameMessage } from "../WereMFWeb/src/protocol.js";
+import { createState } from "../WereMFWeb/src/store.js";
+import { choosePlayerSelection, formatSelection, leafSelectionValid, selectionRule, toggleRoleSelection } from "../WereMFWeb/src/input/selection.js";
+import { activePending, prepareRequest, rememberPending, removePending } from "../WereMFWeb/src/input/pending-drafts.js";
 
 test("protocol normalization keeps payload messages distinct from direct game messages", () => {
   const payload = { api: "game_update_night_patch", data: { cause: "huika_smog", entities: [] } };

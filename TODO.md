@@ -191,7 +191,7 @@ Server/Web：
 
 - [x] 新建 `WereMFServer.Tests` 测试项目并加入 solution。
 - [x] 使用假 CLI 覆盖消息路由、玩家权限、重连历史、普通请求和并发请求。
-- [x] 把 `test/pre-submit-fake` 的关键场景转成自动断言，而不是只依赖日志观察。
+- [x] 把 `WereMFWeb.Tests/pre-submit-fake` 的关键场景转成自动断言，而不是只依赖日志观察。
 - [x] 为 `RedactedEnvelope` 增加按接收者的快照测试。
 - [x] 为 night patch 增加非法字段和非法类型测试。
 - [x] 为 Web 提取最小可测试入口，使用 Node 内置 test runner，避免新增运行时依赖。
@@ -199,7 +199,7 @@ Server/Web：
 - [x] 在根 README 或 TODO 中记录标准验证命令及所需环境。
 - [x] 区分“无需外部模型的确定性测试”和“需要 LLM/网络的人工或扩展测试”。
 
-当前确定性入口：`node test/run-deterministic.mjs`；`--replay` 扩展模式会启动真实 F# CLI 回放历史日志，并在报告中区分 `exact` 与兼容回退结果。需要真实 LLM/网络的脚本仍属于扩展回归测试。
+当前确定性入口：`node WereMFWeb.Tests/run-deterministic.mjs`；`--replay` 扩展模式会启动真实 F# CLI 回放历史日志，并在报告中区分 `exact` 与兼容回退结果。需要真实 LLM/网络的脚本仍属于扩展回归测试。
 
 完成标准：
 
@@ -296,7 +296,7 @@ Web 完成标准：
 - [x] `app.js` 只保留应用装配、启动和少量顶层协调。
 - [x] 不改变现有页面行为、移动端布局、音效和通知语义。
 
-本轮补全的 Web 测试包括：协议归一化、完整快照与夜间 patch 合并、非法字段过滤、选择规则、叶子选角、modifier、pending 草稿，以及基于浏览器桩的事件队列、UI 渲染和真实日志回放检查。统一验证入口为 `node test/run-deterministic.mjs`；Web 模块单测入口为 `npm test`。
+本轮补全的 Web 测试包括：协议归一化、完整快照与夜间 patch 合并、非法字段过滤、选择规则、叶子选角、modifier、pending 草稿，以及基于浏览器桩的事件队列、UI 渲染和真实日志回放检查。统一验证入口为 `node WereMFWeb.Tests/run-deterministic.mjs`；Web 模块单测入口为 `npm test`。
 
 ## 7. 第五阶段：文档与清理
 

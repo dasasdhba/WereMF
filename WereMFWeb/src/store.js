@@ -37,7 +37,7 @@ export function applyFullEntitySnapshot(state, data) {
 
 export function applyEntityStatePatch(state, data, debug = globalThis.console?.debug?.bind(globalThis.console)) {
   if (data?.cause !== "huika_smog" || !Array.isArray(data.entities)) {
-    debug?.("忽略非法灰卡比夜间增量", data);
+    debug?.(`忽略非法灰卡比夜间增量：${JSON.stringify(data)}`);
     return false;
   }
   let changed = false;

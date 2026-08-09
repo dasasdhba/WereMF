@@ -6,6 +6,6 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
-    "test": "node --test scripts/test-night-patch.mjs scripts/test-web-modules.mjs"
+    "test": "node --test ../WereMFWeb.Tests/test-night-patch.mjs ../WereMFWeb.Tests/test-night-patch-ui.mjs ../WereMFWeb.Tests/test-web-modules.mjs"
   }
 }

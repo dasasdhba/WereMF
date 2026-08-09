@@ -30,20 +30,21 @@ const replayLogs = [
 try {
   await runDotnet("solution Release build", "build", "WereMF.sln", "-c", "Release");
   await runDotnet("F# CLI publish", "publish", "WereMF/WereMF.fsproj", "-c", "Release", "-r", "win-x64", "--self-contained", "true");
-  await runDotnet("chat fake CLI publish", "publish", "test/chat-fake/ChatFake.csproj", "-c", "Release", "-r", "win-x64", "--self-contained", "true");
-  await runDotnet("pre-submit fake CLI publish", "publish", "test/pre-submit-fake/PreSubmitFake.csproj", "-c", "Release", "-r", "win-x64", "--self-contained", "true");
+  await runDotnet("chat fake CLI publish", "publish", "WereMFWeb.Tests/chat-fake/ChatFake.csproj", "-c", "Release", "-r", "win-x64", "--self-contained", "true");
+  await runDotnet("pre-submit fake CLI publish", "publish", "WereMFWeb.Tests/pre-submit-fake/PreSubmitFake.csproj", "-c", "Release", "-r", "win-x64", "--self-contained", "true");
   await runDotnet("Server protocol unit tests", "run", "--project", "WereMFServer.Tests", "-c", "Release", "--no-build");
-  await run("Web Node tests", node, ["--test", "WereMFWeb/scripts/test-night-patch.mjs", "WereMFWeb/scripts/test-web-modules.mjs"]);
-  await runNode("Server routing/reconnect/permission test", "test/protocol_boundary_test.mjs");
-  await runNode("pre-submit fake CLI assertions", "test/pre_submit_test.mjs");
-  await runNode("chat permission assertions", "test/chat_test.mjs");
-  await runNode("room lifecycle assertions", "test/room_lifecycle_test.mjs");
-  await runNode("Web event queue assertions", "test/web_event_queue_check.mjs");
+  await run("Web Node tests", node, ["--test", "WereMFWeb.Tests/test-night-patch.mjs", "WereMFWeb.Tests/test-night-patch-ui.mjs", "WereMFWeb.Tests/test-web-modules.mjs"]);
+  await runNode("gray-Kirby real night patch e2e", "WereMFWeb.Tests/huika_night_patch_e2e.mjs");
+  await runNode("Server routing/reconnect/permission test", "WereMFWeb.Tests/protocol_boundary_test.mjs");
+  await runNode("pre-submit fake CLI assertions", "WereMFWeb.Tests/pre_submit_test.mjs");
+  await runNode("chat permission assertions", "WereMFWeb.Tests/chat_test.mjs");
+  await runNode("room lifecycle assertions", "WereMFWeb.Tests/room_lifecycle_test.mjs");
+  await runNode("Web event queue assertions", "WereMFWeb.Tests/web_event_queue_check.mjs");
 
   if (withReplay) {
     for (const [index, log] of replayLogs.entries()) {
       const name = basename(log, ".log");
-      await runNode(`real log replay and UI check ${name}`, "test/run-replay.mjs", log, String(5260 + index));
+      await runNode(`real log replay and UI check ${name}`, "WereMFWeb.Tests/run-replay.mjs", log, String(5260 + index));
     }
   } else {
     console.log("SKIP real log replay (use --replay for extended fixture replay)");

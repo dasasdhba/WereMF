@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyEntityStatePatch, applyFullEntitySnapshot, createState } from "../src/store.js";
+import { applyEntityStatePatch, applyFullEntitySnapshot, createState } from "../WereMFWeb/src/store.js";
 
 function gameState() {
   const state = createState({ soundEnabled: true });
