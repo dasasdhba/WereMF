@@ -190,21 +190,21 @@ Server/Web：
 本阶段不改变功能，先把已有脚本整理成稳定入口。
 
 - [x] 新建 `WereMFServer.Tests` 测试项目并加入 solution。
-- [ ] 使用假 CLI 覆盖消息路由、玩家权限、重连历史、普通请求和并发请求。
-- [ ] 把 `test/pre-submit-fake` 的关键场景转成自动断言，而不是只依赖日志观察。
-- [ ] 为 `RedactedEnvelope` 增加按接收者的快照测试。
+- [x] 使用假 CLI 覆盖消息路由、玩家权限、重连历史、普通请求和并发请求。
+- [x] 把 `test/pre-submit-fake` 的关键场景转成自动断言，而不是只依赖日志观察。
+- [x] 为 `RedactedEnvelope` 增加按接收者的快照测试。
 - [x] 为 night patch 增加非法字段和非法类型测试。
-- [ ] 为 Web 提取最小可测试入口，使用 Node 内置 test runner，避免新增运行时依赖。
-- [ ] 将真实日志回放统一为一个命令，输出明确的通过/失败状态。
-- [ ] 在根 README 或 TODO 中记录标准验证命令及所需环境。
-- [ ] 区分“无需外部模型的确定性测试”和“需要 LLM/网络的人工或扩展测试”。
+- [x] 为 Web 提取最小可测试入口，使用 Node 内置 test runner，避免新增运行时依赖。
+- [x] 将真实日志回放统一为一个命令，输出明确的通过/失败状态。
+- [x] 在根 README 或 TODO 中记录标准验证命令及所需环境。
+- [x] 区分“无需外部模型的确定性测试”和“需要 LLM/网络的人工或扩展测试”。
 
-当前确定性入口：`dotnet run --project WereMFServer.Tests -c Release` 与 `npm --prefix WereMFWeb test`；需要启动服务、真实 CLI 或 LLM 的脚本仍属于扩展回归测试。
+当前确定性入口：`node test/run-deterministic.mjs`；`--replay` 扩展模式会启动真实 F# CLI 回放历史日志，并在报告中区分 `exact` 与兼容回退结果。需要真实 LLM/网络的脚本仍属于扩展回归测试。
 
 完成标准：
 
-- [ ] 不启动真实 LLM 即可覆盖规则进程、Server 和 Web 的主要协议链路。
-- [ ] 后续每次文件拆分都能用同一组测试验证行为等价。
+- [x] 不启动真实 LLM 即可覆盖规则进程、Server 和 Web 的主要协议链路。
+- [x] 后续每次文件拆分都能用同一组测试验证行为等价。
 
 ## 5. 第三阶段：Server 渐进拆分
 

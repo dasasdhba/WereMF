@@ -62,6 +62,27 @@ var tests = new (string Name, Action Body)[]
           {"player_id":3,"state":{}}
         ]}}
         """, Set(3));
+    }),
+    ("redacts snapshots differently for each recipient without leaking other roles", () =>
+    {
+        const string input = """
+        {"api":"game_update_night","message_type":"public","data":[
+          {"player":{"id":1,"name":"Alice","anonymous":true},"role":{"chara_type":"myz","data":{"secret":true}},"state":{"is_bar_leader":true}},
+          {"player":{"id":2,"name":"Bob","anonymous":true},"role":{"chara_type":"叶子","data":{"fury":true,"secret":"hidden"}},"state":{"is_bar_leader":true}}
+        ]}
+        """;
+        var alice = EnvelopeRedactor.ForPlayer(JsonSerializer.Deserialize<JsonElement>(input), 1);
+        var bob = EnvelopeRedactor.ForPlayer(JsonSerializer.Deserialize<JsonElement>(input), 2);
+        var aliceEntities = alice.GetProperty("payload").GetProperty("data");
+        var bobEntities = bob.GetProperty("payload").GetProperty("data");
+        Assert(aliceEntities[0].GetProperty("player").GetProperty("name").GetString() == "玩家1", "anonymous names must be redacted");
+        var publicLeafRole = aliceEntities[1].GetProperty("role");
+        Assert(publicLeafRole.GetProperty("chara_type").GetString() == "叶子" && !publicLeafRole.GetProperty("data").TryGetProperty("secret", out _), "Alice may see only Bob's public Leaf reveal");
+        Assert(aliceEntities[1].GetProperty("state").GetProperty("is_bar_leader").GetBoolean() == false, "Alice must not see Bob's bar leader flag");
+        Assert(aliceEntities[0].GetProperty("role").GetProperty("data").GetProperty("secret").GetBoolean(), "Alice must see her own role data");
+        Assert(IsNullOrMissing(bobEntities[0], "role"), "Bob must not see Alice's role");
+        Assert(bobEntities[1].GetProperty("role").GetProperty("public_reveal").GetBoolean(), "publicly revealed Leaf role must retain its reveal marker");
+        Assert(bobEntities[1].GetProperty("role").GetProperty("data").GetProperty("secret").GetString() == "hidden", "own private role data must remain available");
     })
 };
 
@@ -90,6 +111,16 @@ static void AssertValid(string json, IReadOnlySet<int> playerIds)
 }
 
 static IReadOnlySet<int> Set(params int[] ids) => ids.ToHashSet();
+
+static void Assert(bool condition, string message)
+{
+    if (!condition) throw new InvalidOperationException(message);
+}
+
+static bool IsNullOrMissing(JsonElement element, string property)
+{
+    return !element.TryGetProperty(property, out var value) || value.ValueKind == JsonValueKind.Null;
+}
 
 static void AssertInvalid(string json, IReadOnlySet<int> playerIds)
 {
