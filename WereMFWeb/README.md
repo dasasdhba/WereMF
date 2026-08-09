@@ -23,6 +23,8 @@ WereMFWeb 是 WereMF 的零框架浏览器客户端。它只负责房间交互�
 
 前端源文件位于 `src/`，没有运行时 npm 依赖。建议使用 Node.js 22：
 
+纯逻辑已按职责拆分：`protocol.js` 负责消息归一化，`store.js` 负责快照/夜间 patch，`reducers/` 负责游戏与服务端消息状态转换，`input/` 负责选择与 pending 草稿，`effects/` 负责音频/通知，`socket.js` 负责连接生命周期，`views/` 保存 landing、room、game 和 action panel 的模板边界。`app.js` 保留浏览器装配、DOM 绑定与兼容协调。
+
 ```powershell
 cd .\WereMFWeb
 npm run dev
@@ -38,6 +40,14 @@ npm run build
 
 ```powershell
 npm test
+```
+
+扩展 Web 回归测试（不需要浏览器）：
+
+```powershell
+node ..\test\web_event_queue_check.mjs
+node ..\test\web_ui_render_check.mjs
+node ..\test\web_log_replay_ui_check.mjs replay_WereMF_260522_235200.json
 ```
 
 构建脚本会：

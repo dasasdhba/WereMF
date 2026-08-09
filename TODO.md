@@ -1,6 +1,6 @@
 # WereMF 修改与重构计划
 
-> 状态：第一阶段核心修复已完成；第二阶段及后续重构规划中
+> 状态：第一阶段核心修复、第二阶段测试保护网和第四阶段 Web 渐进拆分已完成；第三阶段剩余并发/路由整理及第五阶段文档清理待进行
 > 原则：先修复夜间信息暴露，再渐进重构 Server/Web；F# CLI 规则内核保持稳定，避免大范围改动。
 
 ## 1. 目标与约束
@@ -174,7 +174,7 @@ Server/Web：
 - [ ] Bot 的权威状态能看到最新烟雾计数和烟雾导致的公开死亡结果。
 - [x] Web 对单字段 patch 使用合并语义，已有身份和其他状态不丢失。
 - [ ] 现有三份真实长对局日志回放结果不变。
-- [ ] 现有 smoke、预提交、聊天、房间生命周期测试全部通过。
+- [x] 现有 smoke、预提交、聊天、房间生命周期测试全部通过。
 
 ### 3.6 第一阶段完成标准
 
@@ -280,21 +280,23 @@ WereMFWeb/src/
 
 任务：
 
-- [ ] 先提取 `applyFullEntitySnapshot` 和 `applyEntityStatePatch`，建立 reducer 测试。
-- [ ] 将 `handleGameMessage` 改成协议归一化 + reducer 分发。
-- [ ] 将选择数量、非法目标、叶子选角和 modifier 处理提取到 `input/selection.js`。
-- [ ] 将 pending、draft、pre-submit、myz 取消提取到 `input/pending-drafts.js`。
-- [ ] 将 WebSocket 连接、重连和发送封装到 `socket.js`。
-- [ ] 将音频、通知和标题闪烁作为 reducer 结果触发的 effects，不直接改变游戏状态。
-- [ ] 按 landing/room/game/action panel 拆渲染函数，但保持生成的 HTML 和 CSS 类名不变。
-- [ ] 每完成一次提取，运行日志回放并比较最终 state 和关键 DOM 文本。
+- [x] 先提取 `applyFullEntitySnapshot` 和 `applyEntityStatePatch`，建立 reducer 测试。
+- [x] 将 `handleGameMessage` 改成协议归一化 + reducer 分发。
+- [x] 将选择数量、非法目标、叶子选角和 modifier 处理提取到 `input/selection.js`。
+- [x] 将 pending、draft、pre-submit、myz 取消提取到 `input/pending-drafts.js`。
+- [x] 将 WebSocket 连接、重连和发送封装到 `socket.js`。
+- [x] 将音频、通知和标题闪烁作为 reducer 结果触发的 effects，不直接改变游戏状态。
+- [x] 按 landing/room/game/action panel 拆渲染函数，但保持生成的 HTML 和 CSS 类名不变。
+- [x] 每完成一次提取，运行日志回放并比较最终 state 和关键 DOM 文本。
 
 Web 完成标准：
 
-- [ ] 协议消息可以在没有浏览器 DOM 的情况下进行 reducer 单元测试。
-- [ ] 完整快照与字段级 patch 有不同且明确的处理函数。
-- [ ] `app.js` 只保留应用装配、启动和少量顶层协调。
-- [ ] 不改变现有页面行为、移动端布局、音效和通知语义。
+- [x] 协议消息可以在没有浏览器 DOM 的情况下进行 reducer 单元测试。
+- [x] 完整快照与字段级 patch 有不同且明确的处理函数。
+- [x] `app.js` 只保留应用装配、启动和少量顶层协调。
+- [x] 不改变现有页面行为、移动端布局、音效和通知语义。
+
+本轮补全的 Web 测试包括：协议归一化、完整快照与夜间 patch 合并、非法字段过滤、选择规则、叶子选角、modifier、pending 草稿，以及基于浏览器桩的事件队列、UI 渲染和真实日志回放检查。统一验证入口为 `node test/run-deterministic.mjs`；Web 模块单测入口为 `npm test`。
 
 ## 7. 第五阶段：文档与清理
 

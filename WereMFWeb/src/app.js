@@ -1,3 +1,12 @@
+import { applyEntityStatePatch as mergeEntityStatePatch } from "./store.js";
+import { applyFullEntitySnapshot as setFullEntitySnapshot } from "./store.js";
+import { reduceGameMessage } from "./reducers/game-message.js";
+import { createSocketManager } from "./socket.js";
+import { createAudioEffects } from "./effects/audio.js";
+import { createNotificationEffects } from "./effects/notifications.js";
+import { choosePlayerSelection, formatSelection as formatSelectionPure, invalidIdsFor as invalidIdsPure, selectionCountValid as selectionCountValidPure, selectionRule as selectionRulePure } from "./input/selection.js";
+import { activePending as activePendingPure, pendingId as pendingIdPure, rememberPending as rememberPendingPure, removePending as removePendingPure } from "./input/pending-drafts.js";
+
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 const roles = ["脚滑人","Doge","庸医","地鼠","兔子","铯郎","法猫","卡比","粉侠","爬行者","炮仙","实物","灰卡比","音魔","CTF","合虫","彩怪","贤松","江仙","myz","叶子"];
@@ -24,6 +33,11 @@ const state = {
   timerDeadline: 0, timerApi: "", timerMode: "", feedPinned: true, feedScrollTop: 0, chatDraft: "", botIds: [], leaving: false,
   roomSettings: { ...defaultRoomSettings }, soundEnabled: localStorage.getItem("weremf.sound") !== "off"
 };
+const audioEffects = createAudioEffects({ getState: () => state });
+const { playSound, unlockAudio, stopSounds, playGameMessageSound } = audioEffects;
+function soundToggleButton() { return `<button class="btn btn-ghost sound-toggle" data-toggle-sound title="${state.soundEnabled ? "关闭" : "开启"}游戏音效">${state.soundEnabled ? "🔊 音效" : "🔇 静音"}</button>`; }
+const notificationEffects = createNotificationEffects({ getState: () => state, toastElement: toast, defaultTitle: document.title || "MF 杀 · 今夜谁在说谎" });
+const { notify, stopTitleFlash, flashTitle, requestBrowserNotifications, alertRequest: notifyRequest } = notificationEffects;
 let chatCompositionActive = false;
 let renderPendingAfterComposition = false;
 const e = (value = "") => String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
@@ -41,27 +55,7 @@ function soundForGameMessage(msg) {
   if (text.includes("叶子获胜")) return "leafWin";
   return "";
 }
-function playSound(name) {
-  const source = soundFiles[name];
-  if (!source || !state.soundEnabled || state.reconnecting || !("Audio" in globalThis)) return false;
-  const audio = new globalThis.Audio(source); audio.preload = "auto"; audio.volume = 0.8;
-  soundPlayers.add(audio);
-  const release = () => soundPlayers.delete(audio);
-  audio.addEventListener?.("ended", release, { once: true }); audio.addEventListener?.("error", release, { once: true });
-  const playback = audio.play(); playback?.catch?.(release);
-  return true;
-}
-function unlockAudio() {
-  if (!state.soundEnabled || !("Audio" in globalThis)) return;
-  const audio = new globalThis.Audio(soundFiles.request); audio.muted = true;
-  const release = () => { try { audio.pause(); audio.currentTime = 0; } catch {} };
-  const playback = audio.play(); playback?.then?.(release).catch?.(release);
-}
-function stopSounds() { for (const audio of soundPlayers) { try { audio.pause(); } catch {} } soundPlayers.clear(); }
-function playGameMessageSound(msg) { const sound = soundForGameMessage(msg); if (sound) playSound(sound); }
-function soundToggleButton() { return `<button class="btn btn-ghost sound-toggle" data-toggle-sound title="${state.soundEnabled ? "关闭" : "开启"}游戏音效">${state.soundEnabled ? "🔊 音效" : "🔇 静音"}</button>`; }
 const socketUrl = () => state.server.trim() || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
-const notify = message => { toast.textContent = message; toast.classList.add("show"); clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove("show"), 2600); };
 async function copyText(text) {
   try {
     if (navigator.clipboard?.writeText) {
@@ -82,54 +76,13 @@ async function copyText(text) {
 const defaultTitle = document.title || "MF 杀 · 今夜谁在说谎";
 let titleFlashTimer = null;
 
-function stopTitleFlash() {
-  if (titleFlashTimer) clearInterval(titleFlashTimer);
-  titleFlashTimer = null;
-  document.title = defaultTitle;
-}
-function flashTitle(message) {
-  if (state.reconnecting) return;
-  stopTitleFlash();
-  let tick = 0;
-  const update = () => {
-    document.title = tick++ % 2 ? defaultTitle : `● ${message} · MF 杀`;
-    if (tick >= 12) stopTitleFlash();
-  };
-  update();
-  if (typeof setInterval !== "function") return;
-  titleFlashTimer = setInterval(update, 650);
-}
-function requestBrowserNotifications() {
-  if (!("Notification" in globalThis) || Notification.permission !== "default") return;
-  Notification.requestPermission().catch(() => {});
-}
-function alertRequest(request) {
-  playSound("request");
-  flashTitle("轮到你行动");
-  if (document.visibilityState === "visible" && !state.reconnecting)
-    notify(`轮到你行动：${String(request.message_content || "请做出选择").replace(/\s+/g, " ").slice(0, 48)}`);
-  if (!("Notification" in globalThis) || Notification.permission !== "granted" || state.reconnecting) return;
-  const notification = new Notification("MF 杀 · 轮到你行动", {
-    body: String(request.message_content || "请返回游戏做出选择"),
-    icon: "/og.png",
-    tag: `weremf-${state.roomCode}-${request.api || "request"}`,
-    renotify: true
-  });
-  notification.onclick = () => globalThis.focus?.();
-}
+function alertRequest(request) { playSound("request"); notifyRequest(request); }
 document.addEventListener?.("visibilitychange", () => { if (!document.hidden) stopTitleFlash(); });
 globalThis.addEventListener?.("focus", stopTitleFlash);
 
-function connect(firstMessage) {
-  if (state.socket) try { state.socket.close(); } catch {}
-  let url = socketUrl(); if (!/^wss?:\/\//.test(url)) url = `ws://${url}`; if (!url.endsWith("/ws")) url = url.replace(/\/$/, "") + "/ws";
-  const ws = new WebSocket(url); state.socket = ws; render();
-  ws.addEventListener("open", () => { state.connected = true; ws.send(JSON.stringify(firstMessage)); render(); });
-  ws.addEventListener("message", event => onMessage(JSON.parse(event.data)));
-  ws.addEventListener("close", () => { state.connected = false; render(); if (state.view !== "landing" && !state.reconnecting && !state.leaving) notify("连接已断开，可刷新页面自动重连"); });
-  ws.addEventListener("error", () => notify("无法连接游戏服务器"));
-}
-function send(data) { if (state.socket?.readyState === WebSocket.OPEN) state.socket.send(JSON.stringify(data)); else notify("尚未连接服务器"); }
+const socketManager = createSocketManager({ state, render: () => render(), onMessage, notify });
+const connect = socketManager.connect;
+const send = socketManager.send;
 function clearNewGamePresentation() {
   clearTimer();
   Object.assign(state, {
@@ -209,68 +162,16 @@ function onMessage(message) {
   render();
 }
 function handleGameMessage(msg, recordEvent = true, playCue = true) {
-  if (playCue) playGameMessageSound(msg);
-  const api = msg.api || ""; const text = String(msg.message_content || "").trim(); const privateMessage = msg.message_type !== "public";
-  if (api === "player_init" || api === "player_anonymous_init") {
-    clearNewGamePresentation();
-    state.players = (msg.data || []).map(p => ({ ...p, connected: true, isBot: state.botIds.includes(p.id) }));
-  }
-  if (api === "player_notify_chara" || api === "player_notify_chara_reset") state.role = text || "未知身份";
-  if (api === "leaf_notify_first_chara" || api === "leaf_notify_first_chara_reroll") state.role = `叶子 · ${text}`;
-  if (api === "night_start_broadcast") { clearTimer(); state.phase = "夜晚"; state.round++; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.myzThreatenedSkills = {}; state.activePendingId = ""; }
-  if (api === "day_start_broadcast") { clearTimer(); state.phase = "白天"; state.request = null; state.selected = []; state.modifier = ""; state.pendingSkills = []; state.pendingDrafts = {}; state.pendingModifiers = {}; state.preSubmittedDrafts = {}; state.myzThreatenedSkills = {}; state.activePendingId = ""; }
-  if (api === "vote_start_broadcast") { clearTimer(); state.phase = "投票"; state.request = null; state.selected = []; state.modifier = ""; state.votes = []; }
-  if (api === "vote_end_broadcast") clearTimer();
-  if (api === "game_win_broadcast") { clearTimer(); state.phase = "终局"; }
-  if (api === "game_update_night" || api === "game_update_day") { state.entities = Array.isArray(msg.data) ? msg.data : msg.data?.entities || []; state.players = state.entities.map(entity => ({ ...entity.player, connected: true, isBot: state.botIds.includes(entity.player.id) })); }
-  if (api === "game_update_night_patch") applyEntityStatePatch(msg.data);
-  if (api === "game_update_vote") updateVotes(msg);
-  if (api === "pending_skill_created") rememberPending(msg.data);
-  if (api === "invalid_pending_skill_notify") removePending(pendingId(msg.data));
-  if (api === "skill_blocked_by_jiaohua_notify") removePending(pendingId(msg.data));
-  if (api === "myz_threaten_notify" || api === "myz_threaten_force_notify") {
-    const id = pendingId(msg.data);
-    if (id) {
-      delete state.pendingDrafts[id];
-      delete state.pendingModifiers[id];
-      state.preSubmittedDrafts[id] = false;
-      state.myzThreatenedSkills[id] = {
-        force: api === "myz_threaten_force_notify",
-        target: msg.data?.skill_id?.threaten?.target
-      };
-      if (state.activePendingId === id) { state.selected = []; state.modifier = ""; }
-      if (api === "myz_threaten_force_notify") removePending(id);
-    }
-  }
-  if (api.startsWith("request_") && !api.endsWith("_parse_error")) activateRequest(msg);
-  if (api.endsWith("_parse_error")) { notify(text || "这个选择无效，请重试"); }
-  if (recordEvent && text && !api.startsWith("request_") && !api.startsWith("game_update_"))
-    addEvent(api, text, privateMessage);
+  reduceGameMessage(state, msg, { ...gameReducerDeps, recordEvents: recordEvent, playGameMessageSound: playCue ? playGameMessageSound : undefined });
 }
+const gameReducerDeps = {
+  roles, clearNewGamePresentation, clearTimer, applyFullEntitySnapshot: setFullEntitySnapshot, applyEntityStatePatch,
+  updateVotes, rememberPending: rememberPendingPure, removePending: removePendingPure, pendingId: pendingIdPure,
+  syncDraft: value => syncDraft(value, false), notify, alertRequest, addEvent,
+  playGameMessageSound
+};
 function applyEntityStatePatch(data) {
-  if (data?.cause !== "huika_smog" || !Array.isArray(data.entities)) {
-    globalThis.console?.debug?.("忽略非法灰卡比夜间增量", data);
-    return false;
-  }
-  let changed = false;
-  for (const item of data.entities) {
-    const id = Number(item?.player_id);
-    const entity = Number.isInteger(id) ? state.entities.find(x => Number(x.player?.id ?? x.player?.Id) === id) : null;
-    if (!entity || !item?.state || typeof item.state !== "object" || Array.isArray(item.state)) {
-      globalThis.console?.debug?.("忽略未知玩家或非法灰卡比实体增量", item);
-      continue;
-    }
-    for (const [field, value] of Object.entries(item.state)) {
-      const expected = nightPatchStateKinds[field];
-      if (!expected || typeof value !== expected || (expected === "number" && !Number.isFinite(value))) {
-        globalThis.console?.debug?.("忽略非法灰卡比状态字段", field, value);
-        continue;
-      }
-      if (!entity.state || typeof entity.state !== "object") entity.state = {};
-      if (entity.state[field] !== value) { entity.state[field] = value; changed = true; }
-    }
-  }
-  return changed;
+  return mergeEntityStatePatch(state, data);
 }
 function clearTimer() { state.timerDeadline = 0; state.timerApi = ""; state.timerMode = ""; }
 function timerText() {
@@ -286,25 +187,9 @@ function syncDraft(value = state.selected.join(" "), preSubmit) {
   const armed = preSubmit ?? Boolean(skillId && state.preSubmittedDrafts[skillId]);
   if (skillId || api) send({ type: "pending_draft", skillId, api, value: String(value).trim(), preSubmit: armed });
 }
-function activePending() { return state.pendingSkills.find(x => x.id === state.activePendingId) || state.pendingSkills[0] || null; }
-function selectionRule(context = state.request || activePending()) {
-  const api = context?.api || ""; const type = context?.type || ""; const data = context?.data;
-  if (api === "request_leaf_charas") { const count = Number(data?.choice_count) || 4; return { min: count, max: count }; }
-  if (api === "request_myz_skill" || (!api && type === "myz")) return { min: 2, max: 2 };
-  const exact = Number(data?.choice_count);
-  if (exact > 0) return { min: exact, max: exact };
-  const minimum = Math.max(1, Number(data?.choice_min) || 1);
-  const explicitMax = Number(data?.choice_max);
-  if (explicitMax > 0) return { min: minimum, max: explicitMax };
-  const match = String(context?.message_content || "").match(/最多\s*(\d+)\s*个/);
-  if (match) return { min: 1, max: Number(match[1]) };
-  const pendingMaximum = ({ "庸医": 3, "法猫": 2, "灰卡比": 2 })[type];
-  return { min: 1, max: pendingMaximum || 1 };
-}
-function selectionCountValid(context = state.request || activePending()) {
-  const rule = selectionRule(context);
-  return state.selected.length >= rule.min && state.selected.length <= rule.max;
-}
+function activePending() { return activePendingPure(state); }
+function selectionRule(context = state.request || activePending()) { return selectionRulePure(context, roles); }
+function selectionCountValid(context = state.request || activePending()) { return selectionCountValidPure(state.selected, context, roles); }
 function requiredModifier(context = state.request || activePending()) {
   const api = context?.api || ""; const type = context?.type || "";
   return api ? ["request_jiaohua_dead_skill","request_rabi_skill"].includes(api) : type === "兔子";
@@ -332,15 +217,12 @@ function leafSelectionValid(request = state.request) {
   const required = request.data?.required_camps || [];
   return required.every(camp => selected.some(value => options.find(option => option.value === value)?.camp === camp));
 }
-function pendingId(data) { const raw = data?.skill_id ?? data?.id ?? data; return typeof raw === "object" ? raw?.id || "" : String(raw || ""); }
+function pendingId(data) { return pendingIdPure(data); }
 function rememberPending(data) {
-  const id = pendingId(data); if (!id || state.pendingSkills.some(x => x.id === id)) return;
-  state.pendingSkills.push({ ...data, id }); state.pendingSkills.sort((a,b) => b.priority - a.priority);
-  if (!state.activePendingId) { state.activePendingId = id; state.selected = [...(state.pendingDrafts[id] || [])]; state.modifier = state.pendingModifiers[id] || ""; }
+  rememberPendingPure(state, data);
 }
 function removePending(id) {
-  if (!id) return; state.pendingSkills = state.pendingSkills.filter(x => x.id !== id); delete state.pendingDrafts[id]; delete state.pendingModifiers[id]; delete state.preSubmittedDrafts[id];
-  if (state.activePendingId === id) { state.activePendingId = state.pendingSkills[0]?.id || ""; state.selected = [...(state.pendingDrafts[state.activePendingId] || [])]; state.modifier = state.pendingModifiers[state.activePendingId] || ""; }
+  removePendingPure(state, id);
 }
 function requestChoiceInvalid(msg, value, index) {
   if (typeof value !== "number") return false;
@@ -427,20 +309,8 @@ function chatAvailability() {
 }
 function addEvent(api, text, privateMessage) { appendEvent(api, text, privateMessage); }
 
-function landing() {
-  return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> MF 杀 ONLINE</div><div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.connected ? "已连接" : "等待连接"}</div></header>
-  <section class="landing"><div class="hero"><div class="eyebrow">A social deduction game · 7–16 players</div><h1>今夜，<span>谁在说谎？</span></h1><p class="hero-copy">身份藏在暗处，技能按优先级交错结算。每个玩家只会收到属于自己的信息——讨论、判断，然后在天亮前做出选择。</p><div class="features"><div><b>21</b>独特身份</div><div><b>2</b>对立阵营</div><div><b>1</b>不可信的夜晚</div></div></div>
-  <form class="entry-card" id="entry-form"><h2>进入游戏</h2><p>创建房间，或凭 6 位房间号加入朋友。</p><div class="field"><label for="name">你的昵称</label><input class="input" id="name" maxlength="20" autocomplete="nickname" placeholder="今晚怎么称呼你" required /></div><div class="field"><label for="code">房间号 · 加入时填写</label><input class="input" id="code" inputmode="numeric" maxlength="6" placeholder="例如 042016" /></div><div class="entry-actions"><button class="btn btn-primary" name="action" value="create">创建房间</button><button class="btn btn-ghost" name="action" value="join">加入房间</button></div><details class="server-field"><summary>连接自己的服务器</summary><input class="input" id="server" value="${e(state.server)}" placeholder="wss://game.example.com/ws" /></details></form></section></main>`;
-}
-function room() {
-  const seats = [...state.players]; while (seats.length < Math.max(7, state.players.length)) seats.push(null);
-  const settings = state.roomSettings;
-  const settingsPanel = state.isHost ? `<form class="room-settings" id="room-settings"><label>普通请求限时<input class="input" id="setting-request-timeout" type="number" min="5" max="600" value="${settings.requestTimeoutSeconds}"/><span>秒</span></label><label>每名可投票玩家时长<input class="input" id="setting-vote-per-alive" type="number" min="5" max="600" value="${settings.voteSecondsPerAlive}"/><span>秒</span></label><label>每次投票扣减<input class="input" id="setting-vote-penalty" type="number" min="0" max="600" value="${settings.votePenaltySeconds}"/><span>秒</span></label><label>连续消息展示间隔<input class="input" id="setting-event-interval" type="number" min="0" max="10" value="${settings.eventIntervalSeconds}"/><span>秒</span></label><button class="btn btn-ghost" type="submit">保存房间设置</button></form>` : `<div class="settings-summary">普通请求 ${settings.requestTimeoutSeconds}s · 投票每人 ${settings.voteSecondsPerAlive}s · 每票扣 ${settings.votePenaltySeconds}s · 消息间隔 ${settings.eventIntervalSeconds}s</div>`;
-  return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> MF 杀 ONLINE</div><div class="top-actions">${soundToggleButton()}<div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.connected ? "房间在线" : "连接中断"}</div><button class="btn btn-ghost leave-room" data-leave-room>彻底退出</button></div></header>
-  <section class="room-head"><div><div class="eyebrow">私人房间</div><div class="room-code" id="copy-room-code" role="button" tabindex="0">${e(state.roomCode)} <small>点击复制</small></div></div><button class="btn btn-ghost" id="copy-room">复制邀请信息</button></section>
-  <section class="lobby"><div class="panel"><div class="panel-title"><h2>玩家席位</h2><span class="count">${state.players.length} / 16</span></div><div class="players-grid">${seats.map((p,i) => p ? `<div class="player-seat ${p.connected ? "" : "offline"}"><span class="seat-no">${p.id}</span><div>${e(p.name)}${p.isHost ? '<span class="host-tag">房主</span>' : ""}${p.isBot ? '<span class="bot-tag">BOT</span>' : ""}${p.id === state.playerId ? '<span class="you-tag">你</span>' : ""}</div></div>` : `<div class="player-seat empty-seat"><span class="seat-no">${i+1}</span><div>等待加入</div></div>`).join("")}</div></div>
-  <aside class="panel"><div class="panel-title"><h3>开局之前</h3></div><p class="lobby-note">需要至少 <strong>7 名玩家</strong>。开始后，系统会私下发送身份与行动面板。建议所有人保持页面开启，并在语音或线下完成白天讨论。</p><div class="divider"></div><p class="lobby-note">你是 <strong>${state.isHost ? "房主" : `${state.playerId} 号玩家`}</strong>${state.isHost ? "，玩家到齐后由你开局。" : "，等待房主开局。"}</p>${settingsPanel}${state.isHost ? `<div class="bot-controls"><button class="btn btn-ghost" data-add-bot ${state.players.length >= 16 ? "disabled" : ""}>＋ 增加 Bot</button><button class="btn btn-ghost" data-remove-bot ${state.players.some(p=>p.isPermanentBot) ? "" : "disabled"}>－ 删除 Bot</button></div>` : ""}<div class="start-wrap">${state.isHost ? `<button class="btn btn-primary" id="start-game" ${state.players.length < 7 ? "disabled" : ""}>${state.players.length < 7 ? `还差 ${7-state.players.length} 人` : "所有人准备好 · 开始"}</button>` : `<button class="btn" disabled>等待房主开始</button>`}</div></aside></section></main>`;
-}
+function landing() { return renderLanding({ state, e }); }
+function room() { return renderRoom({ state, e, soundToggleButton }); }
 function entityFor(id) { return state.entities.find(x => (x.player?.id ?? x.player?.Id) === id); }
 const roleStateLabels = {
   cai_count: ["彩量", "🎨"], reborn_list: ["复活名单", "↻"], bomb_count: ["炸弹", "💣"],
@@ -531,83 +401,10 @@ function playerCard(p) {
   const roleText = roleName ? `${roleName}${visibleRole?.public_reveal ? " · 已公开" : ""}` : dead ? (st.dead_showing_name || "身份未公开") : "身份隐藏";
   return `<button class="board-player ${dead ? "dead" : ""} ${selected ? "selected" : ""}" data-player="${p.id}" ${invalid ? "disabled" : ""}><div class="board-name"><span class="seat-no" style="display:inline-grid;width:25px;height:25px;border-radius:8px;margin-right:7px">${p.id}</span>${e(displayName)}</div><div class="board-role ${visibleRole?.public_reveal ? "public" : ""}">${e(roleText)}</div>${effects.length ? `<div class="state-badges">${effects.map(x => `<span class="state-badge ${x[1]}">${x[0]}</span>`).join("")}</div>` : ""}${voteText ? `<div class="vote-status ${vote.confirmed ? "confirmed" : ""}">${e(voteText)}${vote.confirmed ? " · 已确认" : " · 可改票"}</div>` : ""}${tokens.length ? `<div class="tokens">${tokens.map(x=>`<span class="token">${x[0]} × ${x[1]}</span>`).join("")}</div>` : ""}</button>`;
 }
-function invalidIdsFor(request) {
-  const data = request?.data; let list;
-  if (request?.api === "request_vote" && Array.isArray(data)) list = data.find(x => x.id === state.playerId)?.invalid_vote || [];
-  else if (request?.api === "request_myz_skill" && state.selected.length === 1) list = data?.invalid_target_choice || [];
-  else list = data?.invalid_choice || data?.invalid_vote || [];
-  return new Set(list.map(x => typeof x === "number" ? x : x.id));
-}
+function invalidIdsFor(request) { return invalidIdsPure(request, state.playerId, state.selected); }
 function invalidIds() { return invalidIdsFor(state.request); }
-function actionPanel() {
-  const r = state.request;
-  if (!r && state.pendingSkills.length) {
-    const active = activePending(); const rule = selectionRule(active); const armed = Boolean(state.preSubmittedDrafts[active.id]);
-    const modifierChoices = pendingModifierOptions(active.type);
-    const modifierHtml = modifierChoices.length ? `<div class="choice-row" style="margin-top:10px">${modifierChoices.map(x=>`<button class="choice ${state.modifier===x[0]?"selected":""}" data-modifier="${x[0]}">${x[1]}</button>`).join("")}</div>` : "";
-    const canPreSubmit = selectionCountValid(active) && (!requiredModifier(active) || state.modifier);
-    const countHint = rule.min === rule.max ? `请选择 ${rule.max} 名玩家` : `可选择 ${rule.min}–${rule.max} 名玩家`;
-    return `<section class="panel action-panel pending"><div class="action-kicker">提前准备 · ${armed ? "已预提交" : "尚不能正式提交"}</div><div class="choice-row">${state.pendingSkills.map(x=>`<button class="choice ${x.id===active.id?"selected":""}" data-pending="${e(x.id)}">${e(x.type)} · 优先级 ${x.priority}${state.preSubmittedDrafts[x.id] ? " · 已预提交" : ""}</button>`).join("")}</div><h2>预选「${e(active.type)}」技能目标</h2><p class="lobby-note">${countHint}。点击“预提交”后，真正轮到该技能时会按最新局面复核；合法则自动行动，失效则取消并提醒。</p>${modifierHtml}<div class="action-footer"><button class="btn btn-ghost" data-clear-draft>清除预选</button><button class="btn btn-primary" data-pre-submit ${armed || canPreSubmit ? "" : "disabled"}>${armed ? "取消预提交" : `预提交${state.selected.length ? ` · ${state.selected.join("、")}` : ""}`}</button></div></section>`;
-  }
-  if (!r) return `<section class="panel action-panel inactive"><div class="action-kicker">CURRENT ACTION ${timerBadge()}</div><h2>${state.timerMode === "vote" ? "投票进行中" : "等待其他玩家行动"}</h2><p class="lobby-note">${state.timerMode === "vote" ? "共享投票时间正在倒计时；每次有效投票都会扣减时间。" : "轮到你时，选择面板会自动出现。"}</p></section>`;
-  const api = r.api; const boolRequest = /(?:reborn|drink_milk|give_mfa|red_ground|anonymous_game|leaf_game|leaf_chara_reroll|using_copy_skill|for_next_game|reroll_player)$/.test(api);
-  const forceChoice = api.includes("force_threaten") && api !== "request_myz_skill_force_threaten"; const roleChoice = api === "request_leaf_charas"; const copyLeafChoice = api === "request_hechong_copy_leaf";
-  let choices = "";
-  if (boolRequest) choices = `<div class="choice-row"><button class="choice" data-value="1">确认 / 是</button><button class="choice" data-value="0">放弃 / 否</button></div>`;
-  else if (copyLeafChoice) { const options = copyLeafOptions(r); choices = `<div class="choice-row">${options.map(option=>`<button class="choice" data-value="${e(option.value)}">${e(option.value)}：${e(option.label)}</button>`).join("")}</div>`; }
-  else if (forceChoice) {
-    const opts = api === "request_xiansong_skill_force_threaten" ? [["m","强制索要 MFA"],["x","丢咸松球"],["0","放弃"]] : [["1","选项 1"],["0","选项 0"]];
-    choices = `<div class="choice-row">${opts.map(x=>`<button class="choice" data-value="${x[0]}">${x[1]}</button>`).join("")}</div>`;
-  }
-  else if (roleChoice) {
-    const options = api === "request_leaf_charas" ? leafOptions(r) : roles.map(value => ({ value, camp: "" }));
-    choices = `<div class="choice-row">${options.map(option=>`<button class="choice ${state.selected.includes(option.value)?"selected":""}" data-role="${e(option.value)}">${e(option.value)}${option.camp ? ` · ${e(option.camp)}` : ""}</button>`).join("")}</div>`;
-    if (api === "request_leaf_charas") {
-      const camps = [...new Set(state.selected.map(value => options.find(option => option.value === value)?.camp).filter(Boolean))];
-      choices += `<p class="leaf-hint ${leafSelectionValid(r)?"valid":""}">已选 ${state.selected.length}/${r.data?.choice_count || 4} · ${camps.length ? `阵营：${camps.join("、")}` : "需同时包含吧方与爆方"} · 不可选择粉侠、彩怪、叶子</p>`;
-    }
-  }
-  const modifierSets = {
-    request_jiaohua_dead_skill: [["x","封住行动"],["p","保护玩家"]],
-    request_rabi_skill: [["x","鲜奶"],["d","毒奶"]],
-    request_doge_skill: [["","仅保护"],["b","保护后自爆"]],
-    request_caimon_skill: [["","一根彩条"],["d","两根彩条"]],
-    request_myz_skill_force_threaten: [["","普通威胁"],["f","自爆并强制"]],
-    request_vote: (Array.isArray(r.data) && r.data.find(x=>x.id===state.playerId)?.can_suicide) ? [["","正常投票"],["b","脚滑人自爆"]] : [["","正常投票"]]
-  };
-  if (modifierSets[api]) choices += `<div class="choice-row" style="margin-top:10px">${modifierSets[api].map(x=>`<button class="choice ${state.modifier===x[0]?"selected":""}" data-modifier="${x[0]}">${x[1]}</button>`).join("")}</div>`;
-  const showSubmit = !boolRequest && !forceChoice; const canSubmit = selectionCountValid(r) && (!requiredModifier(r) || state.modifier) && leafSelectionValid(r);
-  const threat = r.web_myz_threaten;
-  const threatWarning = threat ? `<div class="threat-warning">⚠ ${threat.force ? "你受到 myz 强制威胁，指定目标已被锁定；请重新决定当前仍可选择的附加效果。" : `你已被 myz 威胁${threat.target ? `，要求本技能包含 ${e(threat.target)} 号目标` : ""}。请重新决定；若无视威胁，下一次夜晚开始时你会死亡。`}</div>` : "";
-  return `<section class="panel action-panel"><div class="action-kicker">${r.web_concurrent ? `并发输入 · 剩余 ${r.web_remaining} 次` : "轮到你行动"} ${timerBadge()}</div><h2>${e(r.message_content || "请做出选择")}</h2>${threatWarning}${choices}${showSubmit ? `<div class="action-footer">${api === "request_leaf_charas" ? "" : `<button class="btn btn-ghost" data-giveup>放弃</button>`}<button class="btn btn-primary" data-submit ${canSubmit ? "" : "disabled"}>确认选择${state.selected.length ? ` · ${state.selected.join("、")}` : ""}</button></div>` : ""}<details class="manual"><summary>高级：按 CLI 格式输入</summary><div class="manual-row"><input class="input" id="manual-input" placeholder="输入原始指令"/><button class="btn" data-manual>发送</button></div></details></section>`;
-}
-function game() {
-  const players = state.players.length ? state.players : Array.from({length:7},(_,i)=>({id:i+1,name:`${i+1} 号玩家`}));
-  const chat = chatAvailability();
-  const timelineHtml = state.events.length ? state.events.map(x => {
-    if (x.cliInput) {
-      const api = String(x.api || "CLI").replaceAll("_", " ");
-      return `<article class="event cli-input"><div class="event-meta">${e(x.time)} · CLI 输入 · 仅你可见 · ${e(api)}</div><div class="event-text">&gt; ${e(x.text)}</div></article>`;
-    }
-    if (x.chat) {
-      const sender = state.players.find(player => player.id === x.playerId);
-      const senderText = `${x.playerId} 号 · ${sender?.name || "玩家"}`;
-      return `<article class="event chat-message ${x.playerId === state.playerId ? "mine" : ""}"><div class="event-meta">${e(x.time)} · ${e(senderText)}</div><div class="event-text">${e(x.text)}</div></article>`;
-    }
-    return `<article class="event ${x.private ? "private" : ""}"><div class="event-meta">${e(x.time)} · ${e(x.api.replaceAll("_"," "))}</div><div class="event-text">${e(x.text)}</div></article>`;
-  }).join("") : '<div class="empty-state">还没有聊天或事件</div>';
-  const chatForm = `<form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" autocomplete="off" value="${e(state.chatDraft)}" placeholder="${e(chat.reason)}" ${chat.allowed ? "" : "disabled"}/><button class="btn btn-primary" ${chat.allowed ? "" : "disabled"}>发送</button></form>`;
-  const me = entityFor(state.playerId); const myRole = me?.role;
-  const personalStates = [
-    me?.state?.is_bar_leader ? { text: "🍺 你是吧主", kind: "bar-leader" } : null,
-    ...roleStateItems(myRole?.data ?? myRole?.role?.data)
-  ].filter(Boolean);
-  const personalStateHtml = personalStates.length ? `<div class="role-states personal-role-states">${personalStates.map(x => `<span class="role-state ${x.kind}">${e(x.text)}</span>`).join("")}</div>` : "";
-  return `<main class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">MF</span> 房间 ${e(state.roomCode)}</div><div class="top-actions">${soundToggleButton()}<div class="status"><span class="status-dot ${state.connected ? "" : "off"}"></span>${state.playerId} 号 · ${e(state.playerName)}</div><button class="btn btn-ghost leave-room" data-leave-room>彻底退出</button></div></header>
-  <div class="game-layout"><aside class="panel phase-panel"><div class="phase-orb ${state.phase === "夜晚" ? "night" : ""}"></div><div><div class="phase-name">${e(state.phase)}</div><div class="phase-sub">${state.round ? `第 ${state.round} 夜 · ` : ""}${state.phase === "夜晚" ? "请保持安静" : "信息公开"}</div></div><div class="identity-card ${state.roleVisible ? "" : "hidden"}"><div class="identity-main"><div><small>你的身份</small><strong>${e(state.role)}</strong></div><div class="game-seat"><small>本局编号</small><b>${state.playerId}</b><span>号</span></div></div>${personalStateHtml}<button class="identity-toggle" id="toggle-role">${state.roleVisible ? "隐藏身份" : "显示身份"}</button></div>${state.isHost ? `<div class="host-tools"><button class="btn" data-restart-room>重开并返回大厅</button></div>` : ""}${state.gameLog ? `<button class="btn log-download" id="download-log">下载本局日志</button>` : ""}</aside>
-  <section class="panel board-panel"><div class="panel-title"><h2>在场玩家</h2><span class="count">点击玩家以选择目标</span></div><div class="board-list">${players.map(playerCard).join("")}</div></section>
-  <aside class="right-stack">${actionPanel()}<section class="panel chat-panel"><div class="panel-title"><h3>聊天与事件</h3><span class="count">白天存活玩家可以发言</span></div><div class="feed">${timelineHtml}</div>${chatForm}</section></aside></div></main>`;
-}
+function actionPanel() { return renderActionPanel({ state, e, roles, timerBadge, activePending, selectionRule, selectionCountValid, requiredModifier, pendingModifierOptions, copyLeafOptions, leafOptions, leafSelectionValid }); }
+function game() { return renderGame({ state, e, soundToggleButton, entityFor, chatAvailability, actionPanel, playerCard, roleStateItems }); }
 function render() {
   if (chatCompositionActive) {
     renderPendingAfterComposition = true;
@@ -644,12 +441,9 @@ function endChatComposition(input) {
 }
 function choosePlayer(id) {
   if (!state.request && !state.activePendingId) return;
-  const rule = selectionRule(); const myz = state.request?.api === "request_myz_skill" || (!state.request && activePending()?.type === "myz");
-  if (myz) state.selected = state.selected.length >= rule.max ? [id] : [...state.selected, id];
-  else if (state.selected.includes(id)) state.selected = state.selected.filter(x => x !== id);
-  else if (rule.max === 1) state.selected = [id];
-  else if (state.selected.length >= rule.max) return notify(`最多选择 ${rule.max} 名玩家`);
-  else state.selected = [...state.selected, id];
+  const next = choosePlayerSelection(state.selected, id, state.request || activePending(), { roleNames: roles });
+  if (next === null) return notify(`最多选择 ${selectionRule().max} 名玩家`);
+  state.selected = next;
   if (!state.request && state.activePendingId) {
     state.pendingDrafts[state.activePendingId] = [...state.selected]; state.pendingModifiers[state.activePendingId] = state.modifier;
     state.preSubmittedDrafts[state.activePendingId] = false;
@@ -732,9 +526,7 @@ function bind() {
   }
 }
 function formatSelection() {
-  const api = state.request?.api || ""; const ids = state.selected.join(" ");
-  if (api === "request_vote") return state.modifier === "b" ? "b" : String(state.selected[0] ?? "");
-  return `${ids}${state.modifier ? ` ${state.modifier}` : ""}`.trim();
+  return formatSelectionPure(state.request?.api || "", state.selected, state.modifier);
 }
 function submit(value) {
   if (value === "") return notify("请输入内容"); const request = state.request; send({ type: "game_input", value: String(value) });
@@ -748,3 +540,9 @@ if (typeof setInterval === "function") setInterval(() => {
   document.querySelectorAll("[data-timer]").forEach(node => node.textContent = timerText());
 }, 250);
 render();
+
+export { state, onMessage, render, game, actionPanel, selectionRule, selectionCountValid, formatSelection, choosePlayer, invalidIdsFor, roleStateItems, playerCard, chatAvailability, appendChat, appendCliInput, beginChatComposition, endChatComposition, isReservedNickname, defaultRoomSettings, soundForGameMessage, soundFiles, applyEntityStatePatch };
+import { landing as renderLanding } from "./views/landing.js";
+import { room as renderRoom } from "./views/room.js";
+import { actionPanel as renderActionPanel } from "./views/action-panel.js";
+import { game as renderGame } from "./views/game.js";
