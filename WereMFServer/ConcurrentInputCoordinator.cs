@@ -19,6 +19,7 @@ internal sealed class ConcurrentInputPhase
     public HashSet<int> CanSuicide { get; } = [];
     public Dictionary<int, string> LatestVotes { get; } = [];
     public HashSet<int> Responded { get; } = [];
+    public HashSet<int> DefenseTriggered { get; } = [];
     public bool CliWaiting { get; set; } = true;
     public DateTimeOffset Deadline { get; set; }
     public DateTimeOffset StartedAt { get; set; }

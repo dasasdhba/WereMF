@@ -55,7 +55,7 @@ function Import-DotEnv {
             }
         }
     }
-    Write-Host "已加载 .env 环境变量（值不会输出）。"
+    Write-Host "已加载 .env 环境变量。"
 }
 
 try {

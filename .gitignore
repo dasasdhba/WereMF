@@ -6,3 +6,4 @@ gui-sock-*
 **/obj/
 /WereMFServer/wwwroot/
 /.env
+llm_requests.log

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 namespace WereMFServer;
 
 internal enum BotSpeechResponseMode
@@ -12,6 +14,17 @@ internal sealed record BotSpeechCandidate<T>(T Bot, BotConversationDecision? Dec
 // This only classifies delivery policy. It never interprets game state or private role data.
 internal static class BotConversationPolicy
 {
+    public static string RandomSafeVoteChoice(int playerId, IReadOnlyCollection<string> choices)
+    {
+        var safeChoices = choices
+            .Where(choice => choice != "b" &&
+                            (!int.TryParse(choice, out var targetId) || targetId != playerId))
+            .ToArray();
+        return safeChoices.Length == 0
+            ? "0"
+            : safeChoices[RandomNumberGenerator.GetInt32(safeChoices.Length)];
+    }
+
     public static BotSpeechResponseMode ResponseModeFor(string trigger, string botName) =>
         trigger.Contains(botName, StringComparison.OrdinalIgnoreCase)
             ? BotSpeechResponseMode.Required
@@ -37,9 +50,4 @@ internal static class BotConversationPolicy
             .ToArray();
     }
 
-    public static string RequiredFallbackText(BotSpeechResponseMode mode) => mode switch
-    {
-        BotSpeechResponseMode.RequiredInformationProbe => "请仍存活的玩家说明昨夜可公开核对的变化。",
-        _ => "我在，请直接说明希望我回应的具体判断。"
-    };
 }

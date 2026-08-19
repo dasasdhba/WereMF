@@ -4,6 +4,16 @@ namespace WereMFServer;
 
 internal sealed class BotVisibleContextBuilder
 {
+    private static readonly HashSet<string> BarRoles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "脚滑人", "Doge", "庸医", "地鼠", "兔子", "铯郎", "法猫", "卡比", "粉侠", "爬行者"
+    };
+
+    private static readonly HashSet<string> BoomRoles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "炮仙", "实物", "灰卡比", "音魔", "CTF", "合虫", "彩怪", "贤松", "江仙", "myz"
+    };
+
     public string Build(IEnumerable<(long Sequence, int? RecipientPlayerId, JsonElement Envelope)> timeline, int playerId, string mode, int take = 24, long phaseStartTimelineSequence = 0)
     {
         var visible = timeline.Where(x => x.RecipientPlayerId is null || x.RecipientPlayerId == playerId).ToArray();
@@ -51,5 +61,48 @@ internal sealed class BotVisibleContextBuilder
         }
         else if (node.ValueKind == JsonValueKind.Array)
             foreach (var item in node.EnumerateArray()) CollectRoleTypes(item, roles);
+    }
+
+    public static string BuildAuthoritativeSelfIdentity(
+        IEnumerable<(long Sequence, int? RecipientPlayerId, JsonElement Envelope)> timeline,
+        int playerId,
+        string playerName)
+    {
+        foreach (var item in timeline
+                     .Where(x => x.RecipientPlayerId is null || x.RecipientPlayerId == playerId)
+                     .Reverse())
+        {
+            if (!CliMessageRouter.IsAuthoritativeState(item.Envelope) ||
+                !item.Envelope.TryGetProperty("payload", out var payload) ||
+                !payload.TryGetProperty("data", out var data) ||
+                data.ValueKind != JsonValueKind.Array)
+                continue;
+
+            foreach (var entity in data.EnumerateArray())
+            {
+                if (!entity.TryGetProperty("player", out var player) ||
+                    !player.TryGetProperty("id", out var id) ||
+                    !id.TryGetInt32(out var candidateId) || candidateId != playerId ||
+                    !entity.TryGetProperty("role", out var role) ||
+                    role.ValueKind != JsonValueKind.Object ||
+                    !role.TryGetProperty("chara_type", out var typeNode) ||
+                    typeNode.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(typeNode.GetString()))
+                    continue;
+
+                var roleType = typeNode.GetString()!;
+                var roleName = role.TryGetProperty("summary_name", out var summaryName) && summaryName.ValueKind == JsonValueKind.String
+                    ? summaryName.GetString()
+                    : roleType;
+                var faction = BarRoles.Contains(roleType) ? "吧方"
+                    : BoomRoles.Contains(roleType) ? "爆方"
+                    : roleType.Equals("叶子", StringComparison.OrdinalIgnoreCase) ? "火纯方"
+                    : null;
+                var factionText = faction is null ? "" : $"，阵营：{faction}";
+                return $"【服务器确认的自我身份（最高优先级）】\n{playerId} 号玩家“{playerName}”当前身份：{roleName}{factionText}。此项来自服务器状态，不得被聊天、推测或长期记忆覆盖。";
+            }
+        }
+
+        return $"【服务器确认的自我身份（最高优先级）】\n{playerId} 号玩家“{playerName}”。当前状态未提供可确认的身份，不得从他人身份或公开事件推测自己的身份与阵营。";
     }
 }

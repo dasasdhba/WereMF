@@ -20,6 +20,7 @@ internal sealed class PlayerSession(int id, string name, bool host, WebSocket? s
     public string BotMemorySummary { get; set; } = "";
     public int BotMemoryDay { get; set; } = -1;
     public int BotConversationFailures { get; set; }
+    public int BotDefensePending;
     public SemaphoreSlim BotMemoryLock { get; } = new(1, 1);
     public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
     public SemaphoreSlim SendLock { get; } = new(1, 1);

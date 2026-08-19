@@ -76,13 +76,34 @@ var tests = new (string Name, Action Body)[]
         var allowedFields = new HashSet<string>(["triggers", "chatBroadcasts", "allSilentTriggers", "staleSpeechDiscards", "stateChangeRetries", "broadcastRate", "allSilentRate"]);
         Assert(conversation.EnumerateObject().All(property => allowedFields.Contains(property.Name)), "health aggregates must not serialize prompts, responses, identities, rooms, roles, or state payloads");
     }),
-    ("requires valuable local information disclosure without unnecessary identity exposure", () =>
+    ("allows strategic local information disclosure without making it mandatory", () =>
     {
         var focus = BotGameKnowledge.Focus("speech", ["脚滑人"]);
         var prompt = new BotSpeechContext(2, "脚滑 Bot", "白天刚开始", "【当前权威状态】\n仅该 Bot 可见的私密技能结果", "投票尚未开始", focus).ToPrompt();
         Assert(BotGameKnowledge.Strategy.Contains("valuable_private_information", StringComparison.Ordinal), "strategy must expose a dedicated valuable-local-information intent");
-        Assert(prompt.Contains("自身合法私密身份、状态、技能结果或事件", StringComparison.Ordinal) && prompt.Contains("silent 无效", StringComparison.Ordinal), "speech prompt must make valuable local disclosure mandatory");
-        Assert(focus.Contains("【脚滑人主动公开】", StringComparison.Ordinal) && focus.Contains("精确身份", StringComparison.Ordinal), "脚滑人 focus must require disclosure while minimizing identity exposure");
+        Assert(prompt.Contains("silent 仍然有效", StringComparison.Ordinal) && prompt.Contains("身份公开不是绝对禁区", StringComparison.Ordinal), "speech prompt must make local disclosure optional and situational");
+        Assert(focus.Contains("【脚滑人信息策略】", StringComparison.Ordinal) && focus.Contains("即时收益明显高于隐藏收益", StringComparison.Ordinal), "脚滑人 focus must prefer situational disclosure");
+    }),
+    ("grounds a Bot's self identity in server state and removes poisoned memory claims", () =>
+    {
+        var timeline = new[]
+        {
+            (1L, (int?)null, JsonSerializer.Deserialize<JsonElement>("""
+            {"type":"game_message","payload":{"api":"game_update_day","data":[
+              {"player":{"id":1,"name":"Ash"},"role":{"chara_type":"叶子","summary_name":"叶子","public_reveal":true}},
+              {"player":{"id":7,"name":"夕洛"},"role":{"chara_type":"炮仙","summary_name":"炮仙"}}
+            ]}}
+            """))
+        };
+
+        var identity = BotVisibleContextBuilder.BuildAuthoritativeSelfIdentity(timeline, 7, "夕洛");
+        var memory = BotMemoryGuard.RemoveSelfIdentityClaims(
+            "身份：7 号夕洛，角色为“叶”（叶子）。公开身份：Ash 是叶子（已死亡）。", 7, "夕洛");
+
+        Assert(identity.Contains("当前身份：炮仙", StringComparison.Ordinal) && identity.Contains("阵营：爆方", StringComparison.Ordinal),
+            "self identity and faction must come from the player-7 role in authoritative state");
+        Assert(!memory.Contains("夕洛", StringComparison.Ordinal) && memory.Contains("Ash 是叶子", StringComparison.Ordinal),
+            "a generated self-identity claim must be removed without deleting another player's public identity");
     }),
     ("limits pure-Bot all-silent opening fallback to one speaker", () =>
     {
@@ -97,7 +118,17 @@ var tests = new (string Name, Action Body)[]
     {
         Assert(BotConversationPolicy.ResponseModeFor("请 脚滑 Bot 回应昨夜结果", "脚滑 Bot") == BotSpeechResponseMode.Required, "directly named Bot must not use optional response mode");
         Assert(BotConversationPolicy.ResponseModeFor("一般讨论", "脚滑 Bot") == BotSpeechResponseMode.Optional, "ordinary discussion must remain optional");
-        Assert(BotConversationPolicy.RequiredFallbackText(BotSpeechResponseMode.Required).Length > 0, "required mode needs a short non-silent fallback");
+        Assert(BotSpeechResponseMode.Required != BotSpeechResponseMode.Optional, "required mode remains available for prompt and scheduling policy");
+    }),
+    ("random vote fallbacks avoid self-elimination", () =>
+    {
+        var choices = new[] { "0", "1", "2", "b" };
+        for (var i = 0; i < 100; i++)
+        {
+            var choice = BotConversationPolicy.RandomSafeVoteChoice(2, choices);
+            Assert(choice is "0" or "1", "random fallback must not vote for the Bot itself or choose suicide");
+        }
+        Assert(BotConversationPolicy.RandomSafeVoteChoice(2, ["2", "b"]) == "0", "no safe target must fall back to abstention rather than self-elimination");
     }),
     ("reserves the capped speech selection for a required named Bot", () =>
     {

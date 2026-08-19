@@ -583,9 +583,17 @@ internal sealed class GameRoom : IAsyncDisposable
         await ApplyBotConversationVoteAsync(player, vote, phase, ct);
     }
 
-    private async Task RunBotRepliesAsync(string trigger, int? excludedBotId = null, bool conversationOnly = false)
+    private async Task RunBotRepliesAsync(string trigger, int? excludedBotId = null, bool conversationOnly = false, int? requiredBotId = null)
     {
-        if (_llmBot is null || Interlocked.CompareExchange(ref _botReplyPending, 1, 0) != 0) return;
+        if (_llmBot is null) return;
+        PlayerSession? defenseBot = null;
+        if (requiredBotId is int targetId)
+        {
+            lock (_gate)
+                defenseBot = _players.FirstOrDefault(x => x.GameId == targetId && x.IsBot && !x.HasLeft);
+            if (defenseBot is null || Interlocked.CompareExchange(ref defenseBot.BotDefensePending, 1, 0) != 0) return;
+        }
+        else if (Interlocked.CompareExchange(ref _botReplyPending, 1, 0) != 0) return;
         try
         {
             CancellationToken ct; int day; ConcurrentInputPhase? votePhase;
@@ -604,12 +612,19 @@ internal sealed class GameRoom : IAsyncDisposable
                 var candidates = _players.Where(x => x.IsBot && !x.HasLeft && _chatEligible.Contains(x.GameId) && x.GameId != excludedBotId)
                     .OrderByDescending(x => trigger.Contains(x.Name, StringComparison.OrdinalIgnoreCase))
                     .ThenBy(_ => Random.Shared.Next());
-                if (conversationOnly)
+                var orderedCandidates = candidates.ToArray();
+                if (requiredBotId is int requiredTargetId)
                 {
-                    var mentioned = candidates.Where(x => trigger.Contains(x.Name, StringComparison.OrdinalIgnoreCase)).Take(1).ToArray();
-                    bots = mentioned.Length > 0 ? mentioned : candidates.Take(3).ToArray();
+                    bots = orderedCandidates.Where(x => x.GameId == requiredTargetId).Take(1)
+                        .Concat(orderedCandidates.Where(x => x.GameId != requiredTargetId).Take(conversationOnly ? 0 : 1))
+                        .ToArray();
                 }
-                else bots = candidates.ToArray();
+                else if (conversationOnly)
+                {
+                    var mentioned = orderedCandidates.Where(x => trigger.Contains(x.Name, StringComparison.OrdinalIgnoreCase)).Take(1).ToArray();
+                    bots = mentioned.Length > 0 ? mentioned : orderedCandidates.Take(3).ToArray();
+                }
+                else bots = orderedCandidates;
             }
             if (bots.Length == 0) return;
             _botConversationMetrics.RecordTrigger();
@@ -621,7 +636,7 @@ internal sealed class GameRoom : IAsyncDisposable
             }).ToList();
             var delayedSilentVotes = new List<Task>();
             var spoke = false;
-            var speechLimit = conversationOnly ? 1 : 2;
+            var speechLimit = requiredBotId is not null || conversationOnly ? 1 : 2;
             PlayerSession? followupSpeaker = null;
             string? followupText = null;
             var completedTurns = new List<BotSpeechCandidate<PlayerSession>>();
@@ -678,7 +693,11 @@ internal sealed class GameRoom : IAsyncDisposable
             if (!spoke) _botConversationMetrics.RecordAllSilentTrigger();
         }
         catch (OperationCanceledException) { }
-        finally { Interlocked.Exchange(ref _botReplyPending, 0); }
+        finally
+        {
+            if (defenseBot is not null) Interlocked.Exchange(ref defenseBot.BotDefensePending, 0);
+            else Interlocked.Exchange(ref _botReplyPending, 0);
+        }
     }
     private async Task<BotConversationDecision?> DecideBotConversationAsync(PlayerSession player, string trigger, ConcurrentInputPhase? votePhase, BotSpeechResponseMode responseMode, CancellationToken ct)
     {
@@ -725,25 +744,31 @@ internal sealed class GameRoom : IAsyncDisposable
                     player.BotConversationFailures = 0;
                     decision = decision with { StateVersion = state.Revision };
                     if (requiredVoteChoices.Length > 0 && !requiredVoteChoices.Contains(decision.Vote))
-                        return decision with { Vote = requiredVoteChoices[RandomNumberGenerator.GetInt32(requiredVoteChoices.Length)] };
+                        return decision with { Vote = BotConversationPolicy.RandomSafeVoteChoice(player.GameId, requiredVoteChoices) };
                     return decision;
                 }
                 if (!_started || _finished || !_dayChatOpen || !player.IsBot || player.HasLeft) return null;
                 player.BotConversationFailures++;
                 if (votePhase is not null && _concurrentInput == votePhase && votePhase.Api == "request_vote" &&
-                    votePhase.Remaining.GetValueOrDefault(player.GameId) > 0 && player.BotConversationFailures >= 2)
+                    votePhase.Remaining.GetValueOrDefault(player.GameId) > 0 &&
+                    (player.BotConversationFailures >= 2 || responseMode != BotSpeechResponseMode.Optional))
                 {
                     var choices = LegalBotVoteChoicesLocked(player, votePhase)
                         .Where(x => int.TryParse(x, out var id) && id > 0)
                         .ToArray();
-                    var vote = choices.Length > 0 ? choices[RandomNumberGenerator.GetInt32(choices.Length)] : "0";
+                    var vote = BotConversationPolicy.RandomSafeVoteChoice(player.GameId, choices);
                     player.BotConversationFailures = 0;
                     return new BotConversationDecision("", vote, state.Revision);
+                }
+                if (responseMode != BotSpeechResponseMode.Optional)
+                {
+                    player.BotConversationFailures = 0;
+                    return new BotConversationDecision("", null, state.Revision);
                 }
                 if (player.BotConversationFailures >= 3 && trigger.Contains(player.Name, StringComparison.OrdinalIgnoreCase))
                 {
                     player.BotConversationFailures = 0;
-                    return new BotConversationDecision("我先保留判断。", null, state.Revision);
+                    return new BotConversationDecision("", null, state.Revision);
                 }
                 return null;
             }
@@ -762,7 +787,39 @@ internal sealed class GameRoom : IAsyncDisposable
         var publicQuietSeconds = Math.Max(0, (int)(now - phase.LastPublicActivityAt).TotalSeconds);
         var budget = Math.Max(0, (int)(phase.Deadline - now).TotalSeconds);
         var latest = phase.LatestVotes.TryGetValue(player.GameId, out var previous) ? previous : "尚未投票";
-        return $"投票阶段实际经过 {voteElapsed} 秒；距离场上最近一次发言或投票已有 {publicQuietSeconds} 秒；投票初始预算 {phase.InitialSeconds} 秒；当前投票预算剩余 {budget} 秒（每张有效票另扣 {_settings.VotePenaltySeconds} 秒）。你还可投 {remaining} 次；当前票：{latest}；合法 vote：{string.Join('、', choices)}。有合法非零目标时默认现在投票；仅在第一次机会、预算超过 60 秒且场上尚未持续沉默时可返回 null。第一票尚未使用且场上连续沉默达到一次思考间隔、预算不超过 60 秒或只剩最后一次机会时，不得继续观望。";
+        var voteTally = BuildVoteTallyLocked(phase);
+        var receivedVotes = voteTally.GetValueOrDefault(player.GameId);
+        var highestVotes = voteTally.Count == 0 ? 0 : voteTally.Values.Max();
+        var risk = receivedVotes > 0
+            ? $"你当前收到其他玩家 {receivedVotes} 张票；当前最高票为 {highestVotes} 张。你有被推出风险时，必须优先进行简短自保回应，不得只投票后沉默。"
+            : "你当前尚未收到其他玩家的票；没有明确被点名或自保压力时可以保持沉默。";
+        return $"投票阶段实际经过 {voteElapsed} 秒；距离场上最近一次发言或投票已有 {publicQuietSeconds} 秒；投票初始预算 {phase.InitialSeconds} 秒；当前投票预算剩余 {budget} 秒（每张有效票另扣 {_settings.VotePenaltySeconds} 秒）。你还可投 {remaining} 次；当前票：{latest}；合法 vote：{string.Join('、', choices)}。{risk}有合法非零目标时默认现在投票；仅在第一次机会、预算超过 60 秒且场上尚未持续沉默时可返回 null。第一票尚未使用且场上连续沉默达到一次思考间隔、预算不超过 60 秒或只剩最后一次机会时，不得继续观望。";
+    }
+
+    private Dictionary<int, int> BuildVoteTallyLocked(ConcurrentInputPhase phase)
+    {
+        var tally = new Dictionary<int, int>();
+        foreach (var (voterId, vote) in phase.LatestVotes)
+        {
+            if (!int.TryParse(vote, out var targetId) || targetId <= 0 || targetId == voterId) continue;
+            tally[targetId] = tally.GetValueOrDefault(targetId) + 1;
+        }
+        return tally;
+    }
+
+    private string? BuildBotDefenseTriggerLocked(ConcurrentInputPhase phase, string vote, out int? botId)
+    {
+        botId = null;
+        if (phase.Api != "request_vote" || !int.TryParse(vote, out var targetId) || targetId <= 0) return null;
+        var bot = _players.FirstOrDefault(x => x.GameId == targetId && x.IsBot && !x.HasLeft);
+        if (bot is null) return null;
+        var tally = BuildVoteTallyLocked(phase);
+        var receivedVotes = tally.GetValueOrDefault(targetId);
+        if (receivedVotes <= 0) return null;
+        if (!phase.DefenseTriggered.Add(targetId)) return null;
+        var highestVotes = tally.Values.Max();
+        botId = bot.GameId;
+        return $"投票风险更新：{bot.Name} 当前收到其他玩家 {receivedVotes} 张票，场上最高票为 {highestVotes} 张。你已被投票，必须立即作出简短自保回应，说明公开依据、纠正误解或争取暂缓继续投票。";
     }
 
     private List<string> LegalBotVoteChoicesLocked(PlayerSession player, ConcurrentInputPhase phase)
@@ -778,6 +835,8 @@ internal sealed class GameRoom : IAsyncDisposable
     {
         if (string.IsNullOrWhiteSpace(vote)) return;
         string? cliInput = null; var reschedule = false;
+        int? defenseBotId = null;
+        string? defenseTrigger = null;
         lock (_gate)
         {
             if (_concurrentInput != phase || phase.Api != "request_vote" || !player.IsBot || !phase.Remaining.TryGetValue(player.GameId, out var remaining) || remaining <= 0) return;
@@ -786,6 +845,7 @@ internal sealed class GameRoom : IAsyncDisposable
             phase.Responded.Add(player.GameId);
             phase.LatestVotes[player.GameId] = vote;
             RecordVoteInteractionLocked(player, vote, remaining < 2);
+            defenseTrigger = BuildBotDefenseTriggerLocked(phase, vote, out defenseBotId);
             phase.Remaining[player.GameId] = vote == "b" ? 0 : remaining - 1;
             if (!phase.TimedOut)
             {
@@ -794,6 +854,8 @@ internal sealed class GameRoom : IAsyncDisposable
             }
             cliInput = TakeConcurrentCliInputLocked(phase);
         }
+        if (defenseTrigger is not null && defenseBotId is int threatenedBotId)
+            _ = RunBotRepliesAsync(defenseTrigger, requiredBotId: threatenedBotId);
         if (reschedule) await ScheduleConcurrentTimerAsync(phase);
         if (cliInput is not null) await SendCliInputAsync(cliInput, ct);
     }
@@ -928,6 +990,8 @@ internal sealed class GameRoom : IAsyncDisposable
         string? cliInput;
         JsonElement? repeatPrompt = null;
         ConcurrentInputPhase? reschedule = null;
+        int? defenseBotId = null;
+        string? defenseTrigger = null;
         int remaining;
         string api;
         string recordedInput;
@@ -976,6 +1040,7 @@ internal sealed class GameRoom : IAsyncDisposable
             {
                 phase.LatestVotes[player.GameId] = trimmed;
                 RecordVoteInteractionLocked(player, trimmed, remaining < 2);
+                defenseTrigger = BuildBotDefenseTriggerLocked(phase, trimmed, out defenseBotId);
             }
             remaining = --phase.Remaining[player.GameId];
             if (remaining > 0) repeatPrompt = phase.Prompt;
@@ -986,6 +1051,8 @@ internal sealed class GameRoom : IAsyncDisposable
             }
             cliInput = TakeConcurrentCliInputLocked(phase);
         }
+        if (defenseTrigger is not null && defenseBotId is int threatenedBotId)
+            _ = RunBotRepliesAsync(defenseTrigger, requiredBotId: threatenedBotId);
         await SendAsync(player, new { type = "input_accepted", api, remaining }, ct);
         await RecordCliInputAsync(player, api, recordedInput, ct);
         if (repeatPrompt is JsonElement prompt) await SendConcurrentPromptAsync(player, prompt, remaining, ct);
@@ -1116,9 +1183,14 @@ internal sealed class GameRoom : IAsyncDisposable
     {
         if (_llmBot is null) return BuildBotVisibleContext(player);
         var raw = BuildBotVisibleContext(player, phaseStartTimelineSequence: phaseStartTimelineSequence);
+        (long Sequence, int? RecipientPlayerId, JsonElement Envelope)[] identityTimeline;
         bool hasOlderEvents;
         lock (_gate)
+        {
             hasOlderEvents = _botTimeline.Count(x => x.RecipientPlayerId is null || x.RecipientPlayerId == player.GameId) > 24;
+            identityTimeline = _botTimeline.ToArray();
+        }
+        var identity = BotVisibleContextBuilder.BuildAuthoritativeSelfIdentity(identityTimeline, player.GameId, player.Name);
         int day; long version;
         lock (_gate) { day = _botDayGeneration; version = _gameVersion; }
 
@@ -1130,7 +1202,10 @@ internal sealed class GameRoom : IAsyncDisposable
                 if (player.BotMemoryDay != day)
                 {
                     player.BotMemoryDay = day;
-                    var summary = await _llmBot.SummarizeAsync(player.GameId, player.Name, player.BotMemorySummary, raw, ct);
+                    var previousSummary = BotMemoryGuard.RemoveSelfIdentityClaims(player.BotMemorySummary, player.GameId, player.Name);
+                    var summary = await _llmBot.SummarizeAsync(player.GameId, player.Name, previousSummary, $"{identity}\n\n{raw}", ct);
+                    if (summary is not null)
+                        summary = BotMemoryGuard.RemoveSelfIdentityClaims(summary, player.GameId, player.Name);
                     lock (_gate)
                         if (version == _gameVersion && summary is not null) player.BotMemorySummary = summary;
                 }
@@ -1138,10 +1213,10 @@ internal sealed class GameRoom : IAsyncDisposable
             finally { player.BotMemoryLock.Release(); }
         }
 
-        var memory = player.BotMemorySummary;
+        var memory = BotMemoryGuard.RemoveSelfIdentityClaims(player.BotMemorySummary, player.GameId, player.Name);
         return string.IsNullOrWhiteSpace(memory)
-            ? raw
-            : $"【长期记忆（仅历史稳定事实，不代表临时效果仍存在）】\n{memory}\n\n【当前局面与近期事件】\n{BuildBotVisibleContext(player, 10, phaseStartTimelineSequence)}";
+            ? $"{identity}\n\n{raw}"
+            : $"{identity}\n\n【长期记忆（LLM 摘要，仅供历史参考；不得用于判断自己的身份或阵营）】\n{memory}\n\n【当前局面与近期事件】\n{BuildBotVisibleContext(player, 10, phaseStartTimelineSequence)}";
     }
 
 
@@ -1155,7 +1230,8 @@ internal sealed class GameRoom : IAsyncDisposable
                 var fallback = RandomNumberGenerator.GetInt32(2).ToString();
                 if (_llmBot is null) return new BotConcurrentDecision(player, fallback, remaining);
                 var rerollContext = await BuildBotVisibleContextAsync(player);
-                var context = new BotDecisionContext(player.GameId, player.Name, phase.Api, root.GetRawText(), rerollContext, "只能是 1（重抽）或 0（保留）", BuildBotRuleFocus(player, phase.Api, root));
+                var prompt = BuildConcurrentPromptPayload(root, player.GameId, remaining);
+                var context = new BotDecisionContext(player.GameId, player.Name, phase.Api, prompt.GetRawText(), rerollContext, "只能是 1（重抽）或 0（保留）", BuildBotRuleFocus(player, phase.Api, root));
                 var candidate = await _llmBot.DecideAsync(context);
                 var rerollAccepted = candidate is "0" or "1";
                 _llmBot.ReportValidation(rerollAccepted);
@@ -1166,7 +1242,7 @@ internal sealed class GameRoom : IAsyncDisposable
                 .Except(phase.InvalidVotes.TryGetValue(player.GameId, out var invalid) ? invalid : [])
                 .Select(x => x.ToString()).ToList();
             if (phase.CanSuicide.Contains(player.GameId)) choices.Add("b");
-            var fallbackVote = choices[RandomNumberGenerator.GetInt32(choices.Count)];
+            var fallbackVote = BotConversationPolicy.RandomSafeVoteChoice(player.GameId, choices);
             if (_llmBot is null) return new BotConcurrentDecision(player, fallbackVote, remaining);
             var visibleContext = await BuildBotVisibleContextAsync(player);
             var voteContext = new BotDecisionContext(player.GameId, player.Name, phase.Api, root.GetRawText(), visibleContext, $"只输出投票目标编号（合法集合：{string.Join('、', choices)}）；b 表示脚滑人自爆，0 表示弃票");
@@ -1718,14 +1794,21 @@ internal sealed class GameRoom : IAsyncDisposable
 
     private Task SendConcurrentPromptAsync(PlayerSession player, JsonElement root, int remaining, CancellationToken ct = default)
     {
+        var payload = BuildConcurrentPromptPayload(root, player.GameId, remaining);
+        return SendAsync(player, new { type = "game_message", payload }, ct);
+    }
+
+    private static JsonElement BuildConcurrentPromptPayload(JsonElement root, int playerId, int remaining)
+    {
         var payload = JsonNode.Parse(root.GetRawText())!.AsObject();
-        payload["message_type"] = $"player_{player.GameId}";
+        payload["message_type"] = $"player_{playerId}";
         payload["web_concurrent"] = true;
         payload["web_remaining"] = remaining;
         payload["message_content"] = payload["api"]?.GetValue<string>() == "request_reroll_player"
-            ? "是否使用本局唯一一次重抽身份机会？"
+            ? "是否使用本局唯一一次重抽身份机会？（1：重抽；0：保留）"
             : $"请选择你的投票（还可提交 {remaining} 次，第二次用于确认或改票）";
-        return SendAsync(player, new { type = "game_message", payload }, ct);
+        if (payload["api"]?.GetValue<string>() == "request_reroll_player") payload.Remove("data");
+        return payload.Deserialize<JsonElement>();
     }
     private async Task ApplyAnonymousMappingAsync(JsonElement root)
     {

@@ -10,8 +10,10 @@ internal static class BotGameKnowledge
     public const string Strategy = """
         行为原则：
         - 发言保持克制。投票本身已经是公开表态；但有新增信息、必要推导、自保压力、被直接点名且沉默会增加出局风险、拉票必要或必要干扰时，应极简发言。纯 Bot 场上完全沉默时，有具体可核对信息的玩家应主动开口；没有有效内容时保持沉默，禁止“先看票型”之类无信息句。
-        - 若仅从你自己的合法私密视角（身份、状态、技能结果或收到的事件）能够推出尚未公开、且公开后有利于本阵营判断、票型或规避损失的具体信息，必须主动公开该可执行信息，speech_intent 使用 valuable_private_information；此时 silent 无效。只公开达成目的所需的最少内容，不必无收益地报出精确身份或私密原始细节。
-        - 脚滑人及其他信息特化身份优先履行上述公开义务：自身局部信息已形成有价值结论且公开有利时，不能因“低调”或“等待更多聊天”而沉默；应先说明结论、对象和可核对依据，再按需要最小化身份暴露。
+        - 私密信息只改变你的内部判断，不自动产生公开义务。只有当公开某个私密结论能带来明确、即时且高于隐藏身份收益的战术收益时，才考虑发言；否则可以 silent，或只根据公开信息发言。valuable_private_information 是可选意图，不是默认必须触发的义务。
+        - 精确身份公开不是绝对禁区，也不是必须动作。应综合当前被票风险、公开身份的可信度、对本阵营的即时收益、身份技能剩余价值和被敌方利用的风险；确有必要时可以公开，但只说达成目的所需的最小内容，不要因为“我知道一个身份”就自动报出身份。
+        - 吧主知道脚滑人、脚滑人查询到身份、炮仙或合虫获得的私密阵营信息，默认只用于内部投票和技能决策。除非当前局面有明确且更高的公开收益，否则不要主动供出对象或信息来源。
+        - 身份保持连续：在当前权威状态明确发生重抽、合虫复制、叶子换阶或其他身份变化前，不得自行改变自己的真实身份。对外伪装身份时也不要在同一局面反复跳换说法；伪装只是话术，不改变你的真实身份。
         - 只说场上尚不存在的信息或推导，不复述别人，不说“我先看看”“大家怎么看”等无信息内容。能一句说完就不要说两句。
         - 第一票尚未使用时，如果场上已经连续一个思考间隔无人发言、无人投票，就从合法玩家中随便投一个，避免半数弃票带来的随机驱逐风险；第二票仍用于确认或根据新信息改票。
         - 重抽身份时，炮仙和脚滑人都是关键且有信息价值的身份，默认应当保留；只有当前局面存在明确而更高的策略收益时才考虑重抽，不能只是为了随机换身份。
@@ -62,7 +64,7 @@ internal static class BotGameKnowledge
             if (definition is not null) focused.Add($"【{role}】{definition}");
         }
         if (roles.Contains("脚滑人", StringComparer.OrdinalIgnoreCase))
-            focused.Add("【脚滑人主动公开】你从自己合法私密视角得到、且公开有利于本阵营的非公开结论必须主动公开；使用 valuable_private_information，silent 无效。只说足以让场上行动的结论和依据，除非必要不要直接报精确身份。");
+            focused.Add("【脚滑人信息策略】查询结果优先用于内部判断和行动；只有公开该结果的即时收益明显高于隐藏收益时才公开。valuable_private_information 可选，不会自动使 silent 无效；若公开，只说最小必要结论，不要无理由报精确身份。");
         if (api.Contains("vote", StringComparison.OrdinalIgnoreCase))
             focused.AddRange(allLines.Where(line => line.Contains("至少有一半", StringComparison.Ordinal) || line.Contains("每名玩家在每个白天", StringComparison.Ordinal)).Take(2));
         if (api.Contains("reroll", StringComparison.OrdinalIgnoreCase))
