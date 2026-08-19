@@ -25,6 +25,14 @@ internal static class BotConversationPolicy
             : safeChoices[RandomNumberGenerator.GetInt32(safeChoices.Length)];
     }
 
+    public static bool HasClearVoteOutRisk(int receivedVotes, int highestVotes, bool tiedForHighest)
+    {
+        // Evaluate only the vote tally that exists now. A tie currently produces
+        // no elimination, while the unique current leader is the player who
+        // would be voted out if the phase ended at this moment.
+        return receivedVotes > 0 && receivedVotes == highestVotes && !tiedForHighest;
+    }
+
     public static BotSpeechResponseMode ResponseModeFor(string trigger, string botName) =>
         trigger.Contains(botName, StringComparison.OrdinalIgnoreCase)
             ? BotSpeechResponseMode.Required

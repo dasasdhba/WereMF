@@ -17,11 +17,9 @@ internal sealed class PlayerSession(int id, string name, bool host, WebSocket? s
     public bool HasLeft { get; set; }
     public int MissedRequests { get; set; }
     public DateTimeOffset LastChatAt { get; set; } = DateTimeOffset.MinValue;
-    public string BotMemorySummary { get; set; } = "";
-    public int BotMemoryDay { get; set; } = -1;
     public int BotConversationFailures { get; set; }
     public int BotDefensePending;
-    public SemaphoreSlim BotMemoryLock { get; } = new(1, 1);
+    public List<BotMemoryEntry> BotMemory { get; } = [];
     public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
     public SemaphoreSlim SendLock { get; } = new(1, 1);
     public List<JsonElement> History { get; } = [];
@@ -48,4 +46,7 @@ internal sealed record RoomLogSnapshot(string FileName, string Content, bool Com
 internal sealed record BotConcurrentDecision(PlayerSession Player, string Choice, int Remaining);
 internal sealed record DraftEntry(string Value, bool PreSubmit);
 internal sealed record RoomSettings(int RequestTimeoutSeconds, int VoteSecondsPerAlive, int VotePenaltySeconds, int EventIntervalSeconds);
+internal sealed record BotMemoryEntry(string Text, string Kind, IReadOnlyList<long> SourceEvents, DateTimeOffset CreatedAt);
+internal sealed record BotMemoryCandidate(string Text, string Kind, IReadOnlyList<long> SourceEvents);
+internal sealed record BotModelDecision(string? Input, BotMemoryCandidate? Memory);
 internal sealed class ClientVisibleException(string message) : Exception(message);

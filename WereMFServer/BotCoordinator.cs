@@ -11,7 +11,8 @@ internal sealed class BotCoordinator(LlmBotClient? client)
         string fallback,
         Func<Task<string>> visibleContext,
         Func<string> ruleFocus,
-        Func<JsonElement, string, string, bool> isLegal)
+        Func<JsonElement, string, string, bool> isLegal,
+        Action<BotMemoryCandidate?> remember)
     {
         if (client is null) return fallback;
         var context = new BotDecisionContext(
@@ -23,8 +24,10 @@ internal sealed class BotCoordinator(LlmBotClient? client)
             "严格使用当前请求描述的 CLI 格式；0 表示放弃（若允许）",
             ruleFocus());
         var candidate = await client.DecideAsync(context);
-        var accepted = !string.IsNullOrWhiteSpace(candidate) && isLegal(request, api, candidate);
+        var input = candidate?.Input;
+        var accepted = !string.IsNullOrWhiteSpace(input) && isLegal(request, api, input);
         client.ReportValidation(accepted);
-        return accepted ? candidate! : fallback;
+        remember(candidate?.Memory);
+        return accepted ? input! : fallback;
     }
 }

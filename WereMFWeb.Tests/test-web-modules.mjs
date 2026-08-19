@@ -31,6 +31,8 @@ test("selection and formatting preserve myz replacement and vote modifiers", () 
   assert.equal(formatSelection("request_vote", [3], ""), "3");
   assert.equal(formatSelection("request_vote", [3], "b"), "b");
   assert.equal(formatSelection("request_doctor_skill", [2, 3], "x"), "2 3 x");
+  assert.equal(formatSelection("request_xiansong_skill", [3], "m"), "3 m");
+  assert.equal(formatSelection("request_xiansong_skill", [3], "x"), "3 x");
   assert.deepEqual(toggleRoleSelection([], "炮仙", { api: "request_leaf_charas", data: { choice_count: 2 } }), ["炮仙"]);
 });
 

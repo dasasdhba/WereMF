@@ -333,7 +333,7 @@ internal sealed class GameRoom : IAsyncDisposable
                 for (var i = 0; i < _players.Count; i++)
                 {
                     var player = _players[i];
-                    player.Id = player.GameId = i + 1; player.MissedRequests = 0; player.History.Clear(); player.Drafts.Clear(); player.BotMemorySummary = ""; player.BotMemoryDay = -1;
+                    player.Id = player.GameId = i + 1; player.MissedRequests = 0; player.History.Clear(); player.Drafts.Clear(); player.BotMemory.Clear();
                     if (!player.IsPermanentBot) player.IsBot = false;
                 }
             }
@@ -741,6 +741,7 @@ internal sealed class GameRoom : IAsyncDisposable
                 }
                 if (decision is not null)
                 {
+                    AddBotMemoryLocked(player, decision.Memory);
                     player.BotConversationFailures = 0;
                     decision = decision with { StateVersion = state.Revision };
                     if (requiredVoteChoices.Length > 0 && !requiredVoteChoices.Contains(decision.Vote))
@@ -790,9 +791,16 @@ internal sealed class GameRoom : IAsyncDisposable
         var voteTally = BuildVoteTallyLocked(phase);
         var receivedVotes = voteTally.GetValueOrDefault(player.GameId);
         var highestVotes = voteTally.Count == 0 ? 0 : voteTally.Values.Max();
-        var risk = receivedVotes > 0
-            ? $"你当前收到其他玩家 {receivedVotes} 张票；当前最高票为 {highestVotes} 张。你有被推出风险时，必须优先进行简短自保回应，不得只投票后沉默。"
-            : "你当前尚未收到其他玩家的票；没有明确被点名或自保压力时可以保持沉默。";
+        var runnerUpVotes = voteTally
+            .Where(x => x.Key != player.GameId)
+            .Select(x => x.Value)
+            .DefaultIfEmpty(0)
+            .Max();
+        var tiedForHighest = voteTally.Count(x => x.Value == highestVotes) > 1;
+        var clearRisk = BotConversationPolicy.HasClearVoteOutRisk(receivedVotes, highestVotes, tiedForHighest);
+        var risk = clearRisk
+            ? $"【明确被推出风险】你当前收到其他玩家 {receivedVotes} 张票，是当前唯一最高票；如果此刻结束投票，你会被投出。此时才优先进行简短自保回应。"
+            : $"你当前收到其他玩家 {receivedVotes} 张票，当前最高票为 {highestVotes} 张；你不是当前唯一最高票，或当前还没有有效票。不要仅因有人投你就自保或公开身份。";
         return $"投票阶段实际经过 {voteElapsed} 秒；距离场上最近一次发言或投票已有 {publicQuietSeconds} 秒；投票初始预算 {phase.InitialSeconds} 秒；当前投票预算剩余 {budget} 秒（每张有效票另扣 {_settings.VotePenaltySeconds} 秒）。你还可投 {remaining} 次；当前票：{latest}；合法 vote：{string.Join('、', choices)}。{risk}有合法非零目标时默认现在投票；仅在第一次机会、预算超过 60 秒且场上尚未持续沉默时可返回 null。第一票尚未使用且场上连续沉默达到一次思考间隔、预算不超过 60 秒或只剩最后一次机会时，不得继续观望。";
     }
 
@@ -816,10 +824,12 @@ internal sealed class GameRoom : IAsyncDisposable
         var tally = BuildVoteTallyLocked(phase);
         var receivedVotes = tally.GetValueOrDefault(targetId);
         if (receivedVotes <= 0) return null;
-        if (!phase.DefenseTriggered.Add(targetId)) return null;
         var highestVotes = tally.Values.Max();
+        var tiedForHighest = tally.Count(x => x.Value == highestVotes) > 1;
+        if (!BotConversationPolicy.HasClearVoteOutRisk(receivedVotes, highestVotes, tiedForHighest)) return null;
+        if (!phase.DefenseTriggered.Add(targetId)) return null;
         botId = bot.GameId;
-        return $"投票风险更新：{bot.Name} 当前收到其他玩家 {receivedVotes} 张票，场上最高票为 {highestVotes} 张。你已被投票，必须立即作出简短自保回应，说明公开依据、纠正误解或争取暂缓继续投票。";
+        return $"明确投票风险更新：{bot.Name} 当前收到其他玩家 {receivedVotes} 张票，是当前唯一最高票；如果此刻结束投票会被投出。请作出简短自保回应。";
     }
 
     private List<string> LegalBotVoteChoicesLocked(PlayerSession player, ConcurrentInputPhase phase)
@@ -933,7 +943,7 @@ internal sealed class GameRoom : IAsyncDisposable
             _rawCliLog.Clear(); _completedCliLog = null; _dayInteractions.Clear();
             _botTimeline.Clear(); _botTimelineSequence = 0; _pendingSkillRoles.Clear();
             _botSpeechStateGate.Reset(_botTimelineSequence);
-            foreach (var player in players) { player.BotMemorySummary = ""; player.BotMemoryDay = -1; player.BotConversationFailures = 0; }
+            foreach (var player in players) { player.BotMemory.Clear(); player.BotConversationFailures = 0; }
             _botDayGeneration = 0; _dayStateGeneration = 0; _lastBotChatAt = default;
             _gameModeSummary = "模式尚未公布";
             _game = game = new GameProcess(_options.GamePath, _options.Config, _options.Seed);
@@ -1119,7 +1129,11 @@ internal sealed class GameRoom : IAsyncDisposable
             fallback,
             () => BuildBotVisibleContextAsync(player),
             () => BuildBotRuleFocus(player, api, root),
-            (request, requestApi, candidate) => IsLegalTimeoutInput(request, requestApi, candidate));
+            (request, requestApi, candidate) => IsLegalTimeoutInput(request, requestApi, candidate),
+            memory =>
+            {
+                lock (_gate) AddBotMemoryLocked(player, memory);
+            });
     }
 
     private string BuildBotRuleFocus(PlayerSession player, string api, JsonElement? request = null, long phaseStartTimelineSequence = 0)
@@ -1179,44 +1193,45 @@ internal sealed class GameRoom : IAsyncDisposable
         return _botVisibleContext.Build(timeline, player.GameId, mode, take, phaseStartTimelineSequence);
     }
 
-    private async Task<string> BuildBotVisibleContextAsync(PlayerSession player, CancellationToken ct = default, long phaseStartTimelineSequence = 0)
+    private Task<string> BuildBotVisibleContextAsync(PlayerSession player, CancellationToken ct = default, long phaseStartTimelineSequence = 0)
     {
-        if (_llmBot is null) return BuildBotVisibleContext(player);
-        var raw = BuildBotVisibleContext(player, phaseStartTimelineSequence: phaseStartTimelineSequence);
-        (long Sequence, int? RecipientPlayerId, JsonElement Envelope)[] identityTimeline;
-        bool hasOlderEvents;
-        lock (_gate)
-        {
-            hasOlderEvents = _botTimeline.Count(x => x.RecipientPlayerId is null || x.RecipientPlayerId == player.GameId) > 24;
-            identityTimeline = _botTimeline.ToArray();
-        }
-        var identity = BotVisibleContextBuilder.BuildAuthoritativeSelfIdentity(identityTimeline, player.GameId, player.Name);
-        int day; long version;
-        lock (_gate) { day = _botDayGeneration; version = _gameVersion; }
+        (long Sequence, int? RecipientPlayerId, JsonElement Envelope)[] timeline;
+        lock (_gate) timeline = _botTimeline.ToArray();
+        var identity = BotVisibleContextBuilder.BuildAuthoritativeSelfIdentity(timeline, player.GameId, player.Name);
+        string memory;
+        lock (_gate) memory = BuildBotMemoryTextLocked(player);
+        var recent = BuildBotVisibleContext(player, 10, phaseStartTimelineSequence);
+        var context = string.IsNullOrWhiteSpace(memory)
+            ? $"{identity}\n\n{recent}"
+            : $"{identity}\n\n【稀疏记忆（模型主动记录，仅供历史参考）】\n{memory}\n\n{recent}";
+        return Task.FromResult(context);
+    }
 
-        if ((hasOlderEvents || raw.Length > 18_000) && player.BotMemoryDay != day)
-        {
-            await player.BotMemoryLock.WaitAsync(ct);
-            try
-            {
-                if (player.BotMemoryDay != day)
-                {
-                    player.BotMemoryDay = day;
-                    var previousSummary = BotMemoryGuard.RemoveSelfIdentityClaims(player.BotMemorySummary, player.GameId, player.Name);
-                    var summary = await _llmBot.SummarizeAsync(player.GameId, player.Name, previousSummary, $"{identity}\n\n{raw}", ct);
-                    if (summary is not null)
-                        summary = BotMemoryGuard.RemoveSelfIdentityClaims(summary, player.GameId, player.Name);
-                    lock (_gate)
-                        if (version == _gameVersion && summary is not null) player.BotMemorySummary = summary;
-                }
-            }
-            finally { player.BotMemoryLock.Release(); }
-        }
+    private string BuildBotMemoryTextLocked(PlayerSession player)
+    {
+        return string.Join('\n', player.BotMemory.TakeLast(12).Select(entry =>
+            $"[{entry.Kind}] {entry.Text}（来源：{string.Join('、', entry.SourceEvents.Select(x => $"#{x}"))}）"));
+    }
 
-        var memory = BotMemoryGuard.RemoveSelfIdentityClaims(player.BotMemorySummary, player.GameId, player.Name);
-        return string.IsNullOrWhiteSpace(memory)
-            ? $"{identity}\n\n{raw}"
-            : $"{identity}\n\n【长期记忆（LLM 摘要，仅供历史参考；不得用于判断自己的身份或阵营）】\n{memory}\n\n【当前局面与近期事件】\n{BuildBotVisibleContext(player, 10, phaseStartTimelineSequence)}";
+    private void AddBotMemoryLocked(PlayerSession player, BotMemoryCandidate? candidate)
+    {
+        if (candidate is null) return;
+        if (candidate.Text.Contains('\n') || candidate.Text.Contains('\r')) return;
+        var text = string.Join(" ", candidate.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Trim();
+        if (text.Length is 0 or > 100) return;
+        if (candidate.Kind is not ("own_action" or "public_claim" or "inference" or "promise")) return;
+        var sources = candidate.SourceEvents.Distinct().Take(4).ToArray();
+        if (sources.Length == 0) return;
+
+        var visible = _botTimeline
+            .Where(x => x.RecipientPlayerId is null || x.RecipientPlayerId == player.GameId)
+            .ToDictionary(x => x.Sequence, x => x.Envelope);
+        if (sources.Any(source => !visible.ContainsKey(source))) return;
+        if (sources.Any(source => CliMessageRouter.IsAuthoritativeState(visible[source]))) return;
+        if (player.BotMemory.Any(entry => string.Equals(entry.Text, text, StringComparison.Ordinal))) return;
+
+        if (player.BotMemory.Count >= 12) player.BotMemory.RemoveAt(0);
+        player.BotMemory.Add(new BotMemoryEntry(text, candidate.Kind, sources, DateTimeOffset.UtcNow));
     }
 
 
@@ -1233,9 +1248,10 @@ internal sealed class GameRoom : IAsyncDisposable
                 var prompt = BuildConcurrentPromptPayload(root, player.GameId, remaining);
                 var context = new BotDecisionContext(player.GameId, player.Name, phase.Api, prompt.GetRawText(), rerollContext, "只能是 1（重抽）或 0（保留）", BuildBotRuleFocus(player, phase.Api, root));
                 var candidate = await _llmBot.DecideAsync(context);
-                var rerollAccepted = candidate is "0" or "1";
+                lock (_gate) AddBotMemoryLocked(player, candidate?.Memory);
+                var rerollAccepted = candidate?.Input is "0" or "1";
                 _llmBot.ReportValidation(rerollAccepted);
-                return new BotConcurrentDecision(player, rerollAccepted ? candidate! : fallback, remaining);
+                return new BotConcurrentDecision(player, rerollAccepted ? candidate!.Input! : fallback, remaining);
             }
 
             var choices = Enumerable.Range(0, _players.Count + 1)
@@ -1247,9 +1263,10 @@ internal sealed class GameRoom : IAsyncDisposable
             var visibleContext = await BuildBotVisibleContextAsync(player);
             var voteContext = new BotDecisionContext(player.GameId, player.Name, phase.Api, root.GetRawText(), visibleContext, $"只输出投票目标编号（合法集合：{string.Join('、', choices)}）；b 表示脚滑人自爆，0 表示弃票");
             var vote = await _llmBot.DecideAsync(voteContext);
-            var voteAccepted = vote is not null && choices.Contains(vote);
+            lock (_gate) AddBotMemoryLocked(player, vote?.Memory);
+            var voteAccepted = vote?.Input is not null && choices.Contains(vote.Input);
             _llmBot.ReportValidation(voteAccepted);
-            return new BotConcurrentDecision(player, voteAccepted ? vote! : fallbackVote, remaining);
+            return new BotConcurrentDecision(player, voteAccepted ? vote!.Input! : fallbackVote, remaining);
         }));
 
         lock (_gate)

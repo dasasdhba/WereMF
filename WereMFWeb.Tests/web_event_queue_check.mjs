@@ -52,6 +52,11 @@ ui.state.request = { api: "request_hechong_copy_leaf", message_content: "选择�
 const copyLeafPanel = ui.actionPanel();
 assert(copyLeafPanel.includes('data-value="1"') && copyLeafPanel.includes("1：爬行者") && copyLeafPanel.includes('data-value="3"') && copyLeafPanel.includes("3：贤松"), "copy-Leaf request must render the numbered CLI options");
 assert(!copyLeafPanel.includes("data-role"), "copy-Leaf request must submit an option number rather than a role name");
+ui.state.request = { api: "request_xiansong_skill", message_content: "输入一名其他玩家的编号索要 mfa 文件，输入 0 放弃；在结尾输入 m 或者 x 表示强制要 mfa 或丢咸松球", data: { pending_role: { can_force_choice: true } } };
+const xianSongPanel = ui.actionPanel();
+assert(xianSongPanel.includes('data-modifier="m"') && xianSongPanel.includes("强制索要 MFA") && xianSongPanel.includes('data-modifier="x"') && xianSongPanel.includes("强制丢咸松球"), "reborn XianSong request must render force-choice buttons");
+ui.state.request = { api: "request_xiansong_skill", message_content: "输入一名其他玩家的编号索要 mfa 文件，输入 0 放弃", data: { pending_role: { can_force_choice: false } } };
+assert(!ui.actionPanel().includes("强制丢咸松球"), "normal XianSong request must not render force-choice buttons");
 ui.state.players = [{ id: 2, name: "乙" }, { id: 3, name: "丙" }];
 const nestedRoleState = ui.roleStateItems({
   fury: true,

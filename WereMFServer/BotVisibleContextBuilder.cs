@@ -34,9 +34,51 @@ internal sealed class BotVisibleContextBuilder
             : Compact(currentState);
         if (currentPatches.Length > 0)
             authoritative += "\n【其后仍然有效的公开夜间增量】\n" + string.Join('\n', currentPatches);
-        return $"【本局模式】\n{mode}\n\n【当前权威状态】\n{authoritative}\n\n" +
+        var privateKnowledge = BuildPrivateKnowledge(timeline, playerId);
+        return $"【本局模式】\n{mode}\n\n{privateKnowledge}\n\n【当前权威状态】\n{authoritative}\n\n" +
                "以上当前状态绝对正确：历史或记忆与其冲突时一律忽略旧信息，当前状态未显示的临时效果已经失效。\n\n" +
                $"【按接收顺序排列的近期事件（编号越大越新）】\n{history}";
+    }
+
+    public static string BuildPrivateKnowledge(
+        IEnumerable<(long Sequence, int? RecipientPlayerId, JsonElement Envelope)> timeline,
+        int playerId)
+    {
+        var facts = timeline
+            .Where(x => x.RecipientPlayerId == playerId)
+            .Select(x => ExtractPrivateKnowledge(x.Envelope))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (facts.Length == 0)
+            return "【服务器确认的长期私密知识】\n暂无开局或技能产生的可持续私密事实。";
+
+        return "【服务器确认的长期私密知识（仅你可见）】\n" +
+               string.Join('\n', facts.Select(x => $"- {x}")) +
+               "\n这些是服务器直接告知你的事实，不是推测；除非后续明确出现身份变化或新的同类通知，不要遗忘或自行改写。";
+    }
+
+    private static string? ExtractPrivateKnowledge(JsonElement envelope)
+    {
+        if (!envelope.TryGetProperty("payload", out var payload) ||
+            !payload.TryGetProperty("api", out var apiNode) ||
+            apiNode.ValueKind != JsonValueKind.String ||
+            !payload.TryGetProperty("message_content", out var contentNode) ||
+            contentNode.ValueKind != JsonValueKind.String)
+            return null;
+
+        var api = apiNode.GetString();
+        var content = contentNode.GetString()?.Trim();
+        if (string.IsNullOrWhiteSpace(content)) return null;
+
+        return api switch
+        {
+            "barleader_notify" => $"吧主开局获知：{content}",
+            "jiaohua_start_notify" => $"脚滑人开局获知：{content}",
+            "paoxian_party_notify" => $"炮仙获知队友：{content.Replace("队友：", "", StringComparison.Ordinal).Trim()}",
+            "xiansong_start_notify" => $"贤松开局获知：{content}",
+            _ => null
+        };
     }
 
     public static string Compact(JsonElement envelope)

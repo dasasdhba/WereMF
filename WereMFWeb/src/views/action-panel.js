@@ -32,7 +32,10 @@ export function actionPanel({ state, e, roles, timerBadge, activePending, select
     request_doge_skill: [["","仅保护"],["b","保护后自爆"]],
     request_caimon_skill: [["","一根彩条"],["d","两根彩条"]],
     request_myz_skill_force_threaten: [["","普通威胁"],["f","自爆并强制"]],
-    request_vote: (Array.isArray(r.data) && r.data.find(x=>x.id===state.playerId)?.can_suicide) ? [["","正常投票"],["b","脚滑人自爆"]] : [["","正常投票"]]
+    request_vote: (Array.isArray(r.data) && r.data.find(x=>x.id===state.playerId)?.can_suicide) ? [["","正常投票"],["b","脚滑人自爆"]] : [["","正常投票"]],
+    ...(api === "request_xiansong_skill" && r.data?.pending_role?.can_force_choice ? {
+      request_xiansong_skill: [["","普通索要 MFA"],["m","强制索要 MFA"],["x","强制丢咸松球"]]
+    } : {})
   };
   if (modifierSets[api]) choices += `<div class="choice-row" style="margin-top:10px">${modifierSets[api].map(x=>`<button class="choice ${state.modifier===x[0]?"selected":""}" data-modifier="${x[0]}">${x[1]}</button>`).join("")}</div>`;
   const showSubmit = !boolRequest && !forceChoice; const canSubmit = selectionCountValid(r) && (!requiredModifier(r) || state.modifier) && leafSelectionValid(r);

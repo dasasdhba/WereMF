@@ -36,9 +36,10 @@ const fakeLlm = createServer((request, response) => {
       fakeSpeechRequestCount++;
       if (fakeSpeechRequestCount === 3 || fakeSpeechRequestCount === 4) { response.writeHead(503).end(); return; }
     }
-    const content = systemPrompt.includes('"summary"')
-      ? '{"summary":"保留身份、公开死亡、投票和关键怀疑的测试摘要"}'
-      : systemPrompt.includes('"text"')
+    const memoryAdd = requestNumber === 1
+      ? ',"memory_add":{"text":"记录一次公开事件供后续参考","kind":"public_claim","source_events":[1]}'
+      : ',"memory_add":null';
+    const content = systemPrompt.includes('"text"')
         ? (() => {
             const userPrompt = String((parsed.messages || []).find(message => message.role === "user")?.content || "");
             const legalVotes = userPrompt.match(/合法 vote：([^。\n]+)/)?.[1].split("、") || [];
@@ -46,9 +47,9 @@ const fakeLlm = createServer((request, response) => {
             const vote = userPrompt.includes("合法 vote：") ? JSON.stringify(chosenVote) : "null";
             const text = fakeSpeechRequestCount === 1 ? "2号昨晚的状态变化值得关注。" : "";
             const speechIntent = text ? "new_deduction" : "silent";
-            return `{"speech_intent":"${speechIntent}","text":"${text}","vote":${vote}}`;
+            return `{"speech_intent":"${speechIntent}","text":"${text}","vote":${vote}${memoryAdd}}`;
           })()
-        : (requestNumber % 5 === 0 ? '{"input":"definitely-invalid"}' : '{"input":"0"}');
+        : (requestNumber % 5 === 0 ? `{"input":"definitely-invalid"${memoryAdd}}` : `{"input":"0"${memoryAdd}}`);
     const complete = () => {
       if (response.destroyed) return;
       response.setHeader("content-type", "application/json");
@@ -119,7 +120,8 @@ try {
   }
   if (!completedLog) { await writeFile(resolve(import.meta.dirname, "llm_bot_game.running.log"), runningLog, "utf8"); throw new Error(`game did not finish; health=${JSON.stringify(health)}\n${serverOutput.slice(-4000)}`); }
   if (/(?:_parse_error|未知格式)/.test(completedLog)) throw new Error("Bot game produced a CLI parse error");
-  if (!health.llmStats || health.llmStats.requests < 1 || health.llmStats.successes < 1 || (health.llmStats.failures + health.llmStats.speechFailures + health.llmStats.memoryFailures) < 1 || !(health.llmStats.accepted >= 1) || !(health.llmStats.rejected >= 1)) throw new Error(`LLM success/fallback paths not all exercised: ${JSON.stringify(health)}`);
+  if (!health.llmStats || health.llmStats.requests < 1 || health.llmStats.successes < 1 || (health.llmStats.failures + health.llmStats.speechFailures) < 1 || !(health.llmStats.accepted >= 1) || !(health.llmStats.rejected >= 1)) throw new Error(`LLM success/fallback paths not all exercised: ${JSON.stringify(health)}`);
+  if (!capturedPrompts.some(messages => messages.some(message => message.role === "user" && String(message.content).includes("稀疏记忆")))) throw new Error("sparse memory was not fed back into a later model prompt");
   if (!(health.llmStats.httpStatusFailures >= 1)) throw new Error(`LLM HTTP failure classification was not exercised: ${JSON.stringify(health)}`);
   if (!(health.llmStats.circuitSkipped >= 1)) throw new Error(`LLM circuit breaker was not exercised: ${JSON.stringify(health)}`);
   if (!/\[Server\] 第 \d+ 天聊天与投票记录/.test(completedLog)) throw new Error("downloaded log did not contain server-side day interaction sections");

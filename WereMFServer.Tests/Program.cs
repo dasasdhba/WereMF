@@ -82,9 +82,12 @@ var tests = new (string Name, Action Body)[]
         var prompt = new BotSpeechContext(2, "脚滑 Bot", "白天刚开始", "【当前权威状态】\n仅该 Bot 可见的私密技能结果", "投票尚未开始", focus).ToPrompt();
         Assert(BotGameKnowledge.Strategy.Contains("valuable_private_information", StringComparison.Ordinal), "strategy must expose a dedicated valuable-local-information intent");
         Assert(prompt.Contains("silent 仍然有效", StringComparison.Ordinal) && prompt.Contains("身份公开不是绝对禁区", StringComparison.Ordinal), "speech prompt must make local disclosure optional and situational");
+        Assert(prompt.Contains("memory_add", StringComparison.Ordinal) && prompt.Contains("source_events", StringComparison.Ordinal), "speech prompt must expose the sparse memory contract");
+        Assert(prompt.Contains("自己的可核对行动", StringComparison.Ordinal) && prompt.Contains("以后需要保持一致", StringComparison.Ordinal), "memory prompt must give an actionable positive recording rule");
+        Assert(prompt.Contains("text 非空", StringComparison.Ordinal) && prompt.Contains("不得为 null", StringComparison.Ordinal), "speech prompt must require memory for meaningful self-authored claims");
         Assert(focus.Contains("【脚滑人信息策略】", StringComparison.Ordinal) && focus.Contains("即时收益明显高于隐藏收益", StringComparison.Ordinal), "脚滑人 focus must prefer situational disclosure");
     }),
-    ("grounds a Bot's self identity in server state and removes poisoned memory claims", () =>
+    ("grounds a Bot's self identity in server state", () =>
     {
         var timeline = new[]
         {
@@ -97,13 +100,32 @@ var tests = new (string Name, Action Body)[]
         };
 
         var identity = BotVisibleContextBuilder.BuildAuthoritativeSelfIdentity(timeline, 7, "夕洛");
-        var memory = BotMemoryGuard.RemoveSelfIdentityClaims(
-            "身份：7 号夕洛，角色为“叶”（叶子）。公开身份：Ash 是叶子（已死亡）。", 7, "夕洛");
-
         Assert(identity.Contains("当前身份：炮仙", StringComparison.Ordinal) && identity.Contains("阵营：爆方", StringComparison.Ordinal),
             "self identity and faction must come from the player-7 role in authoritative state");
-        Assert(!memory.Contains("夕洛", StringComparison.Ordinal) && memory.Contains("Ash 是叶子", StringComparison.Ordinal),
-            "a generated self-identity claim must be removed without deleting another player's public identity");
+    }),
+    ("preserves server-confirmed private knowledge outside sparse model memory", () =>
+    {
+        var timeline = new[]
+        {
+            (1L, (int?)2, JsonSerializer.Deserialize<JsonElement>("""
+            {"type":"game_message","payload":{"api":"barleader_notify","message_content":"你是吧主，脚滑人是 3号玩家"}}
+            """)),
+            (2L, (int?)4, JsonSerializer.Deserialize<JsonElement>("""
+            {"type":"game_message","payload":{"api":"paoxian_party_notify","message_content":"队友：5号玩家"}}
+            """)),
+            (3L, (int?)4, JsonSerializer.Deserialize<JsonElement>("""
+            {"type":"game_message","payload":{"api":"paoxian_party_notify","message_content":"队友：6号玩家"}}
+            """)),
+            (4L, (int?)null, JsonSerializer.Deserialize<JsonElement>("""
+            {"type":"game_message","payload":{"api":"barleader_notify","message_content":"不应被看到"}}
+            """))
+        };
+
+        var leaderKnowledge = BotVisibleContextBuilder.BuildPrivateKnowledge(timeline, 2);
+        var paoxianKnowledge = BotVisibleContextBuilder.BuildPrivateKnowledge(timeline, 4);
+        Assert(leaderKnowledge.Contains("脚滑人是 3号玩家", StringComparison.Ordinal), "bar leader knowledge must persist");
+        Assert(paoxianKnowledge.Contains("5号玩家", StringComparison.Ordinal) && paoxianKnowledge.Contains("6号玩家", StringComparison.Ordinal), "PaoXian teammate knowledge must accumulate");
+        Assert(!paoxianKnowledge.Contains("不应被看到", StringComparison.Ordinal), "private knowledge must stay recipient-scoped");
     }),
     ("limits pure-Bot all-silent opening fallback to one speaker", () =>
     {
@@ -129,6 +151,14 @@ var tests = new (string Name, Action Body)[]
             Assert(choice is "0" or "1", "random fallback must not vote for the Bot itself or choose suicide");
         }
         Assert(BotConversationPolicy.RandomSafeVoteChoice(2, ["2", "b"]) == "0", "no safe target must fall back to abstention rather than self-elimination");
+    }),
+    ("requires a clear vote-out risk before forcing defense", () =>
+    {
+        Assert(BotConversationPolicy.HasClearVoteOutRisk(1, 1, false), "a unique current leader is a current vote-out risk");
+        Assert(!BotConversationPolicy.HasClearVoteOutRisk(1, 1, true), "a tied highest vote currently produces no elimination");
+        Assert(BotConversationPolicy.HasClearVoteOutRisk(3, 3, false), "any unique current lead uses the same live tally rule");
+        Assert(!BotConversationPolicy.HasClearVoteOutRisk(3, 4, false), "being voted but not leading is not a clear vote-out risk");
+        Assert(!BotConversationPolicy.HasClearVoteOutRisk(0, 0, false), "no votes cannot create a vote-out risk");
     }),
     ("reserves the capped speech selection for a required named Bot", () =>
     {
