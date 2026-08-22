@@ -801,7 +801,8 @@ internal sealed class GameRoom : IAsyncDisposable
         var risk = clearRisk
             ? $"【明确被推出风险】你当前收到其他玩家 {receivedVotes} 张票，是当前唯一最高票；如果此刻结束投票，你会被投出。此时才优先进行简短自保回应。"
             : $"你当前收到其他玩家 {receivedVotes} 张票，当前最高票为 {highestVotes} 张；你不是当前唯一最高票，或当前还没有有效票。不要仅因有人投你就自保或公开身份。";
-        return $"投票阶段实际经过 {voteElapsed} 秒；距离场上最近一次发言或投票已有 {publicQuietSeconds} 秒；投票初始预算 {phase.InitialSeconds} 秒；当前投票预算剩余 {budget} 秒（每张有效票另扣 {_settings.VotePenaltySeconds} 秒）。你还可投 {remaining} 次；当前票：{latest}；合法 vote：{string.Join('、', choices)}。{risk}有合法非零目标时默认现在投票；仅在第一次机会、预算超过 60 秒且场上尚未持续沉默时可返回 null。第一票尚未使用且场上连续沉默达到一次思考间隔、预算不超过 60 秒或只剩最后一次机会时，不得继续观望。";
+        const string statusRule = "【投票前强制检查】当前状态中的 myz_threaten=true 只表示白天不能行动，shiwu_kidnapped=true 只表示夜间一次技能不能指定目标；它们是中性状态，不增加目标属于敌方的概率。即使两个状态同时存在，也不能因为状态数量多、目标暂时不能行动或不能投技能就直接投他。若某人的可见证据只有这些受限状态，没有独立的阵营嫌疑或胜负威胁，必须把他排除出优先投票候选；找不到可靠证据时，从合法非零目标中作一般性选择，不要把受限状态目标当默认集火对象。";
+        return $"投票阶段实际经过 {voteElapsed} 秒；距离场上最近一次发言或投票已有 {publicQuietSeconds} 秒；投票初始预算 {phase.InitialSeconds} 秒；当前投票预算剩余 {budget} 秒（每张有效票另扣 {_settings.VotePenaltySeconds} 秒）。你还可投 {remaining} 次；当前票：{latest}；合法 vote：{string.Join('、', choices)}。{risk}{statusRule}有合法非零目标时默认现在投票；仅在第一次机会、预算超过 60 秒且场上尚未持续沉默时可返回 null。第一票尚未使用且场上连续沉默达到一次思考间隔、预算不超过 60 秒或只剩最后一次机会时，不得继续观望。";
     }
 
     private Dictionary<int, int> BuildVoteTallyLocked(ConcurrentInputPhase phase)
