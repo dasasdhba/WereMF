@@ -1,7 +1,6 @@
 module WereMF.Update.Day
 
 open System
-open System.Text.Json.Nodes
 open FSharp.Data
 open FSharpPlus
 open FSharpPlus.Data
@@ -103,7 +102,9 @@ let updateVote (x: PlayerId) (y: PlayerId) (day: DayContext) =
 
 let canAnyoneVote (game: GameContext) (day: DayContext) =
     day.Votes |> List.exists (fun v ->
-        Ok v.Id |> voteSourceFilter game |> Result.isOk && v.Confirmed |> not &&
+        Ok v.Id |> voteSourceFilter game |> Result.isOk &&
+        game.GetEntity v.Id |> isDayBlocked |> not &&
+        v.Confirmed |> not &&
         day.Votes |> List.exists (fun t -> Ok t.Id |> voteTargetFilter v.Id game |> Result.isOk))
 
 let private getVoteString (vote: PlayerVote) =
