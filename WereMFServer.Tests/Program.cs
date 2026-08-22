@@ -103,6 +103,32 @@ var tests = new (string Name, Action Body)[]
         Assert(identity.Contains("当前身份：炮仙", StringComparison.Ordinal) && identity.Contains("阵营：爆方", StringComparison.Ordinal),
             "self identity and faction must come from the player-7 role in authoritative state");
     }),
+    ("derives a cautious public faction priority without trusting hechong death displays", () =>
+    {
+        var timeline = new[]
+        {
+            (1L, (int?)null, JsonSerializer.Deserialize<JsonElement>("""
+            {"type":"game_message","payload":{"api":"game_mode_broadcast","data":{"player_count":8,"bar_count":4,"boom_count":3,"leaf_count":1,"mode":"leaf"}}}
+            """)),
+            (2L, (int?)null, JsonSerializer.Deserialize<JsonElement>("""
+            {"type":"game_message","payload":{"api":"game_update_day","data":[
+              {"player":{"id":1,"name":"一号"},"role":null,"state":{"is_dead":true,"is_dead_public":true,"dead_showing_name":"爬行者"}},
+              {"player":{"id":2,"name":"二号"},"role":null,"state":{"is_dead":true,"is_dead_public":true,"dead_showing_name":"法猫"}},
+              {"player":{"id":3,"name":"三号"},"role":null,"state":{"is_dead":true,"is_dead_public":true,"dead_showing_name":"Doge"}},
+              {"player":{"id":4,"name":"四号"},"role":null,"state":{"is_dead":true,"is_dead_public":true,"dead_showing_name":"myz"}},
+              {"player":{"id":5,"name":"叶子"},"role":{"chara_type":"叶子","public_reveal":true},"state":{"is_dead":false,"is_dead_public":false}},
+              {"player":{"id":6,"name":"合虫"},"role":{"chara_type":"合虫"},"state":{"is_dead":false,"is_dead_public":false}},
+              {"player":{"id":7,"name":"贤松"},"role":null,"state":{"is_dead":false,"is_dead_public":false}},
+              {"player":{"id":8,"name":"八号"},"role":null,"state":{"is_dead":true,"is_dead_public":true,"dead_showing_name":"庸医"}}
+            ]}}
+            """))
+        };
+
+        var deductions = BotVisibleContextBuilder.BuildPublicFactionDeductions(timeline, 6);
+        Assert(deductions.Contains("公开叶子：5号", StringComparison.Ordinal), "public Leaf must be identified from the current snapshot");
+        Assert(deductions.Contains("5号", StringComparison.Ordinal) && deductions.Contains("默认目标优先级", StringComparison.Ordinal), "public Leaf must receive target priority");
+        Assert(deductions.Contains("高可信但非绝对", StringComparison.Ordinal) && deductions.Contains("合虫伪装", StringComparison.Ordinal), "faction deduction must remain cautious about hechong death displays");
+    }),
     ("preserves server-confirmed private knowledge outside sparse model memory", () =>
     {
         var timeline = new[]

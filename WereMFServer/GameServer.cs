@@ -1201,9 +1201,10 @@ internal sealed class GameRoom : IAsyncDisposable
         string memory;
         lock (_gate) memory = BuildBotMemoryTextLocked(player);
         var recent = BuildBotVisibleContext(player, 10, phaseStartTimelineSequence);
+        var deductions = BotVisibleContextBuilder.BuildPublicFactionDeductions(timeline, player.GameId);
         var context = string.IsNullOrWhiteSpace(memory)
-            ? $"{identity}\n\n{recent}"
-            : $"{identity}\n\n【稀疏记忆（模型主动记录，仅供历史参考）】\n{memory}\n\n{recent}";
+            ? $"{identity}\n\n{recent}\n\n{deductions}"
+            : $"{identity}\n\n【稀疏记忆（模型主动记录，仅供历史参考）】\n{memory}\n\n{recent}\n\n{deductions}";
         return Task.FromResult(context);
     }
 
