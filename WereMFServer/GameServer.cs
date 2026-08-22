@@ -1242,18 +1242,11 @@ internal sealed class GameRoom : IAsyncDisposable
         var decisions = await Task.WhenAll(bots.Select(async player =>
         {
             var remaining = phase.Remaining[player.GameId];
-            if (phase.Api == "request_reroll_player")
+            if (BotConversationPolicy.ShouldPreserveOpeningIdentity(phase.Api))
             {
-                var fallback = RandomNumberGenerator.GetInt32(2).ToString();
-                if (_llmBot is null) return new BotConcurrentDecision(player, fallback, remaining);
-                var rerollContext = await BuildBotVisibleContextAsync(player);
-                var prompt = BuildConcurrentPromptPayload(root, player.GameId, remaining);
-                var context = new BotDecisionContext(player.GameId, player.Name, phase.Api, prompt.GetRawText(), rerollContext, "只能是 1（重抽）或 0（保留）", BuildBotRuleFocus(player, phase.Api, root));
-                var candidate = await _llmBot.DecideAsync(context);
-                lock (_gate) AddBotMemoryLocked(player, candidate?.Memory);
-                var rerollAccepted = candidate?.Input is "0" or "1";
-                _llmBot.ReportValidation(rerollAccepted);
-                return new BotConcurrentDecision(player, rerollAccepted ? candidate!.Input! : fallback, remaining);
+                // Bots never spend the ordinary opening reroll. Leaf's first-identity
+                // reroll uses request_leaf_chara_reroll and remains a separate flow.
+                return new BotConcurrentDecision(player, "0", remaining);
             }
 
             var choices = Enumerable.Range(0, _players.Count + 1)
@@ -1398,9 +1391,17 @@ internal sealed class GameRoom : IAsyncDisposable
                 if (!phase.Responded.Contains(id) && RegisterMissedRequestLocked(player)) takeovers.Add(player);
                 if (phase.Api == "request_reroll_player")
                 {
-                    var yes = RandomNumberGenerator.GetInt32(2) == 1;
+                    var botPolicy = player.IsBot;
+                    var yes = !botPolicy && RandomNumberGenerator.GetInt32(2) == 1;
                     if (yes) phase.Queue.Enqueue((id, id.ToString()));
-                    privateNotices.Add((player, new { type = "request_timeout_resolved", api = phase.Api, value = yes ? "1" : "0", source = "random", message = yes ? "操作超时，系统随机选择了重抽身份" : "操作超时，系统随机选择了保留身份" }));
+                    privateNotices.Add((player, new
+                    {
+                        type = "request_timeout_resolved",
+                        api = phase.Api,
+                        value = yes ? "1" : "0",
+                        source = botPolicy ? "bot_policy" : "random",
+                        message = botPolicy ? "Bot 策略固定选择保留身份" : yes ? "操作超时，系统随机选择了重抽身份" : "操作超时，系统随机选择了保留身份"
+                    }));
                 }
                 phase.Remaining[id] = 0;
             }

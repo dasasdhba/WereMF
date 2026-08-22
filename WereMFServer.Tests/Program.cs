@@ -178,6 +178,11 @@ var tests = new (string Name, Action Body)[]
         }
         Assert(BotConversationPolicy.RandomSafeVoteChoice(2, ["2", "b"]) == "0", "no safe target must fall back to abstention rather than self-elimination");
     }),
+    ("preserves opening identity while keeping Leaf first-identity reroll separate", () =>
+    {
+        Assert(BotConversationPolicy.ShouldPreserveOpeningIdentity("request_reroll_player"), "ordinary opening identity reroll must be disabled for Bots");
+        Assert(!BotConversationPolicy.ShouldPreserveOpeningIdentity("request_leaf_chara_reroll"), "Leaf first-identity reroll must remain a separate allowed flow");
+    }),
     ("requires a clear vote-out risk before forcing defense", () =>
     {
         Assert(BotConversationPolicy.HasClearVoteOutRisk(1, 1, false), "a unique current leader is a current vote-out risk");

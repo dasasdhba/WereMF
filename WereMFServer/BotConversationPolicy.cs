@@ -14,6 +14,8 @@ internal sealed record BotSpeechCandidate<T>(T Bot, BotConversationDecision? Dec
 // This only classifies delivery policy. It never interprets game state or private role data.
 internal static class BotConversationPolicy
 {
+    public static bool ShouldPreserveOpeningIdentity(string api) => api == "request_reroll_player";
+
     public static string RandomSafeVoteChoice(int playerId, IReadOnlyCollection<string> choices)
     {
         var safeChoices = choices
